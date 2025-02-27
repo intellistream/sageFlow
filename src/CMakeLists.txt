@@ -1,0 +1,19 @@
+add_subdirectory(core)
+add_subdirectory(runtime)
+add_subdirectory(streaming)
+add_subdirectory(table)
+add_subdirectory(tools)
+add_subdirectory(vector_db)
+
+add_library(
+        candy
+        INTERFACE
+)
+target_link_libraries(
+        candy
+        INTERFACE
+        core
+        runtime
+        streaming
+        vdb
+)

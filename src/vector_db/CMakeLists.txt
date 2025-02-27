@@ -1,0 +1,12 @@
+add_subdirectory(indexing)
+add_lib(
+        vdb
+        query_executor.cpp
+        storage_engine.cpp
+        vector_database.cpp
+        vector_schema.cpp
+)
+target_link_libraries(
+        vdb
+        indexing
+)

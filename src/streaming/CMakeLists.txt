@@ -1,0 +1,5 @@
+add_lib(
+        streaming
+        data_stream.cpp
+        stream_environment.cpp
+)

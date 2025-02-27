@@ -1,0 +1,21 @@
+# ignore everything
+/*
+
+# except for the some source folders
+!/src
+!/include
+!/test
+!/docs
+!/data
+!/config
+!/cmake
+!/examples
+!/third-party
+
+# except for some files
+!/.gitignore
+!/CMakeLists.txt
+!/README.md
+!/LICENSE
+!/.clang-format
+!/.clang-tidy
