@@ -62,7 +62,7 @@ class ConfigMap {
 
   auto fromFile(const std::string &file_path) -> bool {
     // we support toml file only
-    if (file_path.ends_with(".toml")) {
+    if (!file_path.ends_with(".toml")) {
       return false;
     }
     if (!std::filesystem ::exists(file_path)) {

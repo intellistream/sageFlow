@@ -2,16 +2,16 @@
 #include <core/compute_engine/compute_engine.h>
 #include <core/utils/conf_map.h>
 #include <core/utils/monitoring.h>
-#include <runtime/operators/log_operator.h>
 #include <streaming/stream_environment.h>
-#include <vector_db/vector_database.h>
 
 #include <iostream>
 #include <stdexcept>
 #include <string>
 
-using namespace std; // no-lint
-using namespace candy; // no-lint
+#include "streaming/data_stream/file_stream.h"
+
+using namespace std;    // NOLINT
+using namespace candy;  // NOLINT
 
 const std::string CANDY_PATH = PROJECT_DIR;
 #define CONFIG_DIR "/config/"
@@ -29,10 +29,10 @@ void ValidateConfiguration(const ConfigMap &conf) {
   }
 }
 
-void SetupAndRunPipeline(const std::string &configFilePath) {
+void SetupAndRunPipeline(const std::string &config_file_path) {
   StreamEnvironment env;
 
-  const auto conf = env.loadConfiguration(configFilePath);
+  const auto conf = env.loadConfiguration(config_file_path);
 
   try {
     ValidateConfiguration(conf);
@@ -44,27 +44,21 @@ void SetupAndRunPipeline(const std::string &configFilePath) {
   monitor.StartProfiling();
 
   try {
-    auto source_stream = env.readSource("VectorSource", conf.getString("inputPath"));
-
-    auto t =
-        source_stream
-            ->filter([](const std::shared_ptr<VectorRecord> &record) -> bool {
-              std::cout << "Filter: " << record->id_ << std::endl;
-              return record && record->data_ && !record->data_->empty() &&
-                     (*record->data_)[0] > 0.5;  // Filter by first value
-            })
-            ->map(
-              [](const std::shared_ptr<VectorRecord> &record) {
-              std::cout << "Map: " << record->id_ << std::endl;
-              return ComputeEngine::normalizeVector(record);
-            })
-            ->join(
-              env.readSource("OtherSource", conf.getString("inputPath")),
-                   [&](const std::shared_ptr<VectorRecord> &left, const std::shared_ptr<VectorRecord> &right) {
-                     return ComputeEngine::calculateSimilarity(left, right) > conf.getDouble("similarityThreshold");
-                  }
-                  );
-    t->processStream();
+    const auto plan = make_unique<LogicalPlan>("SourceStream");
+    plan->filter([](std::unique_ptr<VectorRecord> &record) -> bool {
+          return record && record->data_ && !record->data_->empty() &&
+                 (*record->data_)[0] > 0.5;  // Filter by first value
+        })
+        ->map([](std::unique_ptr<VectorRecord> &record) { record = ComputeEngine::normalizeVector(record); })
+        ->join(make_unique<LogicalPlan>("JoinStream"),
+               [&](std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right) -> bool {
+                 return ComputeEngine::calculateSimilarity(left, right) > conf.getDouble("similarityThreshold");
+               })
+        ->writeSink([](const std::unique_ptr<VectorRecord> &record) { std::cout << "Sink: " << record->id_ << '\n'; });
+    auto data_stream = make_unique<FileStream>("FileStream", conf.getString("inputPath"));
+    plan->setDataStream(std::move(data_stream));
+    env.Register(plan);
+    env.execute();
   } catch (const std::exception &e) {
     throw;
   }
@@ -74,7 +68,7 @@ void SetupAndRunPipeline(const std::string &configFilePath) {
 }  // namespace candy
 
 auto main(int argc, char *argv[]) -> int {
-  const std::string default_config_file = CANDY_PATH + CONFIG_DIR + "default_config.txt";
+  const std::string default_config_file = CANDY_PATH + CONFIG_DIR + "default_config.toml";
 
   string config_file_path;
   if (argc < 2) {

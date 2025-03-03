@@ -1,39 +1,30 @@
-#include <streaming/data_stream.h>
+#include <streaming/logical_plan.h>
 #include <streaming/stream_environment.h>
 
 #include <memory>
 #include <stdexcept>
 #include <string>
-#include <vector>
 
 namespace candy {
-auto StreamEnvironment::loadConfiguration(const std::string &filePath) -> ConfigMap {
+std::unique_ptr<Planner> planner = std::make_unique<Planner>();
+
+auto StreamEnvironment::loadConfiguration(const std::string &file_path) -> ConfigMap {
   ConfigMap config;
-  if (!config.fromFile(filePath)) {
-    throw std::runtime_error("Failed to load configuration from: " + filePath);
+  if (!config.fromFile(file_path)) {
+    throw std::runtime_error("Failed to load configuration from: " + file_path);
   }
   return config;
 }
 
-auto StreamEnvironment::readSource(const std::string &sourceType,
-                                   const std::string &path) -> std::shared_ptr<DataStream> {
-  auto stream = std::make_shared<DataStream>(sourceType);
-  stream->addRecord(std::make_shared<VectorRecord>("1", VectorData{1.0, 2.0, 3.0}, 0));
-  return stream;
+auto StreamEnvironment::Register(const std::unique_ptr<LogicalPlan> &source) -> void {
+  auto task = (*planner)(source);
+  tasks_.emplace_back(std::move(task));
 }
 
-void StreamEnvironment::execute(const std::string &pipelineName) {
-  if (operators_.empty()) {
-    throw std::runtime_error("Pipeline execution failed: No operators defined.");
-  }
-
-  for (const auto &op : operators_) {
-    op->open();
-    op->process(nullptr);  // Replace with actual data in the pipeline flow
-    op->close();
+auto StreamEnvironment::execute() -> void {
+  for (const auto &task : tasks_) {
+    task->begin();
   }
 }
-
-void StreamEnvironment::addOperator(const std::shared_ptr<BaseOperator> &op) { operators_.emplace_back(op); }
 
 }  // namespace candy

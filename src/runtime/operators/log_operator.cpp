@@ -7,7 +7,7 @@ void LogOperator::open() {}
 
 void LogOperator::close() {}
 
-void LogOperator::process(const std::shared_ptr<VectorRecord> &record) {
+void LogOperator::process(std::unique_ptr<VectorRecord> &record) {
   if (!record || !record->data_) {
   }
   std::cout << "LogOperator: " << record->id_ << std::endl;

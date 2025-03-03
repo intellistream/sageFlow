@@ -3,3 +3,7 @@ add_lib(
         data_stream.cpp
         stream_environment.cpp
 )
+target_link_libraries(
+        streaming
+        runtime
+)

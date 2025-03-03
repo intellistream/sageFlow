@@ -1,9 +1,8 @@
 // ComputeEngine.h
 
-
+#include <core/common/data_types.h>
 
 #include <algorithm>
-#include <core/common/data_types.h>
 #include <cmath>
 #include <numeric>
 #include <stdexcept>
@@ -11,33 +10,26 @@
 namespace candy {
 
 class ComputeEngine {
-public:
+ public:
   // Calculate cosine similarity between two VectorRecords
-  static double
-  calculateSimilarity(const std::shared_ptr<VectorRecord> &record1,
-                      const std::shared_ptr<VectorRecord> &record2);
+  static auto calculateSimilarity(std::unique_ptr<VectorRecord> &record1,
+                                  std::unique_ptr<VectorRecord> &record2) -> double;
 
   // Compute Euclidean distance between two VectorRecords
-  static double
-  computeEuclideanDistance(const std::shared_ptr<VectorRecord> &record1,
-                           const std::shared_ptr<VectorRecord> &record2);
+  static auto computeEuclideanDistance(std::unique_ptr<VectorRecord> &record1,
+                                       std::unique_ptr<VectorRecord> &record2) -> double;
 
   // Normalize the data in a VectorRecord
-  static std::shared_ptr<VectorRecord>
-  normalizeVector(const std::shared_ptr<VectorRecord> &record);
+  static auto normalizeVector(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord>;
 
   // Find top-K VectorRecords based on a scoring function
-  static std::vector<std::shared_ptr<VectorRecord>>
-  findTopK(const std::vector<std::shared_ptr<VectorRecord>> &records, size_t k,
-      const std::function<double(const std::shared_ptr<VectorRecord> &)> &scorer);
+  static auto findTopK(std::vector<std::unique_ptr<VectorRecord>> &records, size_t k,
+                       const std::function<double(std::unique_ptr<VectorRecord>&)> &scorer) -> std::vector<std::unique_ptr<VectorRecord>>;
 
   // Validate if two VectorRecords have data of the same size
-  static void validateEqualSize(const std::shared_ptr<VectorRecord> &record1,
-                                const std::shared_ptr<VectorRecord> &record2);
+  static void validateEqualSize(std::unique_ptr<VectorRecord> &record1, std::unique_ptr<VectorRecord> &record2);
 
-private:
-  ComputeEngine() = delete; // Prevent instantiation
+  ComputeEngine() = delete;  // Prevent instantiation
 };
 
-} // namespace candy
-
+}  // namespace candy

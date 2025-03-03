@@ -1,73 +1,58 @@
-#include <streaming/data_stream.h>
+#include <streaming/data_stream/data_stream.h>
+#include <streaming/function/filter.h>
+#include <streaming/function/join.h>
+#include <streaming/function/map.h>
+#include <streaming/function/sink.h>
 
-#include <list>
+#include <memory>
 
 namespace candy {
 
-auto DataStream::filter(const FilterFunction &filterFunc) -> DataStream * {
-  transformations_.emplace_back([this, filterFunc] {
-    auto it = records_.begin();
-    while (it != records_.end()) {
-      if (filterFunc(*it)) {
-        ++it;
-      } else {
-        it = records_.erase(it);
-      }
-    }
-  });
+auto LogicalPlan::filter(FilterFunc &filter_func) -> LogicalPlan * {
+  transformations_.emplace_back(std::make_unique<FilterFunction>(name_ + "_filter", filter_func));
   return this;
 }
 
-auto DataStream::map(const MapFunction &mapFunc) -> DataStream * {
-  transformations_.emplace_back([this, mapFunc] {
-    for (auto &record : records_) {
-      auto new_record = mapFunc(record);
-      std::swap(record, new_record);
-    }
-  });
+auto LogicalPlan::filter(FilterFunc filter_func) -> LogicalPlan * {
+  transformations_.emplace_back(std::make_unique<FilterFunction>(name_ + "_filter", filter_func));
   return this;
 }
 
-auto DataStream::join(const std::shared_ptr<DataStream> &otherStream, const JoinFunction &joinFunc) -> DataStream * {
-  
-  transformations_.emplace_back([this, otherStream, joinFunc] {
-    std::list<std::shared_ptr<VectorRecord>> new_records;
-    auto l_it = records_.begin();
-    while (l_it != records_.end()) {
-      const auto &left_record = *l_it;
-      const auto &other_records = otherStream->records_;
-      auto r_it = other_records.begin();
-      while (r_it != other_records.end()) {
-        const auto &right_record = *r_it;
-        if (joinFunc(left_record, right_record)) {
-          new_records.push_back(left_record);
-        }
-        ++r_it;
-      }
-      ++l_it;
-    }
-    records_ = new_records;
-  });
+auto LogicalPlan::map(MapFunc &map_func) -> LogicalPlan * {
+  transformations_.emplace_back(std::make_unique<MapFunction>(name_ + "_map", map_func));
   return this;
 }
 
-void DataStream::writeSink(const std::string &sinkName, const SinkFunction &sinkFunc) {
-  transformations_.emplace_back([this, sinkFunc] {
-    for (const auto &record : records_) {
-      sinkFunc(record);
-    }
-  });
+auto LogicalPlan::map(MapFunc map_func) -> LogicalPlan * {
+  transformations_.emplace_back(std::make_unique<MapFunction>(name_ + "_map", map_func));
+  return this;
 }
 
-void DataStream::addRecord(const std::shared_ptr<VectorRecord> &record) { records_.push_back(record); }
-
-void DataStream::processStream() { executeTransformations(); }
-
-void DataStream::executeTransformations() {
-  for (const auto &transformation : transformations_) {
-    transformation();
-  }
-  transformations_.clear();
+auto LogicalPlan::join(std::unique_ptr<LogicalPlan> &other_plan, JoinFunc &join_func) -> LogicalPlan * {
+  transformations_.emplace_back(std::make_unique<JoinFunction>(name_ + "_join", join_func, other_plan));
+  return this;
 }
 
+auto LogicalPlan::join(std::unique_ptr<LogicalPlan> other_plan, JoinFunc join_func) -> LogicalPlan * {
+  transformations_.emplace_back(std::make_unique<JoinFunction>(name_ + "_join", join_func, other_plan));
+  return this;
+}
+
+auto LogicalPlan::writeSink(SinkFunc &sink_func) -> LogicalPlan * {
+  transformations_.emplace_back(std::make_unique<SinkFunction>(name_ + "_sink", sink_func));
+  return this;
+}
+
+auto LogicalPlan::writeSink(SinkFunc sink_func) -> LogicalPlan * {
+  transformations_.emplace_back(std::make_unique<SinkFunction>(name_ + "_sink", sink_func));
+  return this;
+}
+
+auto LogicalPlan::setDataStream(std::unique_ptr<DataStream> &data_stream) -> void {
+  data_stream_ = std::move(data_stream);
+}
+
+auto LogicalPlan::setDataStream(std::unique_ptr<DataStream> data_stream) -> void {
+  data_stream_ = std::move(data_stream);
+}
 }  // namespace candy

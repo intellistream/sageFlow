@@ -1,16 +1,19 @@
 #include <core/compute_engine/compute_engine.h>
 
+#include <memory>
+
+#include "core/common/data_types.h"
+
 namespace candy {
 
-void ComputeEngine::validateEqualSize(const std::shared_ptr<VectorRecord> &record1,
-                                      const std::shared_ptr<VectorRecord> &record2) {
+void ComputeEngine::validateEqualSize(std::unique_ptr<VectorRecord> &record1, std::unique_ptr<VectorRecord> &record2) {
   if (record1->data_->size() != record2->data_->size()) {
     throw std::invalid_argument("VectorRecords must have data of the same size.");
   }
 }
 
-auto ComputeEngine::calculateSimilarity(const std::shared_ptr<VectorRecord> &record1,
-                                        const std::shared_ptr<VectorRecord> &record2) -> double {
+auto ComputeEngine::calculateSimilarity(std::unique_ptr<VectorRecord> &record1,
+                                        std::unique_ptr<VectorRecord> &record2) -> double {
   validateEqualSize(record1, record2);
 
   const auto &vec1 = *record1->data_;
@@ -27,8 +30,8 @@ auto ComputeEngine::calculateSimilarity(const std::shared_ptr<VectorRecord> &rec
   return dot_product / (magnitude1 * magnitude2);
 }
 
-auto ComputeEngine::computeEuclideanDistance(const std::shared_ptr<VectorRecord> &record1,
-                                             const std::shared_ptr<VectorRecord> &record2) -> double {
+auto ComputeEngine::computeEuclideanDistance(std::unique_ptr<VectorRecord> &record1,
+                                             std::unique_ptr<VectorRecord> &record2) -> double {
   validateEqualSize(record1, record2);
 
   const auto &vec1 = *record1->data_;
@@ -43,7 +46,7 @@ auto ComputeEngine::computeEuclideanDistance(const std::shared_ptr<VectorRecord>
   return std::sqrt(sum_of_squares);
 }
 
-auto ComputeEngine::normalizeVector(const std::shared_ptr<VectorRecord> &record) -> std::shared_ptr<VectorRecord> {
+auto ComputeEngine::normalizeVector(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> {
   const auto &vec = *record->data_;
   double magnitude = std::sqrt(std::inner_product(vec.begin(), vec.end(), vec.begin(), 0.0));
 
@@ -54,29 +57,29 @@ auto ComputeEngine::normalizeVector(const std::shared_ptr<VectorRecord> &record)
   VectorData normalized(vec.size());
   std::ranges::transform(vec, normalized.begin(), [&](const double val) { return val / magnitude; });
 
-  return std::make_shared<VectorRecord>(record->id_, std::move(normalized), record->timestamp_);
+  return std::make_unique<VectorRecord>(record->id_, std::move(normalized), record->timestamp_);
 }
 
-auto ComputeEngine::findTopK(const std::vector<std::shared_ptr<VectorRecord>> &records, const size_t k,
-                             const std::function<double(const std::shared_ptr<VectorRecord> &)> &scorer)
-    -> std::vector<std::shared_ptr<VectorRecord>> {
+auto ComputeEngine::findTopK(std::vector<std::unique_ptr<VectorRecord>> &records, const size_t k,
+                             const std::function<double(std::unique_ptr<VectorRecord> &)> &scorer)
+    -> std::vector<std::unique_ptr<VectorRecord>> {
   if (k > records.size()) {
     throw std::invalid_argument("k cannot be greater than the number of records.");
   }
 
-  std::vector<std::pair<double, std::shared_ptr<VectorRecord>>> scored_records;
+  std::vector<std::pair<double, std::unique_ptr<VectorRecord>>> scored_records;
   scored_records.reserve(records.size());
 
-  for (const auto &record : records) {
-    scored_records.emplace_back(scorer(record), record);
+  for (auto &record : records) {
+    scored_records.emplace_back(scorer(record), std::move(record));
   }
 
   std::ranges::nth_element(scored_records, scored_records.begin() + k,
                            [](const auto &a, const auto &b) { return a.first > b.first; });
 
-  std::vector<std::shared_ptr<VectorRecord>> top_k(k);
-  std::transform(scored_records.begin(), scored_records.begin() + k, top_k.begin(),
-                 [](const auto &pair) { return pair.second; });
+  std::vector<std::unique_ptr<VectorRecord>> top_k(k);
+  std::ranges::transform(scored_records.begin(), scored_records.begin() + k, top_k.begin(),
+                         [](auto &pair) { return std::move(pair.second); });
 
   return top_k;
 }
