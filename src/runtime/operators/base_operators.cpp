@@ -4,10 +4,10 @@
 
 namespace candy {
 
-bool Operator::process(std::unique_ptr<VectorRecord>& record) {
+auto Operator::process(std::unique_ptr<VectorRecord>& record) -> bool {
   // Default implementation: Simply emit the record to the next operator
   std::cout << "[BaseOperator] Processing record ID: " << record->id_ << '\n';
-  emit(record);
+  emit(0,record);
   return true;
 }
 

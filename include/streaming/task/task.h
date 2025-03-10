@@ -26,7 +26,6 @@ class Task {
     while (data_stream_->Next(record)) {
       operator_->enqueue(record);
     }
-    operator_->process_queue();
   }
 
  private:

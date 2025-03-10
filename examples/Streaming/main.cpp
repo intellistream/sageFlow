@@ -51,21 +51,24 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     const auto plan = make_unique<LogicalPlan>("SourceStream");
     plan->filter(std::make_unique<FilterFunction>("filter1",
                                                   [](std::unique_ptr<VectorRecord> &record) -> bool {
-                                                    return record && record->data_ && !record->data_->empty() &&
-                                                           (*record->data_)[0] > 0.5;  // Filter by first value
+                                                    auto rec = record.get();
+                                                    return (rec != nullptr) && rec->data_ && !rec->data_->empty() &&
+                                                           (*rec->data_)[0] > 0.5;  // Filter by first value
                                                     // multi branch
                                                   }))
         ->map(std::make_unique<MapFunction>(
             "map1", [](std::unique_ptr<VectorRecord> &record) { record = ComputeEngine::normalizeVector(record); }))
-        ->join(make_unique<LogicalPlan>("JoinStream"),
-               std::make_unique<JoinFunction>(
-                   "join1",
-                   [conf](std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right) -> bool {
-                     return ComputeEngine::calculateSimilarity(left, right) > conf.getDouble("similarityThreshold");
-                     // and record->id_ != right->id_;
-                   }))
-        ->writeSink(std::make_unique<SinkFunction>("sink1", [](const std::unique_ptr<VectorRecord> &record) {
-          std::cout << "Sink: " << record->id_ << '\n';
+        // ->join(make_unique<LogicalPlan>("JoinStream"),
+        //        std::make_unique<JoinFunction>(
+        //            "join1",
+        //            [conf](std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right) -> bool {
+        //              return ComputeEngine::calculateSimilarity(left, right) > conf.getDouble("similarityThreshold");
+        //              // and record->id_ != right->id_;
+        //            }))
+        ->writeSink(std::make_unique<SinkFunction>(
+            "sink1", [](const std::unique_ptr<VectorRecord> &record) { std::cout << "Sink1: " << record->id_ << '\n'; }))
+        ->writeSink(std::make_unique<SinkFunction>("sink2", [](const std::unique_ptr<VectorRecord> &record) {
+          std::cout << "Sink2: " << (*record->data_)[0] << '\n';
         }));
 
     auto data_stream = make_unique<FileStream>("FileStream", conf.getString("inputPath"));
