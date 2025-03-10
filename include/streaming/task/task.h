@@ -1,5 +1,5 @@
 #pragma once
-#include <runtime/operators/base_operators.h>
+#include <runtime/operator/base_operator.h>
 
 #include <memory>
 

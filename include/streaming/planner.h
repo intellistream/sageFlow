@@ -1,8 +1,14 @@
 #pragma once
-#include <runtime/operators/log_operator.h>
+#include <runtime/operator/log_operator.h>
 
-#include "function/join.h"
+#include "runtime/function/join_function.h"
+#include "runtime/function/function.h"
+#include "runtime/function/map_function.h"
+#include "runtime/function/sink_function.h"
+
+#include "streaming/logical_plan.h"
 #include "streaming/task/task.h"
+
 
 namespace candy {
 
@@ -15,13 +21,13 @@ class Planner {
     std::unique_ptr<Operator> head = nullptr;
     Operator* op = nullptr;
     task->setDataStream(plan->GetDataStream());
-    for (const auto& transformations = plan->GetTransformations(); auto& transformation : transformations) {
+    for (const auto& functions = plan->GetFunctions(); auto& function : functions) {
       std::unique_ptr<Operator> next_op = nullptr;
-      if (transformation->getType() == FunctionType::JOIN) {
-        const auto join_function = dynamic_cast<JoinFunction*>(transformation.get());
+      if (function->getType() == FunctionType::Join) {
+        const auto join_function = dynamic_cast<JoinFunction*>(function.get());
         auto other_plan = std::move(join_function->GetOtherPlan());
         auto other_task = (*this)(other_plan);
-        // TODO: Implement join operator
+        // TODO(pygone): Implement join operator
         next_op = std::make_unique<LogOperator>();
       } else {
         next_op = std::make_unique<LogOperator>();

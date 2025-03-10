@@ -2,7 +2,7 @@
 
 
 #include <core/common/data_types.h>
-#include <runtime/operators/base_operators.h>
+#include <runtime/operator/base_operator.h>
 #include <string>
 
 namespace candy {
@@ -12,7 +12,7 @@ class LogOperator final : public Operator {
 public:
   void open() override;  // Open the operator
   void close() override; // Close the operator
-  void process(std::unique_ptr<VectorRecord> &record) override;
+  auto process(std::unique_ptr<VectorRecord> &record) -> bool override;
 };
 
 } // namespace candy

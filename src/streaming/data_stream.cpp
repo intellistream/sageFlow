@@ -1,50 +1,57 @@
-#include <streaming/data_stream/data_stream.h>
-#include <streaming/function/filter.h>
-#include <streaming/function/join.h>
-#include <streaming/function/map.h>
-#include <streaming/function/sink.h>
+#include "streaming/data_stream/data_stream.h"
+
+#include <streaming/logical_plan.h>
 
 #include <memory>
 
+#include "runtime/function/filter_function.h"
+#include "runtime/function/join_function.h"
+#include "runtime/function/map_function.h"
+#include "runtime/function/sink_function.h"
+
 namespace candy {
 
-auto LogicalPlan::filter(FilterFunc &filter_func) -> LogicalPlan * {
-  transformations_.emplace_back(std::make_unique<FilterFunction>(name_ + "_filter", filter_func));
+auto LogicalPlan::filter(std::unique_ptr<FilterFunction> &filter_func) -> LogicalPlan * {
+  functions_.emplace_back(std::move(filter_func));
   return this;
 }
 
-auto LogicalPlan::filter(FilterFunc filter_func) -> LogicalPlan * {
-  transformations_.emplace_back(std::make_unique<FilterFunction>(name_ + "_filter", filter_func));
+auto LogicalPlan::filter(std::unique_ptr<FilterFunction> filter_func) -> LogicalPlan * {
+  functions_.emplace_back(std::move(filter_func));
   return this;
 }
 
-auto LogicalPlan::map(MapFunc &map_func) -> LogicalPlan * {
-  transformations_.emplace_back(std::make_unique<MapFunction>(name_ + "_map", map_func));
+auto LogicalPlan::map(std::unique_ptr<MapFunction> &map_func) -> LogicalPlan * {
+  functions_.emplace_back(std::move(map_func));
   return this;
 }
 
-auto LogicalPlan::map(MapFunc map_func) -> LogicalPlan * {
-  transformations_.emplace_back(std::make_unique<MapFunction>(name_ + "_map", map_func));
+auto LogicalPlan::map(std::unique_ptr<MapFunction> map_func) -> LogicalPlan * {
+  functions_.emplace_back(std::move(map_func));
   return this;
 }
 
-auto LogicalPlan::join(std::unique_ptr<LogicalPlan> &other_plan, JoinFunc &join_func) -> LogicalPlan * {
-  transformations_.emplace_back(std::make_unique<JoinFunction>(name_ + "_join", join_func, other_plan));
+auto LogicalPlan::join(std::unique_ptr<LogicalPlan> &other_plan,
+                       std::unique_ptr<JoinFunction> &join_func) -> LogicalPlan * {
+  join_func->setOtherPlan(std ::move(other_plan));
+  functions_.emplace_back(std::move(join_func));
   return this;
 }
 
-auto LogicalPlan::join(std::unique_ptr<LogicalPlan> other_plan, JoinFunc join_func) -> LogicalPlan * {
-  transformations_.emplace_back(std::make_unique<JoinFunction>(name_ + "_join", join_func, other_plan));
+auto LogicalPlan::join(std::unique_ptr<LogicalPlan> other_plan,
+                       std::unique_ptr<JoinFunction> join_func) -> LogicalPlan * {
+  join_func->setOtherPlan(std::move(other_plan));
+  functions_.emplace_back(std::move(join_func));
   return this;
 }
 
-auto LogicalPlan::writeSink(SinkFunc &sink_func) -> LogicalPlan * {
-  transformations_.emplace_back(std::make_unique<SinkFunction>(name_ + "_sink", sink_func));
+auto LogicalPlan::writeSink(std::unique_ptr<SinkFunction> &sink_func) -> LogicalPlan * {
+  functions_.emplace_back(std::move(sink_func));
   return this;
 }
 
-auto LogicalPlan::writeSink(SinkFunc sink_func) -> LogicalPlan * {
-  transformations_.emplace_back(std::make_unique<SinkFunction>(name_ + "_sink", sink_func));
+auto LogicalPlan::writeSink(std::unique_ptr<SinkFunction> sink_func) -> LogicalPlan * {
+  functions_.emplace_back(std::move(sink_func));
   return this;
 }
 
