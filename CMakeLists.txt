@@ -8,6 +8,10 @@ include(cmake/macros.cmake)
 include(cmake/gperftools.cmake)
 include(cmake/enableTest.cmake)
 
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+
 set(
         CMAKE_CXX_FLAGS
         "-Wall -Werror=return-type -Wno-error=unused-variable -Wno-error=unused-parameter"
