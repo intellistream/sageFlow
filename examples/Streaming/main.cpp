@@ -58,13 +58,13 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
                                                   }))
         ->map(std::make_unique<MapFunction>(
             "map1", [](std::unique_ptr<VectorRecord> &record) { record = ComputeEngine::normalizeVector(record); }))
-        // ->join(make_unique<LogicalPlan>("JoinStream"),
-        //        std::make_unique<JoinFunction>(
-        //            "join1",
-        //            [conf](std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right) -> bool {
-        //              return ComputeEngine::calculateSimilarity(left, right) > conf.getDouble("similarityThreshold");
-        //              // and record->id_ != right->id_;
-        //            }))
+        ->join(make_unique<LogicalPlan>("JoinStream"),
+               std::make_unique<JoinFunction>(
+                   "join1",
+                   [conf](std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right) -> bool {
+                     return ComputeEngine::calculateSimilarity(left, right) > conf.getDouble("similarityThreshold");
+                     // and record->id_ != right->id_;
+                   }))
         ->writeSink(std::make_unique<SinkFunction>(
             "sink1", [](const std::unique_ptr<VectorRecord> &record) { std::cout << "Sink1: " << record->id_ << '\n'; }))
         ->writeSink(std::make_unique<SinkFunction>("sink2", [](const std::unique_ptr<VectorRecord> &record) {

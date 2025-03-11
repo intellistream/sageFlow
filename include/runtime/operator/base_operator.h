@@ -56,7 +56,7 @@ class Operator {
 
   // Emit processed data to the next operator in the pipeline
   virtual void emit(int id, std::unique_ptr<VectorRecord> &record) {
-    if (id < next_operators_.size()) {
+    if (id < (int) next_operators_.size()) {
       next_operators_[id]->enqueue(record);
     }
   }

@@ -24,11 +24,12 @@ class Planner {
     for (auto& functions = plan->GetFunctions(); auto& function : functions) {
       std::unique_ptr<Operator> next_op = nullptr;
       if (function->getType() == FunctionType::Join) {
-        const auto join_function = dynamic_cast<JoinFunction*>(function.get());
+        const auto join_function = dynamic_cast<JoinFunction*>(function.get()); 
         auto other_plan = std::move(join_function->GetOtherPlan());
         auto other_task = (*this)(other_plan);
         // TODO(pygone): Implement join operator
-        next_op = std::make_unique<LogOperator>();
+        next_op = std::make_unique<JoinOperator>("join", * join_function, other_task);
+        //next_op = std::make_unique<LogOperator>();
       } else {
         if (function->getType() == FunctionType::Filter) {
           next_op = std::make_unique<FilterOperator>("filter", function);
