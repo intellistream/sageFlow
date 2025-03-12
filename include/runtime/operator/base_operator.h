@@ -2,102 +2,61 @@
 #pragma once
 
 #include <core/common/data_types.h>  // Include VectorRecord definition
+#include <runtime/function/function.h>
 
-#include <condition_variable>
-#include <iostream>
 #include <memory>
-#include <mutex>
-#include <queue>
 #include <thread>
 #include <vector>
 
 namespace candy {
-enum class OperatorType { FILTER, MAP, JOIN, SINK };
+enum class OperatorType { NONE, OUTPUT, FILTER, MAP, JOIN, SINK };
 
 // Base class for all operators
 class Operator {
- protected:
-  std::vector<std::unique_ptr<Operator>> next_operators_;  // List of next operators in the pipeline
-  std::queue<std::unique_ptr<VectorRecord>> input_queue_;  // Queue of VectorRecords as input
-  std::mutex queue_mutex_;                                 // Mutex for thread-safe queue operations
-  std::condition_variable queue_cv_;                       // Condition variable for queue operations
-  OperatorType type_ = OperatorType::FILTER;
-  std::string name_;
-  std::vector<std::thread> threads_;
-  bool running_ = true;
-
  public:
-  Operator() = default;
+  virtual ~Operator() = default;
 
-  Operator(OperatorType type, std::string name) : type_(type), name_(std::move(name)) {
-    threads_.emplace_back([this] { process_queue(); });
-  }
+  explicit Operator(const OperatorType type) : type_(type) {}
 
-  virtual ~Operator() {
-    running_ = false;
-    queue_cv_.notify_all();
-    for (auto &thread : threads_) {
-      thread.join();
+  auto getType() const -> OperatorType { return type_; }
+
+  virtual auto open() -> void {
+    if (is_open_) {
+      return;
+    }
+    is_open_ = true;
+    for (const auto& child : children_) {
+      child->open();
     }
   }
 
-  // Open the operator (e.g., initialization logic)
-  virtual void open() {
-    // Default implementation: No-op
+  virtual auto close() -> void {}
+
+  virtual auto process(std::unique_ptr<VectorRecord>& record, int slot = 0) -> bool {
+    emit(0, record);
+    return true;
   }
 
-  // Close the operator (e.g., cleanup logic)
-  virtual void close() {
-    // Default implementation: No-op
-  }
-
-  // Process a single VectorRecord
-  virtual auto process(std::unique_ptr<VectorRecord> &record) -> bool;
-
-  // Emit processed data to the next operator in the pipeline
-  virtual void emit(int id, std::unique_ptr<VectorRecord> &record) {
-    if (id < next_operators_.size()) {
-      next_operators_[id]->enqueue(record);
+  virtual void emit(const int id, std::unique_ptr<VectorRecord>& record) const {
+    if (children_.empty()) {
+      return;
     }
+    int slot = child2slot_[id];
+    children_[id]->process(record, slot);
   }
 
-  // Set the next operator in the pipeline
-  auto set_next_operator(std::unique_ptr<Operator> &next, int &id) -> Operator * {
-    next_operators_.push_back(std::move(next));
-    id = next_operators_.size() - 1;
-    return next_operators_[id].get();
+  auto addChild(std::shared_ptr<Operator> child, const int slot = 0) -> int {
+    children_.push_back(std::move(child));
+    const int index = children_.size() - 1;
+    child2slot_.push_back(slot);
+    return index;
   }
 
-  // Add data to the input queue
-  void enqueue(std::unique_ptr<VectorRecord> &data) {
-    std::unique_lock lock(queue_mutex_);
-    input_queue_.push(std::move(data));
-    queue_cv_.notify_all();
-  }
-
-  // Pull data from the input queue and process it
-  virtual void process_queue() {
-    while (true) {
-      std::unique_ptr<VectorRecord> data = nullptr;
-      {
-        std::unique_lock lock(queue_mutex_);
-        if (!input_queue_.empty()) {
-          data = std::move(input_queue_.front());
-          input_queue_.pop();
-        } else {
-          if (!running_) {
-            break;
-          }
-        }
-        if (!data) {
-          queue_cv_.wait(lock);
-        }
-      }
-      if (data) {
-        process(data);  // Pass unique_ptr directly
-      }
-    }
-  }
+  std::vector<int> child2slot_;
+  std::unique_ptr<Function> function_ = nullptr;
+  std::vector<std::shared_ptr<Operator>> children_;
+  OperatorType type_ = OperatorType::NONE;
+  bool is_open_ = false;
 };
 
 }  // namespace candy

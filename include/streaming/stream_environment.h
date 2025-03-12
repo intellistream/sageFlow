@@ -7,7 +7,6 @@
 #include <string>
 #include <vector>
 
-#include "logical_plan.h"
 #include "planner.h"
 
 namespace candy {
@@ -19,14 +18,15 @@ class StreamEnvironment {
   explicit StreamEnvironment() = default;
 
   // Load configuration from a file
-  static auto loadConfiguration(const std::string &file_path) -> candy::ConfigMap;
-
-  auto Register(const std::unique_ptr<LogicalPlan> &source) -> void;
+  static auto loadConfiguration(const std::string &file_path) -> ConfigMap;
 
   auto execute() -> void;
 
+  auto addStream(std::shared_ptr<Stream> stream) -> void;
+
  private:
-  std::vector<std::unique_ptr<Task>> tasks_;
+  std::vector<std::shared_ptr<Stream>> streams_;
+  std::vector<std::shared_ptr<Operator>> operators_;
 };
 
 }  // namespace candy

@@ -9,10 +9,9 @@
 #include <string>
 
 #include "runtime/function/filter_function.h"
-#include "runtime/function/join_function.h"
 #include "runtime/function/map_function.h"
 #include "runtime/function/sink_function.h"
-#include "streaming/data_stream/file_stream.h"
+#include "streaming/data_stream_source/file_stream_source.h"
 
 using namespace std;    // NOLINT
 using namespace candy;  // NOLINT
@@ -36,7 +35,7 @@ void ValidateConfiguration(const ConfigMap &conf) {
 void SetupAndRunPipeline(const std::string &config_file_path) {
   StreamEnvironment env;
 
-  const auto conf = env.loadConfiguration(config_file_path);
+  const auto conf = candy::StreamEnvironment::loadConfiguration(config_file_path);
 
   try {
     ValidateConfiguration(conf);
@@ -48,32 +47,30 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   monitor.StartProfiling();
 
   try {
-    const auto plan = make_unique<LogicalPlan>("SourceStream");
-    plan->filter(std::make_unique<FilterFunction>("filter1",
+    auto file_stream = make_shared<FileStreamSource>("FileStream", conf.getString("inputPath"));
+    auto join_stream = make_shared<FileStreamSource>("JoinStream", conf.getString("inputPath"));
+    file_stream
+        ->filter(std::make_unique<FilterFunction>("filter1",
                                                   [](std::unique_ptr<VectorRecord> &record) -> bool {
-                                                    auto rec = record.get();
+                                                    const auto rec = record.get();
                                                     return (rec != nullptr) && rec->data_ && !rec->data_->empty() &&
                                                            (*rec->data_)[0] > 0.5;  // Filter by first value
-                                                    // multi branch
+                                                                                    // multi-branch
                                                   }))
         ->map(std::make_unique<MapFunction>(
             "map1", [](std::unique_ptr<VectorRecord> &record) { record = ComputeEngine::normalizeVector(record); }))
-        // ->join(make_unique<LogicalPlan>("JoinStream"),
-        //        std::make_unique<JoinFunction>(
-        //            "join1",
-        //            [conf](std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right) -> bool {
-        //              return ComputeEngine::calculateSimilarity(left, right) > conf.getDouble("similarityThreshold");
-        //              // and record->id_ != right->id_;
-        //            }))
+        ->join(join_stream, std::make_unique<JoinFunction>(
+                                "join1", [](std::unique_ptr<VectorRecord> &l,
+                                            std::unique_ptr<VectorRecord> &r) { return l->id_ == r->id_; })
+
+                   )
         ->writeSink(std::make_unique<SinkFunction>(
-            "sink1", [](const std::unique_ptr<VectorRecord> &record) { std::cout << "Sink1: " << record->id_ << '\n'; }))
+            "sink1",
+            [](const std::unique_ptr<VectorRecord> &record) { std::cout << "Sink1: " << record->id_ << '\n'; }))
         ->writeSink(std::make_unique<SinkFunction>("sink2", [](const std::unique_ptr<VectorRecord> &record) {
           std::cout << "Sink2: " << (*record->data_)[0] << '\n';
         }));
-
-    auto data_stream = make_unique<FileStream>("FileStream", conf.getString("inputPath"));
-    plan->setDataStream(std::move(data_stream));
-    env.Register(plan);
+    env.addStream(std::move(file_stream));
     env.execute();
   } catch (const std::exception &e) {
     throw;

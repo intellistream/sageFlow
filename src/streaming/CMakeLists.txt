@@ -1,7 +1,7 @@
 add_lib(
         streaming
-        data_stream.cpp
         stream_environment.cpp
+        stream.cpp
 )
 target_link_libraries(
         streaming
