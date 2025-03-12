@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  candyflow:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: my-ubuntu-container
+    ports:
+      - "2222:22"
+    stdin_open: true
+    tty: true
