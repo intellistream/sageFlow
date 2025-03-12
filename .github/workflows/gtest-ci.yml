@@ -1,0 +1,43 @@
+name: Google Test CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+      - develop
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        run: |
+          docker build -t gtest-container -f setup/Dockerfile .
+
+      - name: Run tests
+        run: |
+          docker run --rm gtest-container bash -c "
+            mkdir -p build &&
+            cd build &&
+            cmake .. &&
+            make -j$(nproc) &&
+            find ./test -type f -executable -name 'test_*' -exec {} --gtest_output=xml:{}_results.xml \;
+          "
+
+      - name: Upload test results (if failed)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gtest-results
+          path: build/*.xml
