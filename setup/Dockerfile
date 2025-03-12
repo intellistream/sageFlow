@@ -22,8 +22,4 @@ RUN mv /etc/apt/sources.list /etc/apt/sources.list.bak && \
 
 EXPOSE 22
 
-# 启动SSH服务
 CMD ["/usr/sbin/sshd", "-D"]
-
-# 使用 ENTRYPOINT 指令开启终端
-ENTRYPOINT ["/bin/bash"]
