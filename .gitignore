@@ -11,6 +11,7 @@
 !/cmake
 !/examples
 !/third-party
+!/setup
 
 # except for some files
 !/.gitignore
