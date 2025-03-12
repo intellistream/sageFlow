@@ -10,10 +10,20 @@ RUN mv /etc/apt/sources.list /etc/apt/sources.list.bak && \
         build-essential \
         cmake \
         git \
-        libtool && \
+        libtool \
+        openssh-server && \
     git clone https://github.com/gperftools/gperftools.git && \
     cd gperftools && \
-    ./autogen.sh && ./configure && make -j && make install && ldconfig 
+    ./autogen.sh && ./configure && make -j && make install && ldconfig && \
+    mkdir /var/run/sshd && \
+    echo 'root:root' | chpasswd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+EXPOSE 22
+
+# 启动SSH服务
+CMD ["/usr/sbin/sshd", "-D"]
 
 # 使用 ENTRYPOINT 指令开启终端
 ENTRYPOINT ["/bin/bash"]
