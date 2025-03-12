@@ -29,8 +29,8 @@ class Function {
 
   virtual auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> { return nullptr; }
 
-  virtual auto Execute(std::unique_ptr<VectorRecord> &left,
-                       std::unique_ptr<VectorRecord> &right) -> std::unique_ptr<VectorRecord> {
+  virtual auto Execute(std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right)
+      -> std::unique_ptr<VectorRecord> {
     return nullptr;
   }
 

@@ -9,12 +9,11 @@
 namespace candy {
 class FilterOperator : public Operator {
  public:
-  FilterOperator(const std::string &name, std::unique_ptr<Function> &filter_func)
-      : Operator(OperatorType::FILTER, name), filter_func_(std::move(filter_func)) {}
+  explicit FilterOperator( std::unique_ptr<Function> &filter_func)
+      : Operator(OperatorType::FILTER), filter_func_(std::move(filter_func)) {}
 
-  auto process(std::unique_ptr<VectorRecord> &data) -> bool override {
-    auto result = filter_func_->Execute(data);
-    if (result) {
+  auto process(std::unique_ptr<VectorRecord> &data, int slot) -> bool override {
+    if (auto result = filter_func_->Execute(data)) {
       emit(0, result);
       return true;
     }

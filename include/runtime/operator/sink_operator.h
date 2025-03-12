@@ -10,10 +10,10 @@
 namespace candy {
 class SinkOperator : public Operator {
  public:
-  SinkOperator(const std::string &name, std::unique_ptr<Function> &sink_func)
-      : Operator(OperatorType::FILTER, name), sink_func_(std::move(sink_func)) {}
+  explicit SinkOperator(std::unique_ptr<Function> &sink_func)
+      : Operator(OperatorType::FILTER), sink_func_(std::move(sink_func)) {}
 
-  auto process(std::unique_ptr<VectorRecord> &data) -> bool override {
+  auto process(std::unique_ptr<VectorRecord> &data, int slot) -> bool override {
     data = sink_func_->Execute(data);
     emit(0, data);
     return true;
