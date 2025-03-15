@@ -1,4 +1,14 @@
 add_lib(
         runtime
-        operators/base_operators.cpp
+        function/filter_function.cpp
+        function/map_function.cpp
+        function/join_function.cpp
+        function/sink_function.cpp
+        function/function.cpp
+        operator/operator.cpp
+        operator/filter_operator.cpp
+        operator/map_operator.cpp
+        operator/join_operator.cpp
+        operator/sink_operator.cpp
+        operator/output_operator.cpp
 )

@@ -4,19 +4,15 @@
 namespace candy {
 using MapFunc = std::function<void(std::unique_ptr<VectorRecord> &)>;
 
-class MapFunction : public Function {
+class MapFunction final : public Function {
  public:
-  explicit MapFunction(std::string name) : Function(std::move(name), FunctionType::Map) {}
+  explicit MapFunction(std::string name);
 
-  MapFunction(std::string name, MapFunc map_func)
-      : Function(std::move(name), FunctionType::Map), map_func_(std::move(map_func)) {}
+  MapFunction(std::string name, MapFunc map_func);
 
-  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override {
-    map_func_(record);
-    return std::move(record);
-  }
+  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override;
 
-  auto setMapFunc(MapFunc map_func) -> void { map_func_ = std::move(map_func); }
+  auto setMapFunc(MapFunc map_func) -> void;
 
  private:
   MapFunc map_func_;

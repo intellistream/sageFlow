@@ -1,7 +1,7 @@
 #include <core/common/data_types.h>
 #include <core/compute_engine/compute_engine.h>
-#include <core/utils/conf_map.h>
-#include <core/utils/monitoring.h>
+#include <utils/conf_map.h>
+#include <utils/monitoring.h>
 #include <streaming/stream_environment.h>
 
 #include <iostream>
