@@ -1,7 +1,6 @@
 #pragma once
 #include <memory>
 #include <string>
-#include <utility>
 
 #include "core/common/data_types.h"
 #include "streaming/stream.h"
@@ -15,13 +14,13 @@ enum class DataStreamSourceType {  // NOLINT
 
 class DataStreamSource : public Stream {
  public:
-  DataStreamSource(std::string name, const DataStreamSourceType type) : Stream(std::move(name)), type_(type) {}
+  DataStreamSource(std::string name, DataStreamSourceType type);
 
-  auto getType() const -> DataStreamSourceType { return type_; }
+  auto getType() const -> DataStreamSourceType;
 
-  void setType(const DataStreamSourceType type) { type_ = type; }
+  void setType(DataStreamSourceType type);
 
-  virtual auto Next() -> std::unique_ptr<VectorRecord> = 0;
+  virtual auto Next() -> std::unique_ptr<VectorRecord>  = 0;
 
   virtual void Init() {}
 

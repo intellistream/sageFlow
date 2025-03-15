@@ -4,19 +4,15 @@
 namespace candy {
 using SinkFunc = std::function<void(std::unique_ptr<VectorRecord> &)>;
 
-class SinkFunction : public Function {
+class SinkFunction final : public Function {
  public:
-  explicit SinkFunction(std::string name) : Function(std::move(name), FunctionType::Sink) {}
+  explicit SinkFunction(std::string name);
 
-  SinkFunction(std::string name, SinkFunc sink_func)
-      : Function(std::move(name), FunctionType::Sink), sink_func_(std::move(sink_func)) {}
+  SinkFunction(std::string name, SinkFunc sink_func);
 
-  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override {
-    sink_func_(record);
-    return std::move(record);
-  }
+  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override;
 
-  auto setSinkFunc(SinkFunc sink_func) -> void { sink_func_ = std::move(sink_func); }
+  auto setSinkFunc(SinkFunc sink_func) -> void;
 
  private:
   SinkFunc sink_func_;

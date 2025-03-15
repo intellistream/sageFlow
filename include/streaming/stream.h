@@ -6,6 +6,8 @@
 #include <utility>
 #include <vector>
 
+#include "runtime/function/function.h"
+
 namespace candy {
 class Function;
 class FilterFunction;

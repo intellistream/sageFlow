@@ -4,21 +4,15 @@
 namespace candy {
 using FilterFunc = std::function<bool(std::unique_ptr<VectorRecord> &)>;
 
-class FilterFunction : public Function {
+class FilterFunction final : public Function {
  public:
-  explicit FilterFunction(std::string name) : Function(std::move(name), FunctionType::Filter) {}
+  explicit FilterFunction(std::string name);
 
-  FilterFunction(std::string name, FilterFunc filter_func)
-      : Function(std::move(name), FunctionType::Filter), filter_func_(std::move(filter_func)) {}
+  FilterFunction(std::string name, FilterFunc filter_func);
 
-  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override {
-    if (filter_func_(record)) {
-      return std::move(record);
-    }
-    return nullptr;
-  }
+  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override;
 
-  auto setFilterFunc(FilterFunc filter_func) -> void { filter_func_ = std::move(filter_func); }
+  auto setFilterFunc(FilterFunc filter_func) -> void;
 
  private:
   FilterFunc filter_func_;
