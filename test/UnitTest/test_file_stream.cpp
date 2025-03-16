@@ -46,7 +46,7 @@ TEST(SourceTest, FileStreamTest) {
 
 TEST(SourceTest, FileStreamRealtimeTest) {
   std::vector<std::unique_ptr<candy::VectorRecord>> records;
-  const int count = 10000;
+  const int count = 1000000;
   for (int i = 0; i < count; i++) {
     records.push_back(std::make_unique<candy::VectorRecord>(
         "randomname",
@@ -78,6 +78,7 @@ TEST(SourceTest, FileStreamRealtimeTest) {
     file.close();
     std::cerr << "file closed" << std::endl;
   });
+
   if (!flag) {
     std::this_thread::sleep_for(std::chrono::milliseconds(100));
   }
@@ -99,4 +100,24 @@ TEST(SourceTest, FileStreamRealtimeTest) {
     EXPECT_EQ(records[i]->timestamp_, recv_records[i]->timestamp_);
   }
   t.join();
+}
+
+TEST(SourceTest, FileStreamFileNotFound) {
+  std::cerr << "Testing file not found scenario..." << std::endl;
+  candy::FileStream fs("nonexistent", "nonexistent.bin");
+  fs.Init();
+  std::unique_ptr<candy::VectorRecord> temp;
+  EXPECT_FALSE(fs.Next(temp));  // 期望读取失败
+  std::cerr << "File not found test completed." << std::endl;
+}
+
+TEST(SourceTest, FileStreamEmptyFile) {
+  std::cerr << "Testing empty file scenario..." << std::endl;
+  std::ofstream file("empty.bin");  // 创建空文件
+  file.close();
+  candy::FileStream fs("empty", "empty.bin");
+  fs.Init();
+  std::unique_ptr<candy::VectorRecord> temp;
+  EXPECT_FALSE(fs.Next(temp));  // 期望无数据
+  std::cerr << "Empty file test completed." << std::endl;
 }
