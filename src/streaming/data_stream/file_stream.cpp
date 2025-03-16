@@ -23,12 +23,11 @@ auto FileStream::Init() -> void {
   std::thread([this]() -> void {
     std::ifstream file(this->file_path_, std::ios::binary);
     if (!file.is_open()) {
-      std::cerr << "Error opening file" << std::endl;
+      std::cerr << "Error opening file: " << this->file_path_ << std::endl;
       running_.store(false);
       return;
     }
-    std::vector<char> line;
-    uint64_t size;
+
     auto readExactBytes = [](std::ifstream& ifs, char* buffer, std::streamsize totalBytes) -> bool {
       std::streamsize bytesRead = 0;
       while (bytesRead < totalBytes) {
@@ -36,12 +35,15 @@ auto FileStream::Init() -> void {
         std::streamsize currentRead = ifs.gcount();
         if (currentRead == 0) {
           if (ifs.eof()) {
-            // 遇到文件末尾，等待文件增长
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            ifs.clear();  // 清除 eofbit 以继续读取
+            std::streampos lastPos = ifs.tellg();
+            ifs.clear();
+            if (ifs.tellg() == lastPos) {
+              return false;  // 文件未增长
+            }
           } else {
-            // 读取失败
-            return false;
+            std::cerr << "Error reading " << totalBytes << " bytes from file" << std::endl;
+            return false;  // 读取失败
           }
         } else {
           bytesRead += currentRead;
@@ -49,35 +51,24 @@ auto FileStream::Init() -> void {
       }
       return true;
     };
+
+    std::vector<char> line;
+    uint64_t size;
     while (running_) {
       VectorMessage message;
-      // while (file.peek() == EOF) {
-      //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      //   file.clear();
-      // }
       size = 0;
-      readExactBytes(file,reinterpret_cast<char*>(&size), sizeof(size));
-      // if (!file.read(reinterpret_cast<char*>(&size), sizeof(size)) || file.gcount() != sizeof(size)) {
-      //   std::cerr << "Error reading size" << std::endl;
-      //   break;
-      // }
+      if (!readExactBytes(file, reinterpret_cast<char*>(&size), sizeof(size))) {
+        break;
+      }
       line.resize(size);
-      readExactBytes(file,&line[0],size);
-      // while (file.peek() == EOF) {
-      //   std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      //   file.clear();
-      // }
-      // if (!file.read(&line[0], size) || file.gcount() != size) {
-      //   std::cerr << "Error reading data" << std::endl;
-      //   break;
-      // }
-
+      if (!readExactBytes(file, &line[0], size)) {
+        break;
+      }
       if (!message.ParseFromArray(line.data(), size)) {
-        std::cerr << "Error parsing message" << std::endl;
+        std::cerr << "Error parsing message of size " << size << " at offset " << file.tellg() << std::endl;
         break;
       }
       VectorData data(message.data().begin(), message.data().end());
-      // std::cerr << "get" << message.timestamp() << std::endl;
       {
         std::lock_guard(this->mtx_);
         this->records_.push(std::make_unique<VectorRecord>(message.name(), std::move(data), message.timestamp()));
@@ -85,7 +76,6 @@ auto FileStream::Init() -> void {
     }
     file.close();
     running_ = false;
-    return;
   }).detach();
 }
 

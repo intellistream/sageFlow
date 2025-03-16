@@ -56,12 +56,14 @@ TEST(SourceTest, FileStreamRealtimeTest) {
   }
   candy::FileStream fs("test2", "test2.bin");  // TODO: only work when the name is diff from test1
   fs.Init();
-  auto t = std::thread([&records]() {
+  std::atomic<bool> flag=false;
+  auto t = std::thread([&records,&flag]() {
     std::ofstream file("test2.bin", std::ios::binary);
     if (!file.is_open()) {
       std::cerr << "FAIL fILE OPEn" << std::endl;
       return;
     }
+    flag=true;
     for (const auto &rec : records) {
       VectorMessage msg;
       msg.set_name(rec->id_);
@@ -76,7 +78,9 @@ TEST(SourceTest, FileStreamRealtimeTest) {
     file.close();
     std::cerr << "file closed" << std::endl;
   });
-
+  if (!flag) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
   std::vector<std::unique_ptr<candy::VectorRecord>> recv_records;
   while (recv_records.size() < count) {
     std::unique_ptr<candy::VectorRecord> temp;
