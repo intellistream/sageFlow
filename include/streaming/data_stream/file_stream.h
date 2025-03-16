@@ -1,11 +1,12 @@
 #pragma once
-#include <utility>
-#include <queue>
 #include <atomic>
+#include <queue>
 #include <string>
+#include <utility>
+
 #include "core/common/data_types.h"
-#include "streaming/data_stream/data_stream.h"
 #include "proto/message.pb.h"
+#include "streaming/data_stream/data_stream.h"
 
 namespace candy {
 class FileStream : public DataStream {
@@ -13,8 +14,10 @@ class FileStream : public DataStream {
   explicit FileStream(std::string name) : DataStream(std::move(name), DataFlowType::File) {}
 
   FileStream(std::string name, std::string file_path)
-      : DataStream(std::move(name), DataFlowType::File), file_path_(std::move(file_path)),running_(true) {}
-  ~FileStream() = default;
+      : DataStream(std::move(name), DataFlowType::File), file_path_(std::move(file_path)), running_(true) {}
+
+  ~FileStream() { this->running_ = false; }
+
   auto Next(std::unique_ptr<VectorRecord>& record) -> bool override;
 
   auto Init() -> void override;

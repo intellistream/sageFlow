@@ -1,7 +1,8 @@
 #include <gtest/gtest.h>
-#include <iostream>
-#include <fstream>
+
 #include <chrono>
+#include <fstream>
+#include <iostream>
 
 #include "core/common/data_types.h"
 #include "proto/message.pb.h"
@@ -17,15 +18,17 @@ TEST(SourceTest, FileStreamTest) {
     VectorMessage msg;
     msg.set_name(rec->id_);
     msg.set_timestamp(rec->timestamp_);
-    for (const auto &v : *rec->data_) {
-      msg.add_data(v);
-    }
+    msg.mutable_data()->Assign(rec->data_->begin(), rec->data_->end());
+
+    // for (const auto &v : *rec->data_) {
+    //   msg.add_data(v);
+    // }
     uint64_t size = msg.ByteSizeLong();
     file.write(reinterpret_cast<char *>(&size), sizeof(size));
     msg.SerializeToOstream(&file);
   }
   file.close();
-  std::cerr<<"data prepared"<<std::endl;
+  std::cerr << "data prepared" << std::endl;
   candy::FileStream fs("test.bin", "test.bin");
   fs.Init();
   for (const auto &rec : records) {
@@ -36,7 +39,60 @@ TEST(SourceTest, FileStreamTest) {
     }
 
     EXPECT_EQ(rec->id_, temp->id_);
-    EXPECT_EQ(*rec->data_,*temp->data_);
+    EXPECT_EQ(*rec->data_, *temp->data_);
     EXPECT_EQ(rec->timestamp_, temp->timestamp_);
   }
+}
+
+TEST(SourceTest, FileStreamRealtimeTest) {
+  std::vector<std::unique_ptr<candy::VectorRecord>> records;
+  const int count = 10000;
+  for (int i = 0; i < count; i++) {
+    records.push_back(std::make_unique<candy::VectorRecord>(
+        "randomname",
+        candy::VectorData(std::vector<float>{1.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0, 2.0, 2.0, 3.0,
+                                             2.0, 2.0, 3.0, 2.0}),
+        i));
+  }
+  candy::FileStream fs("test2", "test2.bin");  // TODO: only work when the name is diff from test1
+  fs.Init();
+  auto t = std::thread([&records]() {
+    std::ofstream file("test2.bin", std::ios::binary);
+    if (!file.is_open()) {
+      std::cerr << "FAIL fILE OPEn" << std::endl;
+      return;
+    }
+    for (const auto &rec : records) {
+      VectorMessage msg;
+      msg.set_name(rec->id_);
+      msg.set_timestamp(rec->timestamp_);
+      msg.mutable_data()->Assign(rec->data_->begin(), rec->data_->end());
+      uint64_t size = msg.ByteSizeLong();
+      file.write(reinterpret_cast<char *>(&size), sizeof(size));
+      file.flush();
+      msg.SerializeToOstream(&file);
+      file.flush();
+    }
+    file.close();
+    std::cerr << "file closed" << std::endl;
+  });
+
+  std::vector<std::unique_ptr<candy::VectorRecord>> recv_records;
+  while (recv_records.size() < count) {
+    std::unique_ptr<candy::VectorRecord> temp;
+    while (!fs.Next(temp)) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    recv_records.push_back(std::move(temp));
+  }
+  EXPECT_EQ(recv_records.size(), count);
+  std::cerr << "recv completed" << std::endl;
+  std::sort(recv_records.begin(), recv_records.end(),
+            [](const std::unique_ptr<candy::VectorRecord> &a, std::unique_ptr<candy::VectorRecord> &b) -> bool {
+              return a->timestamp_ < b->timestamp_;
+            });
+  for (int i = 0; i < count; i++) {
+    EXPECT_EQ(records[i]->timestamp_, recv_records[i]->timestamp_);
+  }
+  t.join();
 }
