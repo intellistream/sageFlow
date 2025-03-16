@@ -9,6 +9,15 @@
 
 namespace candy {
 
+FileStream::FileStream(std::string name) : DataStream(std::move(name), DataFlowType::File) {}
+
+FileStream::FileStream(std::string name, std::string file_path)
+    : DataStream(std::move(name), DataFlowType::File), file_path_(std::move(file_path)), running_(true) {}
+
+FileStream::~FileStream() {
+  running_ = false;
+}
+
 auto FileStream::Next(std::unique_ptr<VectorRecord>& record) -> bool {
   std::lock_guard(this->mtx_);
   if (records_.empty()) {

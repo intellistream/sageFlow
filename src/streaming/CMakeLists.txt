@@ -3,6 +3,7 @@ add_lib(
         data_stream.cpp
         stream_environment.cpp
         data_stream/file_stream.cpp
+        data_stream/tcp_stream.cpp
 )
 target_link_libraries(
         streaming

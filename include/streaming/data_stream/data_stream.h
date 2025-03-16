@@ -9,7 +9,7 @@ namespace candy {
 enum class DataFlowType {
   None,
   File,
-
+  Tcp,
 };
 
 class DataStream {
