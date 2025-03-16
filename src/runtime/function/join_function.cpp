@@ -2,15 +2,16 @@
 
 candy::JoinFunction::JoinFunction(std::string name) : Function(std::move(name), FunctionType::Join) {}
 
-candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func)
-    : Function(std::move(name), FunctionType::Join), join_func_(std::move(join_func)) {}
+candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t time_window)
+    : Function(std::move(name), FunctionType::Join), join_func_(std::move(join_func)), time_window_(time_window) {}
 
 std::unique_ptr<candy::VectorRecord> candy::JoinFunction::Execute(std::unique_ptr<VectorRecord>& left,
                                                                   std::unique_ptr<VectorRecord>& right) {
   if (join_func_(left, right)) {
-    return std::move(left);
+    // empty
   }
-  return nullptr;
+  auto ret = std::make_unique<VectorRecord>("1", VectorData{1.0, 2.0, 3.0}, 0);
+  return std :: move(ret);
 }
 
 auto candy::JoinFunction::setJoinFunc(JoinFunc join_func) -> void { join_func_ = std::move(join_func); }
@@ -20,3 +21,7 @@ auto candy::JoinFunction::getOtherStream() -> std::shared_ptr<Stream>& { return 
 auto candy::JoinFunction::setOtherStream(std::shared_ptr<Stream> other_plan) -> void {
   other_stream_ = std::move(other_plan);
 }
+
+auto candy::JoinFunction::setTimeWindow(int64_t time_window) -> void { time_window_ = time_window; }
+
+auto candy::JoinFunction::getTimeWindow() -> int64_t { return time_window_; }

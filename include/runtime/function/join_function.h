@@ -10,7 +10,7 @@ class JoinFunction final : public Function {
  public:
   explicit JoinFunction(std::string name);
 
-  JoinFunction(std::string name, JoinFunc join_func);
+  JoinFunction(std::string name, JoinFunc join_func, int64_t time_window = 10);
 
   auto Execute(std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right)
       -> std::unique_ptr<VectorRecord> override;
@@ -21,8 +21,13 @@ class JoinFunction final : public Function {
 
   auto setOtherStream(std::shared_ptr<Stream> other_plan) -> void;
 
+  auto setTimeWindow(int64_t time_window) -> void;
+
+  auto getTimeWindow() -> int64_t;
+
  private:
   JoinFunc join_func_;
   std::shared_ptr<Stream> other_stream_ = nullptr;
+  int64_t time_window_;
 };
 };  // namespace candy
