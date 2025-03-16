@@ -1,4 +1,5 @@
 #include "streaming/data_stream/file_stream.h"
+#include "proto/message.pb.h"
 #include <thread>
 #include <fstream>
 namespace candy {
@@ -22,7 +23,7 @@ auto FileStream::Init() -> void {
     }
     std::string line;
     while (running_) {
-      uint32_t size;
+      uint64_t size;
       while (true) {
         // try {
         //   file.read(reinterpret_cast<char*>(&size), sizeof(size));

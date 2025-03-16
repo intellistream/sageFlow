@@ -1,5 +1,6 @@
 add_subdirectory(core)
 add_subdirectory(runtime)
+add_subdirectory(proto)
 add_subdirectory(streaming)
 add_subdirectory(table)
 add_subdirectory(tools)
@@ -16,4 +17,5 @@ target_link_libraries(
         runtime
         streaming
         vdb
+        proto
 )

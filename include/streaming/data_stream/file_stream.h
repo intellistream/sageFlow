@@ -15,7 +15,7 @@ class FileStream : public DataStream {
   FileStream(std::string name, std::string file_path)
       : DataStream(std::move(name), DataFlowType::File), file_path_(std::move(file_path)),running_(true) {}
   ~FileStream() {
-    
+    running_ = false;
   }
   auto Next(std::unique_ptr<VectorRecord>& record) -> bool override;
 

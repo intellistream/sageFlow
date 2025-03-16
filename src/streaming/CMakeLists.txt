@@ -2,8 +2,10 @@ add_lib(
         streaming
         data_stream.cpp
         stream_environment.cpp
+        data_stream/file_stream.cpp
 )
 target_link_libraries(
         streaming
         runtime
+        proto
 )
