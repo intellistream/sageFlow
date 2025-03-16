@@ -14,6 +14,9 @@ TcpStream::TcpStream(std::string name) : DataStream(std::move(name), DataFlowTyp
 TcpStream::TcpStream(std::string name, std::string ip_address, int port)
     : DataStream(std::move(name), DataFlowType::Tcp), ip_address_(std::move(ip_address)), port_(port), running_(true) {}
 
+TcpStream::~TcpStream() {
+    running_ = false;
+}
 auto TcpStream::Next(std::unique_ptr<VectorRecord>& record) -> bool {
   std::lock_guard<std::mutex> lock(this->mtx_);
   if (records_.empty()) {
