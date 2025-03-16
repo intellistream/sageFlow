@@ -1,6 +1,6 @@
 #pragma once
 #include <utility>
-#include <vector>
+#include <queue>
 #include <atomic>
 #include <string>
 #include "core/common/data_types.h"
@@ -14,9 +14,7 @@ class FileStream : public DataStream {
 
   FileStream(std::string name, std::string file_path)
       : DataStream(std::move(name), DataFlowType::File), file_path_(std::move(file_path)),running_(true) {}
-  ~FileStream() {
-    running_ = false;
-  }
+  ~FileStream() = default;
   auto Next(std::unique_ptr<VectorRecord>& record) -> bool override;
 
   auto Init() -> void override;
@@ -24,6 +22,7 @@ class FileStream : public DataStream {
  private:
   std::string file_path_;
   std::atomic<bool> running_;
-  std::vector<std::unique_ptr<VectorRecord>> records_;
+  std::mutex mtx_;
+  std::queue<std::unique_ptr<VectorRecord>> records_;
 };
 }  // namespace candy

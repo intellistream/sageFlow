@@ -2,14 +2,17 @@
 #include "proto/message.pb.h"
 #include <thread>
 #include <fstream>
+#include <iostream>
+#include <vector>
 namespace candy {
 
 auto FileStream::Next(std::unique_ptr<VectorRecord>& record) -> bool {
+  std::lock_guard(this->mtx_);
   if (records_.empty()) {
     return false;
   }
-  record = std::move(records_.back());
-  records_.pop_back();
+  record = std::move(records_.front());
+  records_.pop();
   return true;
 }
 
@@ -21,28 +24,32 @@ auto FileStream::Init() -> void {
       running_.store(false);
       return;
     }
-    std::string line;
+    std::vector<char> line;
+    VectorMessage message;
+    int64_t size;
     while (running_) {
-      uint64_t size;
-      while (true) {
-        // try {
-        //   file.read(reinterpret_cast<char*>(&size), sizeof(size));
-        // }
-        file.read(reinterpret_cast<char*>(&size), sizeof(size));
-        line.resize(size);
-        file.read(&line[0], size);
-        VectorMessage message;
-        message.ParseFromString(line);
-        VectorData data(message.data_size());
-        std::copy(message.data().begin(), message.data().end(), data.begin());
-        auto record = std::make_unique<VectorRecord>(message.name(), std::move(data), message.timestamp());
-        if (file.eof()) {
-          file.clear();
-          std::this_thread::sleep_for(std::chrono::microseconds(50));
-        }
+      if (!file.read(reinterpret_cast<char*>(&size), sizeof(size))) {
+        std::cerr << "Error reading size" << std::endl;
+          break;
+      }
+
+      line.resize(size);
+      if (!file.read(&line[0], size)) {
+        std::cerr << "Error reading data" << std::endl;
+          break;
+      }
+
+      message.ParseFromArray(line.data(),size);
+      VectorData data(message.data().begin(),message.data().end());
+      this->records_.emplace(std::make_unique<VectorRecord>(message.name(), std::move(data), message.timestamp()));
+      if (file.peek()==EOF) {
+        running_=false;
       }
     }
     file.close();
+    running_=false;
+    std::cerr<<"Ter"<<std::endl;
+    return;
   }).detach();
 }
 
