@@ -70,6 +70,7 @@ auto FileStream::Init() -> void {
         break;
       }
       line.resize(size);
+      assert(size < 1e4);
       if (!readExactBytes(file, &line[0], size)) {
         break;
       }

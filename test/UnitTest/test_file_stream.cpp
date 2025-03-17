@@ -3,6 +3,7 @@
 #include <chrono>
 #include <fstream>
 #include <iostream>
+#include <thread>
 
 #include "core/common/data_types.h"
 #include "proto/message.pb.h"
@@ -56,7 +57,8 @@ TEST(SourceTest, FileStreamRealtimeTest) {
   }
   candy::FileStream fs("test2", "test2.bin");  // TODO: only work when the name is diff from test1
   fs.Init();
-  std::atomic<bool> flag=false;
+  std::atomic<bool> flag;
+  flag = false;
   auto t = std::thread([&records,&flag]() {
     std::ofstream file("test2.bin", std::ios::binary);
     if (!file.is_open()) {
