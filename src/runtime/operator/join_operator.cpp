@@ -23,9 +23,10 @@ void candy::JoinOperator::open() {
   }
 }
 
-bool candy::JoinOperator::process(std::unique_ptr<VectorRecord>& data, const int slot) {
+bool candy :: JoinOperator :: brute_process(std :: unique_ptr < VectorRecord > &data, const int slot) {
   int now_time = data->timestamp_;
   int window = join_func_->getTimeWindow();
+  
   if (slot == 0) {
     left_records_.emplace_back(std::move(data));
   } else {
@@ -36,6 +37,7 @@ bool candy::JoinOperator::process(std::unique_ptr<VectorRecord>& data, const int
     return false;
   }
 
+  // 更新窗口内的数据
   // pop_front if the timestamp is older than 10 seconds
   while (!left_records_.empty() && left_records_.front()->timestamp_ < now_time - window) {
     left_records_.pop_front();
@@ -58,7 +60,12 @@ bool candy::JoinOperator::process(std::unique_ptr<VectorRecord>& data, const int
 
   left_records_.clear();
   right_records_.clear();
-  return true;
+  return false;
+}
+
+bool candy::JoinOperator::process(std::unique_ptr<VectorRecord>& data, const int slot) {
+  
+  return brute_process(data, slot);
 }
 
 auto candy::JoinOperator::setMother(std::shared_ptr<Operator> mother) -> void { mother_ = std::move(mother); }

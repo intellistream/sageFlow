@@ -21,13 +21,15 @@ class JoinOperator final : public Operator {
 
   auto setMother(std::shared_ptr<Operator> mother) -> void;
 
+  auto brute_process(std::unique_ptr<VectorRecord> &data, const int slot) -> bool;
+
  private:
   // anns index
   std::unique_ptr<JoinFunction> join_func_;
   std::shared_ptr<Operator> mother_;
-  //std::list<std::unique_ptr<VectorRecord>> left_records_;
-  //std::list<std::unique_ptr<VectorRecord>> right_records_;
-  std :: deque<std :: unique_ptr<VectorRecord>> left_records_;
-  std :: deque<std :: unique_ptr<VectorRecord>> right_records_;
+  std::list<std::unique_ptr<VectorRecord>> left_records_;
+  std::list<std::unique_ptr<VectorRecord>> right_records_;
+  //std :: deque<std :: unique_ptr<VectorRecord>> left_records_;
+  //std :: deque<std :: unique_ptr<VectorRecord>> right_records_;
 };
 }  // namespace candy
