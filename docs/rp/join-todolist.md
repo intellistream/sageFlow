@@ -2,6 +2,7 @@
     + intra-window 考虑单个window？ 双倍长度再考虑 ？
 + 数据流合并的时候涉及到合并两个向量， 保留平均值， 还是设计数据结构进行合并?
 + Time-Tester Where ?
+
 + Vectordatabase
     + how to use
     + where to storage

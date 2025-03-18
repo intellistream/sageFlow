@@ -61,7 +61,10 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
             "map1", [](std::unique_ptr<VectorRecord> &record) { record = ComputeEngine::normalizeVector(record); }))
         ->join(join_stream, std::make_unique<JoinFunction>(
                                 "join1", [](std::unique_ptr<VectorRecord> &l,
-                                            std::unique_ptr<VectorRecord> &r) { return l->id_ == r->id_; })
+                                            std::unique_ptr<VectorRecord> &r) {
+                                              auto ret = std::make_unique<VectorRecord>("1", VectorData{1.0, 2.0, 3.0}, 0);
+                                              return ret;
+                                            }, 10)
 
                    )
         ->writeSink(std::make_unique<SinkFunction>(

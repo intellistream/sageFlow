@@ -7,11 +7,7 @@ candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t 
 
 std::unique_ptr<candy::VectorRecord> candy::JoinFunction::Execute(std::unique_ptr<VectorRecord>& left,
                                                                   std::unique_ptr<VectorRecord>& right) {
-  if (join_func_(left, right)) {
-    // empty
-  }
-  auto ret = std::make_unique<VectorRecord>("1", VectorData{1.0, 2.0, 3.0}, 0);
-  return std :: move(ret);
+  return join_func_(left, right);
 }
 
 auto candy::JoinFunction::setJoinFunc(JoinFunc join_func) -> void { join_func_ = std::move(join_func); }

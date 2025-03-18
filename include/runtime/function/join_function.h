@@ -4,13 +4,13 @@
 #include "runtime/function/function.h"
 
 namespace candy {
-using JoinFunc = std::function<bool(std::unique_ptr<VectorRecord> &, std::unique_ptr<VectorRecord> &)>;
+using JoinFunc = std::function<std::unique_ptr<VectorRecord>(std::unique_ptr<VectorRecord> &, std::unique_ptr<VectorRecord> &)>;
 
 class JoinFunction final : public Function {
  public:
   explicit JoinFunction(std::string name);
 
-  JoinFunction(std::string name, JoinFunc join_func, int64_t time_window = 10);
+  JoinFunction(std::string name, JoinFunc join_func, int64_t time_window);
 
   auto Execute(std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right)
       -> std::unique_ptr<VectorRecord> override;
