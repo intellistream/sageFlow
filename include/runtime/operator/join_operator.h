@@ -2,7 +2,6 @@
 
 #include <functional>
 #include <list>
-#include <deque>
 #include <memory>
 
 #include "core/common/data_types.h"
@@ -23,6 +22,7 @@ class JoinOperator final : public Operator {
   auto setMother(std::shared_ptr<Operator> mother) -> void;
 
   auto lazy_process(const int slot) -> bool;
+
   auto eager_process(const int slot) -> bool;
 
  private:
