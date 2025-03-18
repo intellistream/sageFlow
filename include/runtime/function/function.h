@@ -5,7 +5,7 @@
 #include "core/common/data_types.h"
 
 namespace candy {
-enum class FunctionType {
+enum class FunctionType { // NOLINT
   None,
   Filter,
   Map,
@@ -15,24 +15,22 @@ enum class FunctionType {
 
 class Function {
  public:
-  explicit Function(std::string name, FunctionType type) : name_(std::move(name)), type_(type) {}
+  explicit Function(std::string name, FunctionType type);
 
-  ~Function() = default;
+  virtual  ~Function();
 
-  auto getName() const -> std::string { return name_; }
+  auto getName() const -> std::string;
 
-  auto getType() const -> FunctionType { return type_; }
+  auto getType() const -> FunctionType;
 
-  void setName(const std::string &name) { name_ = name; }
+  void setName(const std::string &name);
 
-  void setType(const FunctionType type) { type_ = type; }
+  void setType(const FunctionType type);
 
-  virtual auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> { return nullptr; }
+  virtual auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord>;
 
   virtual auto Execute(std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right)
-      -> std::unique_ptr<VectorRecord> {
-    return nullptr;
-  }
+      -> std::unique_ptr<VectorRecord>;
 
  private:
   std::string name_;

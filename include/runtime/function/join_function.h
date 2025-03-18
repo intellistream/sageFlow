@@ -6,26 +6,20 @@
 namespace candy {
 using JoinFunc = std::function<bool(std::unique_ptr<VectorRecord> &, std::unique_ptr<VectorRecord> &)>;
 
-class JoinFunction : public Function {
+class JoinFunction final : public Function {
  public:
-  explicit JoinFunction(std::string name) : Function(std::move(name), FunctionType::Join) {}
+  explicit JoinFunction(std::string name);
 
-  JoinFunction(std::string name, JoinFunc join_func)
-      : Function(std::move(name), FunctionType::Join), join_func_(std::move(join_func)) {}
+  JoinFunction(std::string name, JoinFunc join_func);
 
   auto Execute(std::unique_ptr<VectorRecord> &left, std::unique_ptr<VectorRecord> &right)
-      -> std::unique_ptr<VectorRecord> override {
-    if (join_func_(left, right)) {
-      return std::move(left);
-    }
-    return nullptr;
-  }
+      -> std::unique_ptr<VectorRecord> override;
 
-  auto setJoinFunc(JoinFunc join_func) -> void { join_func_ = std::move(join_func); }
+  auto setJoinFunc(JoinFunc join_func) -> void;
 
-  auto getOtherStream() -> std::shared_ptr<Stream> & { return other_stream_; }
+  auto getOtherStream() -> std::shared_ptr<Stream> &;
 
-  auto setOtherStream(std::shared_ptr<Stream> other_plan) -> void { other_stream_ = std::move(other_plan); }
+  auto setOtherStream(std::shared_ptr<Stream> other_plan) -> void;
 
  private:
   JoinFunc join_func_;

@@ -1,7 +1,7 @@
 #ifndef STREAM_ENVIRONMENT_HPP
 #define STREAM_ENVIRONMENT_HPP
 
-#include <core/utils/conf_map.h>
+#include <utils/conf_map.h>
 
 #include <memory>
 #include <string>
