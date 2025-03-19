@@ -11,4 +11,7 @@ add_lib(
         operator/join_operator.cpp
         operator/sink_operator.cpp
         operator/output_operator.cpp
+        operator/methods/join/base_method.cpp
+        operator/methods/join/lazy/bruteforce.cpp
+        operator/methods/join/eager/bruteforce.cpp
 )
