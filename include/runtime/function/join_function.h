@@ -28,6 +28,8 @@ class JoinFunction final : public Function {
  private:
   JoinFunc join_func_;
   std::shared_ptr<Stream> other_stream_ = nullptr;
+  // TODO : 把Window逻辑扩展
+  // 现在的 window 是固定长度的滚动窗口
   int64_t time_window_;
 };
 };  // namespace candy
