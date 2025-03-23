@@ -11,9 +11,9 @@ candy::FileStreamSource::FileStreamSource(std::string name, std::string file_pat
 
 void candy::FileStreamSource::Init() {
   records_.clear();
-  records_.emplace_back(std::make_unique<VectorRecord>("1", VectorData{1.0, 2.0, 3.0}, 0));
+  records_.emplace_back(std::make_unique<VectorRecord>("1", VectorData{1.0, 2.0, 3.0}, 2));
   records_.emplace_back(std::make_unique<VectorRecord>("2", VectorData{4.0, 5.0, 6.0}, 1));
-  records_.emplace_back(std::make_unique<VectorRecord>("3", VectorData{7.0, 8.0, 9.0}, 2));
+  records_.emplace_back(std::make_unique<VectorRecord>("3", VectorData{7.0, 8.0, 9.0}, 0));
 }
 
 auto candy::FileStreamSource::Next() -> std::unique_ptr<VectorRecord> {

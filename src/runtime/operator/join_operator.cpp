@@ -65,30 +65,32 @@ bool candy::JoinOperator::process(std::unique_ptr<VectorRecord>& data, const int
 
   // 标识使用的算法 Eager/Lazy
   bool IsEagerAlgorithm = false;
-  
-  // input data
-  if (slot == 0) {
-    left_records_.emplace_back(std::move(data));
-  } else {
-    right_records_.emplace_back(std::move(data));
-  }
+  int nowTimeStamp = data -> timestamp_;
 
-  //update window
-  int window = join_func_->getTimeWindow();
-  auto update_window = [&](std::list<std::unique_ptr<VectorRecord>>& records) {
-    // 队首队头差距 <= window
-    // Lazy 算法不管这里
-    // Eager 算法注意这里需要进行删除操作， 影响外部数据库的数据
-    // 或者 Eager 把 Index 的删除实现丢入函数里
-    while (!records.empty() && records.front()->timestamp_ < records.back()->timestamp_ - window) {
+  auto update_side = [&] (std::list<std::unique_ptr<VectorRecord>>& records, auto &window) -> bool {
+    records.emplace_back(std :: move(data));
+    int timelimit = window.windowTimeLimit(nowTimeStamp);
+    while (!records.empty() && records.front()->timestamp_ <= timelimit) {
       records.pop_front();
       // TODO : 完成 Eager 算法的 index 删除
       if (IsEagerAlgorithm) {
         // do something
       }
     }
-  };
-  update_window(left_records_); update_window(right_records_);
+    return window.isNeedTrigger(nowTimeStamp);
+  } ;
+
+  bool triggerflag;
+
+  if (slot == 0) {
+    triggerflag = update_side(left_records_, join_func_ -> windowL);
+  } else {
+    triggerflag = update_side(right_records_, join_func_ -> windowR);
+  }
+
+  // 是否触发窗口
+  if (triggerflag == false) 
+    return false;
 
   bool ReturnFlag;
 
