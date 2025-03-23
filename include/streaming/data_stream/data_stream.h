@@ -10,6 +10,7 @@ enum class DataFlowType {
   None,
   File,
   Tcp,
+  Kafka,
 };
 
 class DataStream {

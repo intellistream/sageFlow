@@ -4,9 +4,11 @@ add_lib(
         stream_environment.cpp
         data_stream/file_stream.cpp
         data_stream/tcp_stream.cpp
+        data_stream/kafka_stream.cpp
 )
 target_link_libraries(
         streaming
         runtime
         proto
+        rdkafka++
 )
