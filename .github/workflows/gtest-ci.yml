@@ -18,22 +18,21 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image
+      - name: Install dependencies
         run: |
-          docker build -t gtest-container -f setup/Dockerfile .
+          sudo apt-get update && sudo apt-get install -y build-essential cmake git libtool openssh-server gdb gdbserver
+      - name: install gperftools
+        run: |
+          git clone https://github.com/gperftools/gperftools.git && cd gperftools && ./autogen.sh && ./configure && make -j 2 && sudo make install && sudo ldconfig
 
       - name: Run tests
         run: |
-          docker run --rm gtest-container bash -c "
             mkdir -p build &&
             cd build &&
             cmake .. &&
             make -j$(nproc) &&
             find ./test -type f -executable -name 'test_*' -exec {} --gtest_output=xml:{}_results.xml \;
-          "
+      
 
       - name: Upload test results (if failed)
         if: failure()

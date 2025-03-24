@@ -12,6 +12,7 @@
 !/examples
 !/third-party
 !/setup
+!/.github
 
 # except for some files
 !/.gitignore
