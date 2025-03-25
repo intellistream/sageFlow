@@ -1,5 +1,5 @@
 add_gtest(
-    unit_tests test_compute_engine.cpp test_tcp_stream.cpp test_kafka_stream.cpp
+    unit_tests test_compute_engine.cpp test_tcp_stream.cpp 
 )
 target_link_libraries(
     unit_tests

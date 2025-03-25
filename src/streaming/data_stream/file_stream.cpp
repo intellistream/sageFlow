@@ -4,6 +4,7 @@
 #include <iostream>
 #include <thread>
 #include <vector>
+#include <mutex>
 
 #include "proto/message.pb.h"
 
@@ -19,7 +20,7 @@ FileStream::~FileStream() {
 }
 
 auto FileStream::Next(std::unique_ptr<VectorRecord>& record) -> bool {
-  std::lock_guard(this->mtx_);
+  std::lock_guard<std::mutex> lock(this->mtx_);
   if (records_.empty()) {
     return false;
   }
@@ -80,7 +81,7 @@ auto FileStream::Init() -> void {
       }
       VectorData data(message.data().begin(), message.data().end());
       {
-        std::lock_guard(this->mtx_);
+        std::lock_guard<std::mutex> lock(this->mtx_);
         this->records_.push(std::make_unique<VectorRecord>(message.name(), std::move(data), message.timestamp()));
       }
     }
