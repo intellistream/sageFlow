@@ -1,6 +1,6 @@
 /*
 修改 Eager/Lazy 通过process 中的 IsEagerAlgorithm 修改
-修改调用的方法， 则修改 using Derived 后面的等于号
+修改调用的方法， 则修改 using JoinWay 后面的等于号
 */
 #include "runtime/operator/join_operator.h"
 
@@ -9,9 +9,9 @@
 
 #include "runtime/function/join_function.h"
 
-using Derived = candy :: BruteForceLazy;
+using JoinWay = candy :: BruteForceLazy;
 
-candy::JoinOperator::JoinOperator(std::unique_ptr<Function>& join_func) : Operator(OperatorType::JOIN), join_method_(std :: make_unique<Derived>()) {
+candy::JoinOperator::JoinOperator(std::unique_ptr<Function>& join_func) : Operator(OperatorType::JOIN), join_method_(std :: make_unique<JoinWay>()) {
   join_func_ = std::unique_ptr<JoinFunction>(dynamic_cast<JoinFunction*>(join_func.release()));
   if (join_func_ == nullptr) {
     throw std::runtime_error("JoinOperator: join_func is not a JoinFunction");
