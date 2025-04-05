@@ -7,7 +7,7 @@
 namespace candy {
 
 void ComputeEngine::validateEqualSize(std::unique_ptr<VectorRecord> &record1, std::unique_ptr<VectorRecord> &record2) {
-  if (record1->data_->size() != record2->data_->size()) {
+  if (record1->data_->dim_ != record2->data_->dim_) {
     throw std::invalid_argument("VectorRecords must have data of the same size.");
   }
 }
@@ -16,8 +16,8 @@ auto ComputeEngine::calculateSimilarity(std::unique_ptr<VectorRecord> &record1,
                                         std::unique_ptr<VectorRecord> &record2) -> double {
   validateEqualSize(record1, record2);
 
-  const auto &vec1 = *record1->data_;
-  const auto &vec2 = *record2->data_;
+  const auto &vec1 = record1->data_->data_;
+  const auto &vec2 = record2->data_->data_;
 
   const double dot_product = std::inner_product(vec1.begin(), vec1.end(), vec2.begin(), 0.0);
   const double magnitude1 = std::sqrt(std::inner_product(vec1.begin(), vec1.end(), vec1.begin(), 0.0));
@@ -33,12 +33,12 @@ auto ComputeEngine::calculateSimilarity(std::unique_ptr<VectorRecord> &record1,
 auto ComputeEngine::computeEuclideanDistance(std::unique_ptr<VectorRecord> &record1,
                                              std::unique_ptr<VectorRecord> &record2) -> double {
   validateEqualSize(record1, record2);
-
-  const auto &vec1 = *record1->data_;
-  const auto &vec2 = *record2->data_;
+  int dim = record1->data_->dim_;
+  const auto &vec1 = record1->data_->data_;
+  const auto &vec2 = record2->data_->data_;
 
   double sum_of_squares = 0.0;
-  for (size_t i = 0; i < vec1.size(); ++i) {
+  for (size_t i = 0; i < dim; ++i) {
     double diff = vec1[i] - vec2[i];
     sum_of_squares += diff * diff;
   }
@@ -47,7 +47,7 @@ auto ComputeEngine::computeEuclideanDistance(std::unique_ptr<VectorRecord> &reco
 }
 
 auto ComputeEngine::normalizeVector(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> {
-  const auto &vec = *record->data_;
+  const auto &vec = record->data_->data_;
   double magnitude = std::sqrt(std::inner_product(vec.begin(), vec.end(), vec.begin(), 0.0));
 
   if (magnitude == 0.0) {
@@ -55,9 +55,9 @@ auto ComputeEngine::normalizeVector(std::unique_ptr<VectorRecord> &record) -> st
   }
 
   VectorData normalized(vec.size());
-  std::ranges::transform(vec, normalized.begin(), [&](const double val) { return val / magnitude; });
+  std::ranges::transform(vec, normalized.data_.begin(), [&](const double val) { return val / magnitude; });
 
-  return std::make_unique<VectorRecord>(record->id_, std::move(normalized), record->timestamp_);
+  return std::make_unique<VectorRecord>(record->uid_, std::move(normalized), record->timestamp_);
 }
 
 auto ComputeEngine::findTopK(std::vector<std::unique_ptr<VectorRecord>> &records, const size_t k,

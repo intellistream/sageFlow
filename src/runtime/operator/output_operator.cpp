@@ -30,7 +30,7 @@ bool candy::OutputOperator::process(std::unique_ptr<VectorRecord>& data, int slo
       emit(i, copy);
     }
   } else if (output_choice_ == OutputChoice::Hash) {
-    auto id = data->id_.size() % children_.size();
+    auto id = data->uid_ % children_.size();
     children_[id]->process(data, 0);
   } else if (output_choice_ == OutputChoice::NONE) {
     emit(0, data);
