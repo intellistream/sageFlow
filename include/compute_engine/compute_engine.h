@@ -20,7 +20,7 @@ class ComputeEngine {
   // Normalize the data in a VectorRecord
   auto normalizeVector(const VectorData &vec) -> VectorData;
 
-  ComputeEngine() = delete;  // Prevent instantiation
+  ComputeEngine();  // Prevent instantiation
 };
 
 }  // namespace candy
