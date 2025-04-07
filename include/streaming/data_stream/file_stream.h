@@ -25,8 +25,9 @@ namespace candy {
      * 此构造函数使用指定的名称初始化 FileStream，并将数据流类型设置为 File。
      *
      * @param name 数据流的名称。
+     * @param timeout_ms 超时时间（毫秒），如果在此时间内未读取到新数据则终止流，默认为0表示不超时。
      */
-    explicit FileStream(std::string name);
+    explicit FileStream(std::string name, uint64_t timeout_ms = 0);
   
     /**
      * @brief 使用给定的名称和文件路径构造 FileStream 对象。
@@ -36,8 +37,9 @@ namespace candy {
      *
      * @param name 数据流的名称。
      * @param file_path 要读取数据的文件路径。
+     * @param timeout_ms 超时时间（毫秒），如果在此时间内未读取到新数据则终止流，默认为0表示不超时。
      */
-    FileStream(std::string name, std::string file_path);
+    FileStream(std::string name, std::string file_path, uint64_t timeout_ms = 0);
   
     /**
      * @brief FileStream 的析构函数。
@@ -55,7 +57,7 @@ namespace candy {
      * @param record 用于保存下一个 VectorRecord 的 unique_ptr 引用。
      * @return 如果成功获取记录则返回 true，如果队列为空则返回 false。
      */
-    auto Next(std::unique_ptr<VectorRecord>& record) -> bool override;
+    auto Next(RecordOrWatermark &record_or_watermark) -> bool override;
   
     /**
      * @brief 初始化文件流。
@@ -64,12 +66,20 @@ namespace candy {
      * 该线程将运行直到流停止。
      */
     auto Init() -> void override;
+    
+    /**
+     * @brief 设置超时时间
+     * 
+     * @param timeout_ms 超时时间（毫秒），如果在此时间内未读取到新数据则终止流，设为0表示不超时。
+     */
+    auto SetTimeout(uint64_t timeout_ms) -> void;
   
    private:
     std::string file_path_;  ///< 正在读取的文件的路径。
     std::atomic<bool> running_;  ///< 指示流是否正在运行的标志。
     std::mutex mtx_;  ///< 保护对 records_ 队列访问的互斥锁。
     std::queue<std::unique_ptr<VectorRecord>> records_;  ///< 存储从文件中读取的 VectorRecord 对象的队列。
+    uint64_t timeout_ms_;  ///< 超时时间（毫秒），如果在此时间内未读取到新数据则终止流，0表示不超时。
   };
   
   }  // namespace candy

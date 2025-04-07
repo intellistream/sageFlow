@@ -2,7 +2,7 @@
 #include <memory>
 #include <string>
 #include <utility>
-
+#include <variant>
 #include "core/common/data_types.h"
 
 namespace candy {
@@ -25,7 +25,7 @@ class DataStream {
 
   void setType(const DataFlowType type) { type_ = type; }
 
-  virtual auto Next(std::unique_ptr<VectorRecord> &record) -> bool = 0;
+  virtual auto Next(RecordOrWatermark &record_or_watermark) -> bool = 0;
   virtual auto Init() -> void = 0;
 
  private:

@@ -49,7 +49,7 @@ namespace candy {
      * @param record 用于保存下一个 VectorRecord 的 unique_ptr 引用。
      * @return 如果成功获取记录则返回 true，如果队列为空则返回 false。
      */
-    auto Next(std::unique_ptr<VectorRecord>& record) -> bool override;
+    auto Next(RecordOrWatermark &record_or_watermark) -> bool override;
 
     /**
      * @brief 初始化 Kafka 流。

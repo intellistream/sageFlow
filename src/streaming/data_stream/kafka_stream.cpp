@@ -74,12 +74,12 @@ auto KafkaStream::Init() -> void {
   }).detach();
 }
 
-auto KafkaStream::Next(std::unique_ptr<VectorRecord>& record) -> bool {
+auto KafkaStream::Next(RecordOrWatermark& record_or_watermark) -> bool {
   std::lock_guard<std::mutex> lock(mtx_);
   if (records_.empty()) {
     return false;
   }
-  record = std::move(records_.front());
+  record_or_watermark = std::move(records_.front());
   records_.pop();
   return true;
 }

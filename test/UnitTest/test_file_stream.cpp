@@ -21,9 +21,6 @@ TEST(SourceTest, FileStreamTest) {
     msg.set_timestamp(rec->timestamp_);
     msg.mutable_data()->Assign(rec->data_->begin(), rec->data_->end());
 
-    // for (const auto &v : *rec->data_) {
-    //   msg.add_data(v);
-    // }
     uint64_t size = msg.ByteSizeLong();
     file.write(reinterpret_cast<char *>(&size), sizeof(size));
     msg.SerializeToOstream(&file);
@@ -33,15 +30,18 @@ TEST(SourceTest, FileStreamTest) {
   candy::FileStream fs("test.bin", "test.bin");
   fs.Init();
   for (const auto &rec : records) {
-    std::unique_ptr<candy::VectorRecord> temp;
-    // EXPECT_TRUE(fs.Next(temp));
-    while (!fs.Next(temp)) {
+    candy::RecordOrWatermark record_or_watermark;
+    while (!fs.Next(record_or_watermark)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    EXPECT_EQ(rec->id_, temp->id_);
-    EXPECT_EQ(*rec->data_, *temp->data_);
-    EXPECT_EQ(rec->timestamp_, temp->timestamp_);
+    // Check if we received a record (not a watermark)
+    auto* temp = std::get_if<std::unique_ptr<candy::VectorRecord>>(&record_or_watermark);
+    ASSERT_TRUE(temp != nullptr) << "Expected a VectorRecord but received a Watermark";
+
+    EXPECT_EQ(rec->id_, (*temp)->id_);
+    EXPECT_EQ(*rec->data_, *((*temp)->data_));
+    EXPECT_EQ(rec->timestamp_, (*temp)->timestamp_);
   }
 }
 
@@ -86,11 +86,19 @@ TEST(SourceTest, FileStreamRealtimeTest) {
   }
   std::vector<std::unique_ptr<candy::VectorRecord>> recv_records;
   while (recv_records.size() < count) {
-    std::unique_ptr<candy::VectorRecord> temp;
-    while (!fs.Next(temp)) {
+    candy::RecordOrWatermark record_or_watermark;
+    while (!fs.Next(record_or_watermark)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    recv_records.push_back(std::move(temp));
+    
+    // Check if we received a record (not a watermark)
+    auto* temp = std::get_if<std::unique_ptr<candy::VectorRecord>>(&record_or_watermark);
+    if (temp != nullptr) {
+      recv_records.push_back(std::move(*temp));
+    } else {
+      // If we received a watermark, just log it and continue
+      std::cerr << "Received a watermark: " << std::get<candy::Watermark>(record_or_watermark) << std::endl;
+    }
   }
   EXPECT_EQ(recv_records.size(), count);
   std::cerr << "recv completed" << std::endl;
@@ -108,8 +116,8 @@ TEST(SourceTest, FileStreamFileNotFound) {
   std::cerr << "Testing file not found scenario..." << std::endl;
   candy::FileStream fs("nonexistent", "nonexistent.bin");
   fs.Init();
-  std::unique_ptr<candy::VectorRecord> temp;
-  EXPECT_FALSE(fs.Next(temp));  // 期望读取失败
+  candy::RecordOrWatermark record_or_watermark;
+  EXPECT_FALSE(fs.Next(record_or_watermark));  // 期望读取失败
   std::cerr << "File not found test completed." << std::endl;
 }
 
@@ -119,7 +127,7 @@ TEST(SourceTest, FileStreamEmptyFile) {
   file.close();
   candy::FileStream fs("empty", "empty.bin");
   fs.Init();
-  std::unique_ptr<candy::VectorRecord> temp;
-  EXPECT_FALSE(fs.Next(temp));  // 期望无数据
+  candy::RecordOrWatermark record_or_watermark;
+  EXPECT_FALSE(fs.Next(record_or_watermark));  // 期望无数据
   std::cerr << "Empty file test completed." << std::endl;
 }

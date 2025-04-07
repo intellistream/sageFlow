@@ -4,11 +4,13 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <variant>
 
 namespace candy {
 
 // Common data type for vector data
 using VectorData = std::vector<float>;
+using Watermark = int64_t;
 
 // Wrapper for vector data with metadata (e.g., ID, timestamp)
 struct VectorRecord {
@@ -35,5 +37,7 @@ struct VectorRecordHash {
     return std::hash<std::string>()(record.id_) ^ std::hash<int64_t>()(record.timestamp_);
   }
 };
+
+using RecordOrWatermark = std::variant<std::unique_ptr<VectorRecord>, Watermark>;
 
 }  // namespace candy

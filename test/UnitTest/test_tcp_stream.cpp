@@ -87,18 +87,23 @@ TEST(SourceTest, TcpStreamTest) {
   std::cerr << "TcpStream initialized, starting to read..." << std::endl;
 
   for (const auto& rec : records) {
-    std::unique_ptr<candy::VectorRecord> temp;
+    candy::RecordOrWatermark record_or_watermark;
     auto start_time = std::chrono::steady_clock::now();
-    while (!ts.Next(temp)) {
+    while (!ts.Next(record_or_watermark)) {
       if (std::chrono::steady_clock::now() - start_time > std::chrono::seconds(5)) {
         FAIL() << "Timeout waiting for record: " << rec->id_;
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
-    EXPECT_EQ(rec->id_, temp->id_);
-    EXPECT_EQ(*rec->data_, *temp->data_);
-    EXPECT_EQ(rec->timestamp_, temp->timestamp_);
-    std::cerr << "Received record: " << temp->id_ << std::endl;
+    
+    // Check if we received a record (not a watermark)
+    auto* temp = std::get_if<std::unique_ptr<candy::VectorRecord>>(&record_or_watermark);
+    ASSERT_TRUE(temp != nullptr) << "Expected a VectorRecord but received a Watermark";
+    
+    EXPECT_EQ(rec->id_, (*temp)->id_);
+    EXPECT_EQ(*rec->data_, *((*temp)->data_));
+    EXPECT_EQ(rec->timestamp_, (*temp)->timestamp_);
+    std::cerr << "Received record: " << (*temp)->id_ << std::endl;
   }
   server_thread.join();
   std::cerr << "TcpStreamTest completed." << std::endl;
@@ -128,16 +133,24 @@ TEST(SourceTest, TcpStreamRealtimeTest) {
   std::vector<std::unique_ptr<candy::VectorRecord>> recv_records;
   auto start_time = std::chrono::steady_clock::now();
   while (recv_records.size() < count) {
-    std::unique_ptr<candy::VectorRecord> temp;
-    while (!ts.Next(temp)) {
+    candy::RecordOrWatermark record_or_watermark;
+    while (!ts.Next(record_or_watermark)) {
       if (std::chrono::steady_clock::now() - start_time > std::chrono::seconds(10)) {
         FAIL() << "Timeout waiting for " << count << " records, received: " << recv_records.size();
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    recv_records.push_back(std::move(temp));
-    if (recv_records.size() % 1000 == 0) {
-      std::cerr << "Received " << recv_records.size() << " records." << std::endl;
+    
+    // Check if we received a record (not a watermark)
+    auto* temp = std::get_if<std::unique_ptr<candy::VectorRecord>>(&record_or_watermark);
+    if (temp != nullptr) {
+      recv_records.push_back(std::move(*temp));
+      if (recv_records.size() % 1000 == 0) {
+        std::cerr << "Received " << recv_records.size() << " records." << std::endl;
+      }
+    } else {
+      // If we received a watermark, just log it and continue
+      std::cerr << "Received a watermark: " << std::get<candy::Watermark>(record_or_watermark) << std::endl;
     }
   }
   EXPECT_EQ(recv_records.size(), count);

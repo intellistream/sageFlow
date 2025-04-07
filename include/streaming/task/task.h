@@ -22,9 +22,15 @@ class Task {
 
   void begin() const {
     data_stream_->Init();
-    std::unique_ptr<VectorRecord> record;
+    RecordOrWatermark record;
     while (data_stream_->Next(record)) {
-      operator_->enqueue(record);
+      if (std::holds_alternative<std::unique_ptr<VectorRecord>>(record)) {
+        auto* rec = std::get_if<std::unique_ptr<VectorRecord>>(&record);
+        operator_->enqueue(*rec);
+      } else {
+        // auto* wm = std::get_if<Watermark>(&record);
+        // operator_->addWatermark(*wm);
+      }
     }
   }
 

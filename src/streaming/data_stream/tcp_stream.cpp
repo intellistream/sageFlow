@@ -23,10 +23,10 @@ TcpStream::~TcpStream() {
   running_ = false;
 }
 
-auto TcpStream::Next(std::unique_ptr<VectorRecord>& record) -> bool {
+auto TcpStream::Next(RecordOrWatermark& record_or_watermark) -> bool {
   std::lock_guard<std::mutex> lock(this->mtx_);
   if (records_.empty()) return false;
-  record = std::move(records_.front());
+  record_or_watermark = std::move(records_.front());
   records_.pop();
   return true;
 }
