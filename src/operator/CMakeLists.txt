@@ -1,0 +1,9 @@
+add_lib(
+        operator
+        filter_operator.cpp
+        join_operator.cpp
+        map_operator.cpp
+        operator.cpp
+        output_operator.cpp
+        sink_operator.cpp
+)

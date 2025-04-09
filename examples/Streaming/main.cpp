@@ -1,17 +1,17 @@
-#include <core/common/data_types.h>
-#include <core/compute_engine/compute_engine.h>
+#include <common/data_types.h>
+#include <compute_engine/compute_engine.h>
+#include <stream/stream_environment.h>
 #include <utils/conf_map.h>
 #include <utils/monitoring.h>
-#include <streaming/stream_environment.h>
 
 #include <iostream>
 #include <stdexcept>
 #include <string>
 
-#include "runtime/function/filter_function.h"
-#include "runtime/function/map_function.h"
-#include "runtime/function/sink_function.h"
-#include "streaming/data_stream_source/file_stream_source.h"
+#include "function/filter_function.h"
+#include "function/map_function.h"
+#include "function/sink_function.h"
+#include "stream/data_stream_source/file_stream_source.h"
 
 using namespace std;    // NOLINT
 using namespace candy;  // NOLINT
@@ -51,24 +51,24 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     auto join_stream = make_shared<FileStreamSource>("JoinStream", conf.getString("inputPath"));
     file_stream
         ->filter(std::make_unique<FilterFunction>("filter1",
-                                                  [](std::unique_ptr<VectorRecord> &record) -> bool {
+                                                  [](const std::unique_ptr<VectorRecord> &record) -> bool {
                                                     const auto rec = record.get();
-                                                    return (rec != nullptr) && rec->data_ && !rec->data_->empty() &&
-                                                           (*rec->data_)[0] > 0.5;  // Filter by first value
-                                                                                    // multi-branch
+                                                    return (rec->data_.data_)[0] > 0.5;
                                                   }))
         ->map(std::make_unique<MapFunction>(
-            "map1", [](std::unique_ptr<VectorRecord> &record) { record = ComputeEngine::normalizeVector(record); }))
+            "map1", [](std::unique_ptr<VectorRecord> &record) {
+
+            }))
         ->join(join_stream, std::make_unique<JoinFunction>(
                                 "join1", [](std::unique_ptr<VectorRecord> &l,
-                                            std::unique_ptr<VectorRecord> &r) { return l->id_ == r->id_; })
+                                            std::unique_ptr<VectorRecord> &r) { return l->uid_ == r->uid_; })
 
                    )
         ->writeSink(std::make_unique<SinkFunction>(
             "sink1",
-            [](const std::unique_ptr<VectorRecord> &record) { std::cout << "Sink1: " << record->id_ << '\n'; }))
+            [](const std::unique_ptr<VectorRecord> &record) { std::cout << "Sink1: " << record->uid_ << '\n'; }))
         ->writeSink(std::make_unique<SinkFunction>("sink2", [](const std::unique_ptr<VectorRecord> &record) {
-          std::cout << "Sink2: " << (*record->data_)[0] << '\n';
+          std::cout << "Sink2: " << (record->data_.data_)[0] << '\n';
         }));
     env.addStream(std::move(file_stream));
     env.execute();
