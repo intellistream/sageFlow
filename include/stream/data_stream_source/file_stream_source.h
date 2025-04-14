@@ -1,6 +1,9 @@
 #pragma once
 #include <utility>
 #include <vector>
+#include <atomic>
+#include <mutex>
+#include <thread>
 
 #include "common/data_types.h"
 #include "stream/data_stream_source/data_stream_source.h"
@@ -19,5 +22,8 @@ class FileStreamSource : public DataStreamSource {
  private:
   std::string file_path_;
   std::vector<std::unique_ptr<VectorRecord>> records_;
+  std::atomic<bool> running_{false};
+  uint64_t timeout_ms_{1000};
+  std::mutex mtx_;
 };
 }  // namespace candy

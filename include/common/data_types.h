@@ -34,6 +34,9 @@ struct VectorData {
 
   auto operator!=(const VectorData &other) const -> bool;
   // Inequality operator
+
+  bool Serialize(std::ostream &out) const;
+  bool Deserialize(std::istream &in);
 };
 
 // Wrapper for vector data with metadata (e.g., ID, timestamp)
@@ -54,6 +57,9 @@ struct VectorRecord {
 
   // Equality operator for comparisons
   auto operator==(const VectorRecord &other) const -> bool;
+
+  bool Serialize(std::ostream &out) const;
+  bool Deserialize(std::istream &in);
 };
 
 }  // namespace candy
