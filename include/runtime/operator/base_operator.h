@@ -12,7 +12,7 @@
 #include <vector>
 
 namespace candy {
-enum class OperatorType { FILTER, MAP, JOIN, SINK };
+enum class OperatorType { FILTER, MAP, JOIN, SINK, SOURCE };
 
 // Base class for all operators
 class Operator {
