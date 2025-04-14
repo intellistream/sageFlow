@@ -1,0 +1,9 @@
+add_library(
+        utils
+        monitoring.cpp
+)
+target_link_libraries(
+        utils
+        ${PROFILER_LIB}
+        ${TCMALLOC_LIB}
+)

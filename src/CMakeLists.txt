@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 add_subdirectory(core)
 add_subdirectory(runtime)
 add_subdirectory(proto)
@@ -6,6 +7,35 @@ add_subdirectory(table)
 add_subdirectory(tools)
 add_subdirectory(vector_db)
 
+=======
+add_subdirectory(
+        utils
+)
+add_subdirectory(
+        common
+)
+add_subdirectory(
+        compute_engine
+)
+add_subdirectory(
+        concurrency
+)
+add_subdirectory(
+        function
+)
+add_subdirectory(
+        operator
+)
+add_subdirectory(
+        query
+)
+add_subdirectory(
+       storage
+)
+add_subdirectory(
+        stream
+)
+>>>>>>> main
 add_library(
         candy
         INTERFACE
@@ -13,9 +43,17 @@ add_library(
 target_link_libraries(
         candy
         INTERFACE
+<<<<<<< HEAD
         core
         runtime
         streaming
         vdb
         proto
+=======
+        externalLibs
+        stream
+        query
+        operator
+        utils
+>>>>>>> main
 )
