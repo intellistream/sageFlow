@@ -1,9 +1,15 @@
 #include "compute_engine/compute_engine.h"
 
-auto candy::ComputeEngine::calculateSimilarity(const VectorData& vec1, const VectorData& vec2) -> double {}
+auto candy::ComputeEngine::Similarity(const VectorData& vec1, const VectorData& vec2) -> double {
+    return 0.0;
+}
 
-auto candy::ComputeEngine::computeEuclideanDistance(const VectorData& vec1, const VectorData& vec2) -> double {}
+auto candy::ComputeEngine::EuclideanDistance(const VectorData& vec1, const VectorData& vec2) -> double {
+    return 0.0;
+}
 
-auto candy::ComputeEngine::normalizeVector(const VectorData& vec) -> VectorData {}
+auto candy::ComputeEngine::normalizeVector(const VectorData& vec) -> VectorData {
+    return vec;
+}
 
-candy::ComputeEngine::ComputeEngine() {}
+candy::ComputeEngine::ComputeEngine() = default;

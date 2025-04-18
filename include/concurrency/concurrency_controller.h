@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "common/data_types.h"
+#include "storage/storage_manager.h"
 
 namespace candy {
 class ConcurrencyController {
@@ -12,12 +13,14 @@ class ConcurrencyController {
   ConcurrencyController() = default;
 
   // Destructor
-  ~ConcurrencyController() = default;
-  virtual auto insert(int index_id, std::unique_ptr<VectorRecord> &record) -> bool;
+  virtual ~ConcurrencyController() = default;
+  virtual auto insert( std::unique_ptr<VectorRecord> &record) -> bool;
 
-  virtual auto erase(int index_id, std::unique_ptr<VectorRecord> &record) -> bool;  // maybe local index would use this
+  virtual auto erase( std::unique_ptr<VectorRecord> &record) -> bool;  // maybe local index would use this
 
-  virtual auto query(int index_id, std::unique_ptr<VectorRecord> &record,
+  virtual auto query( std::unique_ptr<VectorRecord> &record,
                      int k) -> std::vector<std::unique_ptr<VectorRecord>>;
+
+  std::shared_ptr<StorageManager> storage_manager_ = nullptr;
 };
 };  // namespace candy

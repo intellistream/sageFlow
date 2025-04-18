@@ -25,15 +25,14 @@ class Index {
   IndexType index_type_;
   std::shared_ptr<StorageManager> storage_manager_ = nullptr;
   std::shared_ptr<ComputeEngine> compute_engine_ = nullptr;
-
   // Constructor
   Index() = default;
   // Destructor
   virtual ~Index() = default;
 
-  virtual auto insert(uint64_t uid) -> bool;
-  virtual auto erase(uint64_t uid) -> bool;
-  virtual auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<uint64_t>;
+  virtual auto insert(uint64_t id) -> bool;
+  virtual auto erase(uint64_t id) -> bool;
+  virtual auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<int32_t>;
 };
 
 class GlobalIndex : public Index {

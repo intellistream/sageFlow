@@ -5,8 +5,8 @@
 
 namespace candy {
 
-PerformanceMonitor::PerformanceMonitor(std::string profileOutput)
-    : profile_output_file_(std::move(profileOutput)), profiling_(false) {}
+PerformanceMonitor::PerformanceMonitor(std::string profile_output)
+    : profile_output_file_(std::move(profile_output)), profiling_(false) {}
 
 PerformanceMonitor::~PerformanceMonitor() {
   if (profiling_) {
@@ -39,10 +39,10 @@ void PerformanceMonitor::StartTimer() {
   std::cout << "Timer started." << '\n';
 }
 
-void PerformanceMonitor::StopTimer(const std::string &taskName) {
+void PerformanceMonitor::StopTimer(const std::string &task_name) {
   const auto end_time = std::chrono::high_resolution_clock::now();
   const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time_).count();
-  std::cout << "Task [" << taskName << "] completed in " << duration << " ms." << '\n';
+  std::cout << "Task [" << task_name << "] completed in " << duration << " ms." << '\n';
 }
 
 }  // namespace candy

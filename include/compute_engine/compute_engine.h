@@ -12,10 +12,10 @@ namespace candy {
 class ComputeEngine {
  public:
   // Calculate cosine similarity between two VectorRecords
-  auto calculateSimilarity(const VectorData &vec1, const VectorData &vec2) -> double;
+  auto Similarity(const VectorData &vec1, const VectorData &vec2) -> double;
 
   // Compute Euclidean distance between two VectorRecords
-  auto computeEuclideanDistance(const VectorData &vec1, const VectorData &vec2) -> double;
+  auto EuclideanDistance(const VectorData &vec1, const VectorData &vec2) -> double;
 
   // Normalize the data in a VectorRecord
   auto normalizeVector(const VectorData &vec) -> VectorData;

@@ -3,5 +3,4 @@ add_gtest(
 )
 target_link_libraries(
     unit_tests
-    core
 )
