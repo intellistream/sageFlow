@@ -3,3 +3,4 @@
 #include "operator/map_operator.h"
 #include "operator/output_operator.h"
 #include "operator/sink_operator.h"
+#include "operator/topk_operator.h"

@@ -14,7 +14,7 @@ class JoinOperator final : public Operator {
 
   auto open() -> void override;
 
-  auto process(std::unique_ptr<VectorRecord> &data, int slot) -> bool override;
+  auto process(Response &data, int slot) -> bool override;
 
   auto setMother(std::shared_ptr<Operator> mother) -> void;
 

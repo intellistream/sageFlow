@@ -12,7 +12,7 @@ class SinkFunction final : public Function {
 
   SinkFunction(std::string name, SinkFunc sink_func);
 
-  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override;
+  auto Execute(Response &resp) -> Response override;
 
   auto setSinkFunc(SinkFunc sink_func) -> void;
 

@@ -13,8 +13,7 @@ class JoinFunction final : public Function {
 
   JoinFunction(std::string name, JoinFunc join_func);
 
-  auto Execute(std::unique_ptr<VectorRecord> &left,
-               std::unique_ptr<VectorRecord> &right) -> std::unique_ptr<VectorRecord> override;
+  auto Execute(Response &left, Response &right) -> Response override;
 
   auto setJoinFunc(JoinFunc join_func) -> void;
 

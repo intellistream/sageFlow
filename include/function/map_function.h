@@ -12,7 +12,7 @@ class MapFunction final : public Function {
 
   MapFunction(std::string name, MapFunc map_func);
 
-  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override;
+  auto Execute(Response &resp) -> Response override;
 
   auto setMapFunc(MapFunc map_func) -> void;
 

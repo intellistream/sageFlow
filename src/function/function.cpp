@@ -12,11 +12,8 @@ void candy::Function::setName(const std::string& name) { name_ = name; }
 
 void candy::Function::setType(const FunctionType type) { type_ = type; }
 
-auto candy::Function::Execute(std::unique_ptr<VectorRecord>& record) -> std::unique_ptr<VectorRecord> {
-  return nullptr;
-}
+auto candy::Function::Execute(Response& resp) -> Response { return {}; }
 
-auto candy::Function::Execute(std::unique_ptr<VectorRecord>& left, std::unique_ptr<VectorRecord>& right)
-    -> std::unique_ptr<VectorRecord> {
-  return nullptr;
+auto candy::Function::Execute(Response& left, Response& right) -> Response {
+  return {};
 }

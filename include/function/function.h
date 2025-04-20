@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/data_types.h"
 
@@ -11,6 +12,7 @@ enum class FunctionType {  // NOLINT
   Map,
   Join,
   Sink,
+  Topk
 };
 
 class Function {
@@ -27,10 +29,9 @@ class Function {
 
   void setType(FunctionType type);
 
-  virtual auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord>;
+  virtual auto Execute(Response &resp) -> Response;
 
-  virtual auto Execute(std::unique_ptr<VectorRecord> &left,
-                       std::unique_ptr<VectorRecord> &right) -> std::unique_ptr<VectorRecord>;
+  virtual auto Execute(Response &left, Response &right) -> Response;
 
  private:
   std::string name_;

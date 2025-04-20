@@ -17,12 +17,12 @@ auto candy::Operator::open() -> void {
 
 auto candy::Operator::close() -> void {}
 
-auto candy::Operator::process(std::unique_ptr<VectorRecord>& record, int slot) -> bool {
+auto candy::Operator::process(Response& record, int slot) -> bool {
   emit(0, record);
   return true;
 }
 
-void candy::Operator::emit(const int id, std::unique_ptr<VectorRecord>& record) const {
+void candy::Operator::emit(const int id, Response& record) const {
   if (children_.empty()) {
     return;
   }

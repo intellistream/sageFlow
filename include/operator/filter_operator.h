@@ -10,7 +10,7 @@ class FilterOperator final : public Operator {
  public:
   explicit FilterOperator(std::unique_ptr<Function> &filter_func);
 
-  auto process(std::unique_ptr<VectorRecord> &data, int slot) -> bool override;
+  auto process(Response &data, int slot) -> bool override;
 
  private:
   std::unique_ptr<Function> filter_func_;

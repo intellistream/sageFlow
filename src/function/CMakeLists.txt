@@ -5,4 +5,5 @@ add_lib(
         join_function.cpp
         map_function.cpp
         sink_function.cpp
+        topk_function.cpp
 )

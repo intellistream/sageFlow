@@ -12,7 +12,7 @@ class FilterFunction final : public Function {
 
   FilterFunction(std::string name, FilterFunc filter_func);
 
-  auto Execute(std::unique_ptr<VectorRecord> &record) -> std::unique_ptr<VectorRecord> override;
+  auto Execute(Response &resp) -> Response override;
 
   auto setFilterFunc(FilterFunc filter_func) -> void;
 

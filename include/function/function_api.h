@@ -2,3 +2,4 @@
 #include "function/join_function.h"
 #include "function/map_function.h"
 #include "function/sink_function.h"
+#include "function/topk_function.h"

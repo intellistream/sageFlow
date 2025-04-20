@@ -18,7 +18,7 @@ class OutputOperator final : public Operator {
 
   auto open() -> void override;
 
-  auto process(std::unique_ptr<VectorRecord> &data, int slot = 0) -> bool override;
+  auto process(Response &data, int slot = 0) -> bool override;
 
   OutputChoice output_choice_ = OutputChoice::NONE;
   std::shared_ptr<DataStreamSource> stream_ = nullptr;

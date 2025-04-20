@@ -24,9 +24,9 @@ class Operator {
 
   virtual auto close() -> void;
 
-  virtual auto process(std::unique_ptr<VectorRecord>& record, int slot = 0) -> bool;
+  virtual auto process(Response& record, int slot = 0) -> bool;
 
-  virtual void emit(int id, std::unique_ptr<VectorRecord>& record) const;
+  virtual void emit(int id, Response& record) const;
 
   auto addChild(std::shared_ptr<Operator> child, int slot = 0) -> int;
 

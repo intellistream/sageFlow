@@ -5,12 +5,14 @@ candy::JoinFunction::JoinFunction(std::string name) : Function(std::move(name), 
 candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func)
     : Function(std::move(name), FunctionType::Join), join_func_(std::move(join_func)) {}
 
-std::unique_ptr<candy::VectorRecord> candy::JoinFunction::Execute(std::unique_ptr<VectorRecord>& left,
-                                                                  std::unique_ptr<VectorRecord>& right) {
-  if (join_func_(left, right)) {
-    return std::move(left);
+candy::Response candy::JoinFunction::Execute(Response& left, Response& right) {
+  if (left.type_ == ResponseType::Record && right.type_ == ResponseType::Record) {
+    if (auto left_record = std::move(left.record_), right_record = std::move(right.record_);
+        join_func_(left_record, right_record)) {
+      return Response{ResponseType::Record, std::move(left_record)};
+    }
   }
-  return nullptr;
+  return {};
 }
 
 auto candy::JoinFunction::setJoinFunc(JoinFunc join_func) -> void { join_func_ = std::move(join_func); }

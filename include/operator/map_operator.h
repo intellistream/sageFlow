@@ -11,7 +11,7 @@ class MapOperator final : public Operator {
  public:
   explicit MapOperator(std::unique_ptr<Function> &map_func);
 
-  auto process(std::unique_ptr<VectorRecord> &data, int slot) -> bool override;
+  auto process(Response &data, int slot) -> bool override;
 
  private:
   std::unique_ptr<Function> map_func_;

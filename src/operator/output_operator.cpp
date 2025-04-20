@@ -19,18 +19,19 @@ void candy::OutputOperator::open() {
   }
   std::unique_ptr<VectorRecord> record = nullptr;
   while ((record = stream_->Next())) {
-    process(record);
+    auto resp = Response{ResponseType::Record, std::move(record)};
+    process(resp);
   }
 }
 
-bool candy::OutputOperator::process(std::unique_ptr<VectorRecord>& data, int slot) {
+bool candy::OutputOperator::process(Response& data, int slot) {
   if (output_choice_ == OutputChoice::Broadcast) {
     for (int i = 0; i < children_.size(); i++) {
-      auto copy = std::make_unique<VectorRecord>(*data);
+      auto copy = data;
       emit(i, copy);
     }
   } else if (output_choice_ == OutputChoice::Hash) {
-    auto id = data->uid_ % children_.size();
+    auto id = 0; // todo
     children_[id]->process(data, 0);
   } else if (output_choice_ == OutputChoice::NONE) {
     emit(0, data);
