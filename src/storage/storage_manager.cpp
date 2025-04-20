@@ -37,6 +37,24 @@ auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector
   return result;
 }
 
+auto candy::StorageManager::getVectorById(int32_t id) const -> std::unique_ptr<VectorRecord> {
+  if (id < 0 || id >= static_cast<int32_t>(records_.size())) {
+    return nullptr;
+  }
+  return std::make_unique<VectorRecord>(*records_[id]);
+}
+
+auto candy::StorageManager::getVectorsByIds(const std::vector<int32_t>& ids) const
+    -> std::vector<std::unique_ptr<VectorRecord>> {
+  std::vector<std::unique_ptr<VectorRecord>> result;
+  for (const auto& id : ids) {
+    if (auto record = getVectorById(id)) {
+      result.push_back(std::move(record));
+    }
+  }
+  return result;
+}
+
 auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord>& record, int k) const -> std::vector<int32_t> {
   const auto rec = record.get();
   std::priority_queue<std::pair<double, int32_t>> pq;

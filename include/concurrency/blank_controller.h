@@ -4,26 +4,19 @@
 #include "index/index.h"
 
 namespace candy {
-class BlankController : public ConcurrencyController {
+class BlankController final : public ConcurrencyController {
  public:
-  BlankController() = default;
+  BlankController();
 
-  ~BlankController() override = default;
+  explicit BlankController(std::shared_ptr<Index> index);
 
-  auto insert(std::unique_ptr<VectorRecord> &record) -> bool override {
-    auto idx = storage_manager_->insert(record);
-    if (index_) {
-      index_->insert(idx);
-    }
-    return true;
-  }
+  ~BlankController() override;
 
-  auto erase(std::unique_ptr<VectorRecord> &record) -> bool override { return true; }
+  auto insert(std::unique_ptr<VectorRecord> &record) -> bool override;
 
-  auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<std::unique_ptr<VectorRecord>> override {
-    auto idxes = index_->query(record, k);
-    return storage_manager_->getVectorsByIds(idxes);
-  }
+  auto erase(std::unique_ptr<VectorRecord> &record) -> bool override;
+
+  auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<std::unique_ptr<VectorRecord>> override;
 
  private:
   std::shared_ptr<Index> index_;

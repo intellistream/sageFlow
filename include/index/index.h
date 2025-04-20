@@ -24,7 +24,6 @@ class Index {
 
   IndexType index_type_;
   std::shared_ptr<StorageManager> storage_manager_ = nullptr;
-  std::shared_ptr<ComputeEngine> compute_engine_ = nullptr;
   // Constructor
   Index() = default;
   // Destructor
@@ -35,7 +34,7 @@ class Index {
   virtual auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<int32_t>;
 };
 
-class GlobalIndex : public Index {
+class GlobalIndex final : public Index {
  public:
   auto save(const std::string &path) -> bool;
   auto load(const std::string &path) -> bool;

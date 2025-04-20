@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -13,12 +14,14 @@ struct IdWithType {
 };
 
 class ConcurrencyManager {
+  std::shared_ptr<StorageManager> storage_;
+
  public:
   // Constructor
-  ConcurrencyManager() = default;
+  ConcurrencyManager();
 
   // Destructor
-  ~ConcurrencyManager() = default;
+  ~ConcurrencyManager();
 
   auto create_index(const std::string &name, const IndexType &index_type, int dimension) -> int;
 
@@ -32,10 +35,12 @@ class ConcurrencyManager {
 
  private:
   std::unordered_map<std::string, IdWithType> index_map_;
-  // controller contains index, each operation will be passed to the controller
-  std::unordered_map<int, std::unique_ptr<ConcurrencyController>> controller_map_;  // controller for each index
+  // the controller contains index, each operation will be passed to the controller
+  std::unordered_map<int, std::shared_ptr<ConcurrencyController>> controller_map_;  // the controller for each index
   // controller contains storage engine, each operation will be passed to the controller
-  std::unique_ptr<ConcurrencyController> storage_controller_ = nullptr;             // controller for storage engine
+  std::shared_ptr<ConcurrencyController> storage_controller_ = nullptr;  // controller for storage engine
+
+  std::atomic<int> index_id_counter_ = 0;  // atomic counter for index id
 };
 
 };  // namespace candy

@@ -37,4 +37,5 @@ target_link_libraries(
         query
         operator
         utils
+        concurrency
 )
