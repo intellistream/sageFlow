@@ -176,7 +176,7 @@ inline std::vector<int32_t> HNSW::query(std::unique_ptr<VectorRecord>& record, i
   for (size_t i = 0; i < tmp.size() && static_cast<int>(i) < k; ++i) {
     int32_t sto;
     auto rec = storage_manager_->getVectorByUid(tmp[i].id, sto);
-    result.push_back(sto);  // 直接返回 uid
+    result.push_back(sto);  // 返回 storage 的下标
   }
   return result;
 }
