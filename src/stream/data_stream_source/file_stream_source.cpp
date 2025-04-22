@@ -47,6 +47,11 @@ void candy::FileStreamSource::Init() {
       }
       last_data_time = std::chrono::steady_clock::now();
 
+      if (records_.size() >= getBufferSizeLimit() && getBufferSizeLimit() > 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        continue;
+      }
+
       {
         std::lock_guard<std::mutex> lock(mtx_);
         records_.push_back(std::move(record));

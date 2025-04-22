@@ -1,5 +1,5 @@
-#include <core/common/data_types.h>
-#include <core/compute_engine/compute_engine.h>
+#include <common/data_types.h>
+#include <compute_engine/compute_engine.h>
 #include <gtest/gtest.h>
 
 #include <cmath>
