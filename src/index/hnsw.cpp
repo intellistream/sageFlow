@@ -16,7 +16,7 @@ inline HNSW::HNSW(int m, int efConstruction, int efSearch)
     : M_(m), ef_construction_(efConstruction), ef_search_(efSearch) {}
 
 inline float HNSW::l2_distance(const VectorRecord& a, const VectorRecord& b) const {
-    return storage_manager_->engine_->EuclideanDistance(a.data_, b.data_);
+  return storage_manager_->engine_->EuclideanDistance(a.data_, b.data_);
 }
 
 inline int HNSW::random_level() {
@@ -29,10 +29,10 @@ inline int HNSW::random_level() {
 
 inline bool HNSW::insert(uint64_t uid) {
   if (!storage_manager_) return false;
-  auto rec = storage_manager_->getVectorByUid(uid);
+  const auto rec = storage_manager_->getVectorByUid(uid);
   if (!rec) return false;
 
-  int cur_level = random_level();
+  const int cur_level = random_level();
   Node new_node{uid, cur_level, std::vector<std::vector<uint64_t>>(cur_level + 1)};
 
   if (entry_point_ == std::numeric_limits<uint64_t>::max()) {
@@ -50,7 +50,8 @@ inline bool HNSW::insert(uint64_t uid) {
     while (improved) {
       improved = false;
       for (uint64_t nid : nodes_[ep].links[level]) {
-        if (l2_distance(*rec, *storage_manager_->getVectorByUid(nid)) < l2_distance(*rec, *storage_manager_->getVectorByUid(ep))) {
+        if (l2_distance(*rec, *storage_manager_->getVectorByUid(nid)) <
+            l2_distance(*rec, *storage_manager_->getVectorByUid(ep))) {
           ep = nid;
           improved = true;
         }
@@ -124,7 +125,7 @@ inline bool HNSW::erase(uint64_t uid) {
   for (int level = 0; level <= it->second.level; ++level) {
     for (uint64_t nb : it->second.links[level]) {
       auto& vec = nodes_[nb].links[level];
-      vec.erase(std::remove(vec.begin(), vec.end(), uid), vec.end());
+      std::erase(vec, uid);
     }
   }
 
@@ -151,7 +152,8 @@ inline std::vector<int32_t> HNSW::query(std::unique_ptr<VectorRecord>& record, i
     while (improved) {
       improved = false;
       for (uint64_t nid : nodes_[ep].links[level]) {
-        if (l2_distance(*record, *storage_manager_->getVectorByUid(nid)) < l2_distance(*record, *storage_manager_->getVectorByUid(ep))) {
+        if (l2_distance(*record, *storage_manager_->getVectorByUid(nid)) <
+            l2_distance(*record, *storage_manager_->getVectorByUid(ep))) {
           ep = nid;
           improved = true;
         }
@@ -170,7 +172,7 @@ inline std::vector<int32_t> HNSW::query(std::unique_ptr<VectorRecord>& record, i
     tmp.push_back(top_candidates.top());
     top_candidates.pop();
   }
-  std::sort(tmp.begin(), tmp.end(), [](auto const& a, auto const& b) { return a.dist < b.dist; });
+  std::ranges::sort(tmp, [](auto const& a, auto const& b) { return a.dist < b.dist; });
 
   std::vector<int32_t> result;
   for (size_t i = 0; i < tmp.size() && static_cast<int>(i) < k; ++i) {

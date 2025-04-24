@@ -1,6 +1,8 @@
 add_library(
         index
         knn.cpp
+        hnsw.cpp
+        vectraflow.cpp
 )
 target_link_libraries(
         index
