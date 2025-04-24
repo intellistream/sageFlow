@@ -26,6 +26,14 @@ auto candy::StorageManager::getVectorByUid(const uint64_t vector_id) -> std::uni
   return nullptr;
 }
 
+auto candy::StorageManager::getVectorByUid(const uint64_t vector_id, int32_t &idx) -> std::unique_ptr<VectorRecord> {
+  if (const auto it = map_.find(vector_id); it != map_.end()) {
+    idx = it->second;
+    return std::make_unique<VectorRecord>(*records_[it->second]);
+  }
+  return nullptr;
+}
+
 auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector_ids)
     -> std::vector<std::unique_ptr<VectorRecord>> {
   std::vector<std::unique_ptr<VectorRecord>> result;

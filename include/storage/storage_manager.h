@@ -14,9 +14,11 @@ namespace candy {
 using idx_t = int32_t;
 
 class StorageManager {
-  std::shared_ptr<ComputeEngine> engine_ = nullptr;
+  
 
  public:
+ // 写 private HNSW 访问不了
+  std::shared_ptr<ComputeEngine> engine_ = nullptr;
   // data
   std::unordered_map<uint64_t, int32_t> map_;
   std::vector<std::unique_ptr<VectorRecord>> records_;
@@ -31,6 +33,7 @@ class StorageManager {
   auto erase(uint64_t vector_id) -> bool;
 
   auto getVectorByUid(uint64_t vector_id) -> std::unique_ptr<VectorRecord>;
+  auto getVectorByUid(uint64_t vector_id, int32_t&) -> std::unique_ptr<VectorRecord>;
 
   auto getVectorsByUids(const std::vector<uint64_t> &vector_ids) -> std::vector<std::unique_ptr<VectorRecord>>;
 

@@ -20,6 +20,10 @@ class ComputeEngine {
   // Normalize the data in a VectorRecord
   auto normalizeVector(const VectorData &vec) -> VectorData;
 
+  auto getVectorSquareLength(const VectorData &vec) -> double;
+
+  auto dotmultiply(const VectorData &vec1, const VectorData &vec2) -> double;
+
   ComputeEngine();  // Prevent instantiation
 };
 
