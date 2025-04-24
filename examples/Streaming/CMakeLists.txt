@@ -2,7 +2,15 @@ add_executable(
         Streaming_example
         main.cpp
 )
+add_executable(
+        topk
+        topk.cpp
+)
 target_link_libraries(
         Streaming_example
+        candy
+)
+target_link_libraries(
+        topk
         candy
 )

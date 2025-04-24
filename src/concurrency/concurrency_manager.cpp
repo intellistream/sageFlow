@@ -6,7 +6,7 @@
 #include "concurrency/blank_controller.h"
 #include "index/knn.h"
 
-candy::ConcurrencyManager::ConcurrencyManager() = default;
+candy::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
 
 candy::ConcurrencyManager::~ConcurrencyManager() = default;
 
@@ -19,6 +19,7 @@ auto candy::ConcurrencyManager::create_index(const std::string& name, const Inde
     case IndexType::HNSW:
       return -1;
     case IndexType::BruteForce:
+    default:
       index = std::make_shared<Knn>();
       break;
   }
@@ -46,7 +47,7 @@ auto candy::ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecor
   return controller->insert(record);
 }
 
-auto candy::ConcurrencyManager::erase(int index_id, std::unique_ptr<VectorRecord>& record) -> bool {
+auto candy::ConcurrencyManager::erase(const int index_id, std::unique_ptr<VectorRecord>& record) -> bool {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return false;
@@ -55,7 +56,7 @@ auto candy::ConcurrencyManager::erase(int index_id, std::unique_ptr<VectorRecord
   return controller->erase(record);
 }
 
-auto candy::ConcurrencyManager::query(int index_id, std::unique_ptr<VectorRecord>& record, int k)
+auto candy::ConcurrencyManager::query(const int index_id, std::unique_ptr<VectorRecord>& record, int k)
     -> std::vector<std::unique_ptr<VectorRecord>> {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {

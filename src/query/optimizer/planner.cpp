@@ -1,17 +1,19 @@
 //
 // Created by Pygon on 25-3-14.
 //
+
 #include "query/optimizer/planner.h"
 
 
 #include "function/function_api.h"
 
-candy::Planner::Planner() {}
+candy::Planner::Planner(const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
+    : concurrency_manager_(concurrency_manager) {}
 
 auto candy::Planner::plan(const std::shared_ptr<Stream>& stream) const -> std::shared_ptr<Operator> {
   std::shared_ptr<Operator> op = nullptr;
   if (stream->function_ == nullptr) {
-    // turn stream into stream source
+    // turn stream into a stream source
     auto source = std::dynamic_pointer_cast<DataStreamSource>(stream);
     op = std::make_shared<OutputOperator>(source);
   } else {
@@ -30,6 +32,10 @@ auto candy::Planner::plan(const std::shared_ptr<Stream>& stream) const -> std::s
       other_op->addChild(op, 1);
     } else if (stream->function_->getType() == FunctionType::Sink) {
       op = std::make_shared<SinkOperator>(stream->function_);
+    } else if (stream->function_->getType() == FunctionType::Topk) {
+      op = std::make_shared<TopkOperator>(stream->function_,concurrency_manager_);
+    } else {
+      throw std::runtime_error("Unsupported function type");
     }
   }
   for (auto& child : stream->streams_) {

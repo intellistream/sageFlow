@@ -2,6 +2,9 @@ add_subdirectory(
         utils
 )
 add_subdirectory(
+        index
+)
+add_subdirectory(
         common
 )
 add_subdirectory(

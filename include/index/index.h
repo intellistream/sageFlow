@@ -29,9 +29,9 @@ class Index {
   // Destructor
   virtual ~Index() = default;
 
-  virtual auto insert(uint64_t id) -> bool;
-  virtual auto erase(uint64_t id) -> bool;
-  virtual auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<int32_t>;
+  virtual auto insert(uint64_t id) -> bool = 0;
+  virtual auto erase(uint64_t id) -> bool = 0;
+  virtual auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<int32_t> = 0;
 };
 
 class GlobalIndex final : public Index {

@@ -14,12 +14,12 @@ class ConcurrencyController {
 
   // Destructor
   virtual ~ConcurrencyController() = default;
-  virtual auto insert( std::unique_ptr<VectorRecord> &record) -> bool;
+  virtual auto insert( std::unique_ptr<VectorRecord> &record) -> bool = 0;
 
-  virtual auto erase( std::unique_ptr<VectorRecord> &record) -> bool;  // maybe local index would use this
+  virtual auto erase( std::unique_ptr<VectorRecord> &record) -> bool = 0;  // maybe local index would use this
 
   virtual auto query( std::unique_ptr<VectorRecord> &record,
-                     int k) -> std::vector<std::unique_ptr<VectorRecord>>;
+                     int k) -> std::vector<std::unique_ptr<VectorRecord>> = 0;
 
   std::shared_ptr<StorageManager> storage_manager_ = nullptr;
 };

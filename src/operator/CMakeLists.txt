@@ -6,4 +6,9 @@ add_lib(
         operator.cpp
         output_operator.cpp
         sink_operator.cpp
+        topk_operator.cpp
+)
+target_link_libraries(
+        operator
+        function
 )

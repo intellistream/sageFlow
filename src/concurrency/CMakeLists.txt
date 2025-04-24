@@ -3,3 +3,7 @@ add_library(
         blank_controller.cpp
         concurrency_manager.cpp
 )
+target_link_libraries(
+        concurrency
+        index
+)

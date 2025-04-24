@@ -5,7 +5,6 @@
 #include <string>
 
 namespace candy {
-std::unique_ptr<Planner> planner = std::make_unique<Planner>();
 
 auto StreamEnvironment::loadConfiguration(const std::string &file_path) -> ConfigMap {
   ConfigMap config;
@@ -20,7 +19,7 @@ auto StreamEnvironment::execute() -> void {
     throw std::runtime_error("No streams to execute.");
   }
   for (auto &stream : streams_) {
-    auto op = planner->plan(stream);
+    auto op = planner_->plan(stream);
     operators_.push_back(std::move(op));
   }
   for (const auto &op : operators_) {

@@ -23,7 +23,6 @@ class Stream {
 
   // Apply a filter to the stream
   auto filter(std::unique_ptr<FilterFunction>& filter_func) -> std::shared_ptr<Stream>;
-
   auto filter(std::unique_ptr<FilterFunction> filter_func) -> std::shared_ptr<Stream>;
 
   // Apply a map function to the stream
@@ -33,6 +32,10 @@ class Stream {
   // Join with another stream
   auto join(std::shared_ptr<Stream>& other_plan, std::unique_ptr<JoinFunction>& join_func) -> std::shared_ptr<Stream>;
   auto join(std::shared_ptr<Stream> other_stream, std::unique_ptr<JoinFunction> join_func) -> std::shared_ptr<Stream>;
+
+  // topk
+  auto topk(int32_t index_id, int k) -> std::shared_ptr<Stream>;
+
 
   // Write to a sink
   auto writeSink(std::unique_ptr<SinkFunction>& sink_func) -> std::shared_ptr<Stream>;
