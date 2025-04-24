@@ -55,6 +55,9 @@ struct VectorRecord {
 
   // Equality operator for comparisons
   auto operator==(const VectorRecord &other) const -> bool;
+
+  bool Serialize(std::ostream &out) const;
+  bool Deserialize(std::istream &in);
 };
 enum class ResponseType { None, Record, List };  // NOLINT
 
