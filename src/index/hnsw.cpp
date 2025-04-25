@@ -11,12 +11,11 @@
 
 namespace candy {
 
-// ================== 内联实现 ==================
 inline HNSW::HNSW(int m, int efConstruction, int efSearch)
     : M_(m), ef_construction_(efConstruction), ef_search_(efSearch) {}
 
 inline float HNSW::l2_distance(const VectorRecord& a, const VectorRecord& b) const {
-    return storage_manager_->engine_->EuclideanDistance(a.data_, b.data_);
+  return storage_manager_->engine_->EuclideanDistance(a.data_, b.data_);
 }
 
 inline int HNSW::random_level() {
@@ -50,7 +49,8 @@ inline bool HNSW::insert(uint64_t uid) {
     while (improved) {
       improved = false;
       for (uint64_t nid : nodes_[ep].links[level]) {
-        if (l2_distance(*rec, *storage_manager_->getVectorByUid(nid)) < l2_distance(*rec, *storage_manager_->getVectorByUid(ep))) {
+        if (l2_distance(*rec, *storage_manager_->getVectorByUid(nid)) <
+            l2_distance(*rec, *storage_manager_->getVectorByUid(ep))) {
           ep = nid;
           improved = true;
         }
@@ -95,25 +95,29 @@ inline bool HNSW::insert(uint64_t uid) {
 inline void HNSW::search_layer(const VectorRecord& q, std::priority_queue<Neighbor>& top_candidates, int layer,
                                int ef) const {
   std::unordered_set<uint64_t> visited;
-  std::priority_queue<Neighbor> candidates = top_candidates;  // 需要扩展的节点（大顶堆）
+  std::priority_queue<Neighbor> candidates = top_candidates;  // 工作队列
 
-  while (!candidates.empty()) {
-    Neighbor cur = candidates.top();
-    candidates.pop();
+  // Step 1: 扩展候选节点并选择邻居
+  // 启发式方法：从当前候选节点中选择 M_ 个最接近 q 的邻居
+  std::vector<uint64_t> extended_candidates = select_neighbors_heuristic(q, {top_candidates.top().id}, ef, layer,
+                                                                         true,   // 扩展候选
+                                                                         true);  // 保留丢弃的连接
+  // 非启发式
+  // std::vector<uint64_t> extended_candidates = select_neighbors_basic(q, {top_candidates.top().id}, ef, layer);
 
-    if (cur.dist > top_candidates.top().dist) break;  // 剪枝
-
-    auto const& n_links = nodes_.at(cur.id).links[layer];
-    for (uint64_t nid : n_links) {
-      if (!visited.insert(nid).second) continue;
-      float dist = l2_distance(q, *storage_manager_->getVectorByUid(nid));
-      if (static_cast<int>(top_candidates.size()) < ef || dist < top_candidates.top().dist) {
-        top_candidates.push({nid, dist});
-        candidates.push({nid, dist});
-        if (static_cast<int>(top_candidates.size()) > ef) top_candidates.pop();
+  for (uint64_t nid : extended_candidates) {
+    if (!visited.insert(nid).second) continue;
+    float dist = l2_distance(q, *storage_manager_->getVectorByUid(nid));
+    if (static_cast<int>(candidates.size()) < ef || dist < candidates.top().dist) {
+      candidates.push({nid, dist});
+      if (static_cast<int>(candidates.size()) > ef) {
+        candidates.pop();
       }
     }
   }
+
+  // 将候选结果存入 top_candidates
+  top_candidates = candidates;
 }
 
 inline bool HNSW::erase(uint64_t uid) {
@@ -141,6 +145,84 @@ inline bool HNSW::erase(uint64_t uid) {
   return true;
 }
 
+inline std::vector<uint64_t> HNSW::select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
+                                                          int lc) const {
+  std::vector<uint64_t> R;         // 存储选中的 M 个邻居
+  std::unordered_set<uint64_t> W;  // 工作队列，存放候选节点
+  W.insert(C.begin(), C.end());    // 初始候选节点
+
+  // Step 1: 从当前候选节点 C 中选择距离最小的 M 个邻居
+  while (W.size() > 0 && R.size() < static_cast<size_t>(M)) {
+    // 提取距离 q 最近的元素 e
+    uint64_t e = *std::min_element(W.begin(), W.end(), [&q, this](uint64_t a, uint64_t b) {
+      return l2_distance(*storage_manager_->getVectorByUid(a), q) <
+             l2_distance(*storage_manager_->getVectorByUid(b), q);
+    });
+    W.erase(e);  // 从 W 中移除 e
+
+    // 如果 e 更接近 q，相较于 R 中的任何元素，则加入 R
+    if (R.size() < static_cast<size_t>(M)) {
+      R.push_back(e);
+    }
+  }
+
+  return R;  // 返回选中的 M 个邻居
+}
+
+inline std::vector<uint64_t> HNSW::select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& C,
+                                                              int M, int lc, bool extendCandidates,
+                                                              bool keepPrunedConnections) const {
+  std::vector<uint64_t> R;         // 存储选中的邻居
+  std::unordered_set<uint64_t> W;  // 工作队列，存放候选节点
+  W.insert(C.begin(), C.end());    // 初始候选节点
+
+  // Step 1: 扩展候选节点的邻居
+  if (extendCandidates) {
+    for (uint64_t e : C) {
+      auto const& e_neighborhood = nodes_.at(e).links[lc];  // 获取节点 e 的邻居
+      for (uint64_t eadj : e_neighborhood) {
+        if (W.find(eadj) == W.end()) {  // 如果 eadj 不在 W 中
+          W.insert(eadj);               // 将 eadj 加入 W
+        }
+      }
+    }
+  }
+
+  std::unordered_set<uint64_t> Wd;  // 丢弃的候选节点（那些不能加入 R 的）
+
+  // Step 2: 从 W 中选择前 M 个最接近 q 的邻居
+  while (W.size() > 0 && R.size() < static_cast<size_t>(M)) {
+    // 提取距离 q 最近的元素 e
+    uint64_t e = *std::min_element(W.begin(), W.end(), [&q, this](uint64_t a, uint64_t b) {
+      return l2_distance(*storage_manager_->getVectorByUid(a), q) <
+             l2_distance(*storage_manager_->getVectorByUid(b), q);
+    });
+    W.erase(e);  // 从 W 中移除 e
+
+    // 如果 e 更接近 q，相较于 R 中的任何元素，则加入 R
+    if (R.size() < static_cast<size_t>(M)) {
+      R.push_back(e);
+    } else {
+      // 如果 e 不在 R 中，加入丢弃队列 Wd
+      Wd.insert(e);
+    }
+  }
+
+  // Step 3: 如果 keepPrunedConnections 为真，处理丢弃的连接（从 Wd 中选）
+  if (keepPrunedConnections) {
+    while (Wd.size() > 0 && R.size() < static_cast<size_t>(M)) {
+      uint64_t e = *std::min_element(Wd.begin(), Wd.end(), [&q, this](uint64_t a, uint64_t b) {
+        return l2_distance(*storage_manager_->getVectorByUid(a), q) <
+               l2_distance(*storage_manager_->getVectorByUid(b), q);
+      });
+      Wd.erase(e);     // 从 Wd 中移除 e
+      R.push_back(e);  // 将 e 加入 R
+    }
+  }
+
+  return R;  // 返回选中的 M 个邻居
+}
+
 inline std::vector<int32_t> HNSW::query(std::unique_ptr<VectorRecord>& record, int k) {
   if (entry_point_ == std::numeric_limits<uint64_t>::max()) return {};
 
@@ -151,7 +233,8 @@ inline std::vector<int32_t> HNSW::query(std::unique_ptr<VectorRecord>& record, i
     while (improved) {
       improved = false;
       for (uint64_t nid : nodes_[ep].links[level]) {
-        if (l2_distance(*record, *storage_manager_->getVectorByUid(nid)) < l2_distance(*record, *storage_manager_->getVectorByUid(ep))) {
+        if (l2_distance(*record, *storage_manager_->getVectorByUid(nid)) <
+            l2_distance(*record, *storage_manager_->getVectorByUid(ep))) {
           ep = nid;
           improved = true;
         }
