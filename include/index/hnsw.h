@@ -12,9 +12,14 @@ class HNSW final : public Index {
   bool insert(uint64_t uid) override;
   bool erase(uint64_t uid) override;
   std::vector<int32_t> query(std::unique_ptr<VectorRecord>& record, int k) override;
+  std::vector<uint64_t> select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
+                                                         int lc, bool extendCandidates,
+                                                         bool keepPrunedConnections) const;
 
- private:
-  struct Neighbor {
+ inline std::vector<uint64_t> select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
+                                                           int lc) const;
+
+     private : struct Neighbor {
     uint64_t id;  // uid（即 storage_engine 中的 id）
     float dist;   // 与查询向量的 L2 距离
 
@@ -41,6 +46,7 @@ class HNSW final : public Index {
   // ---------- 内部工具 ----------
   float l2_distance(const VectorRecord& a, const VectorRecord& b) const;
   void search_layer(const VectorRecord& q, std::priority_queue<Neighbor>& top_candidates, int layer, int ef) const;
+
   int random_level();
 };
 }  // namespace candy
