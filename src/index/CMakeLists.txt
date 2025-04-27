@@ -3,6 +3,7 @@ add_library(
         knn.cpp
         hnsw.cpp
         vectraflow.cpp
+        ivf.cpp
 )
 target_link_libraries(
         index
