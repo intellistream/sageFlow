@@ -11,7 +11,7 @@ class HNSW final : public Index {
 
   bool insert(uint64_t uid) override;
   bool erase(uint64_t uid) override;
-  std::vector<int32_t> query(std::unique_ptr<VectorRecord>& record, int k) override;
+  std::vector<uint64_t> query(std::unique_ptr<VectorRecord>& record, int k) override;
   std::vector<uint64_t> select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
                                                          int lc, bool extendCandidates,
                                                          bool keepPrunedConnections) const;

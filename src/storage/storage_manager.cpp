@@ -2,12 +2,11 @@
 
 #include <queue>
 
-auto candy::StorageManager::insert(std::unique_ptr<VectorRecord>& record) -> idx_t {
+auto candy::StorageManager::insert(std::unique_ptr<VectorRecord>& record) {
   auto uid = record->uid_;
   auto idx = static_cast<int32_t>(records_.size());
   records_.push_back(std::move(record));
   map_.emplace(uid, idx);
-  return idx;
 }
 
 auto candy::StorageManager::erase(const uint64_t vector_id) -> bool {
@@ -26,13 +25,13 @@ auto candy::StorageManager::getVectorByUid(const uint64_t vector_id) -> std::uni
   return nullptr;
 }
 
-auto candy::StorageManager::getVectorByUid(const uint64_t vector_id, int32_t &idx) -> std::unique_ptr<VectorRecord> {
-  if (const auto it = map_.find(vector_id); it != map_.end()) {
-    idx = it->second;
-    return std::make_unique<VectorRecord>(*records_[it->second]);
-  }
-  return nullptr;
-}
+// auto candy::StorageManager::getVectorByUid(const uint64_t vector_id, int32_t &idx) -> std::unique_ptr<VectorRecord> {
+//   if (const auto it = map_.find(vector_id); it != map_.end()) {
+//     idx = it->second;
+//     return std::make_unique<VectorRecord>(*records_[it->second]);
+//   }
+//   return nullptr;
+// }
 
 auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector_ids)
     -> std::vector<std::unique_ptr<VectorRecord>> {
@@ -45,25 +44,25 @@ auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector
   return result;
 }
 
-auto candy::StorageManager::getVectorById(int32_t id) const -> std::unique_ptr<VectorRecord> {
-  if (id < 0 || id >= static_cast<int32_t>(records_.size())) {
-    return nullptr;
-  }
-  return std::make_unique<VectorRecord>(*records_[id]);
-}
+// auto candy::StorageManager::getVectorById(int32_t id) const -> std::unique_ptr<VectorRecord> {
+//   if (id < 0 || id >= static_cast<int32_t>(records_.size())) {
+//     return nullptr;
+//   }
+//   return std::make_unique<VectorRecord>(*records_[id]);
+// }
 
-auto candy::StorageManager::getVectorsByIds(const std::vector<int32_t>& ids) const
-    -> std::vector<std::unique_ptr<VectorRecord>> {
-  std::vector<std::unique_ptr<VectorRecord>> result;
-  for (const auto& id : ids) {
-    if (auto record = getVectorById(id)) {
-      result.push_back(std::move(record));
-    }
-  }
-  return result;
-}
+// auto candy::StorageManager::getVectorsByIds(const std::vector<int32_t>& ids) const
+//     -> std::vector<std::unique_ptr<VectorRecord>> {
+//   std::vector<std::unique_ptr<VectorRecord>> result;
+//   for (const auto& id : ids) {
+//     if (auto record = getVectorById(id)) {
+//       result.push_back(std::move(record));
+//     }
+//   }
+//   return result;
+// }
 
-auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord>& record, int k) const -> std::vector<int32_t> {
+auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord>& record, int k) const -> std::vector<uint64_t> {
   const auto rec = record.get();
   std::priority_queue<std::pair<double, int32_t>> pq;
   for (int i = 0; i < records_.size(); ++i) {
@@ -76,9 +75,9 @@ auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord>& record, in
       pq.emplace(dist, i);
     }
   }
-  std::vector<int32_t> result;
+  std::vector<uint64_t> result;
   while (!pq.empty()) {
-    result.push_back(pq.top().second);
+    result.push_back(records_[pq.top().second]->uid_);
     pq.pop();
   }
   std::ranges::reverse(result);

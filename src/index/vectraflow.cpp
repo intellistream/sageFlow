@@ -12,9 +12,9 @@ auto candy::VectraFlow::insert(uint64_t id) -> bool {
 // TODO: 那就不支持 erase 罢（
 auto candy::VectraFlow::erase(uint64_t id) -> bool { return true; }
 
-auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<int32_t> {
+auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> {
     const auto rec = record.get();
-    std::vector<std::priority_queue<std::pair<double, int32_t>>> pq_list(omp_get_max_threads());
+    std::vector<std::priority_queue<std::pair<double, uint64_t>>> pq_list(omp_get_max_threads());
 
 		std::vector<double> selfquare(datas.size());
 		for (int i = 0; i < datas.size(); i ++) {
@@ -46,7 +46,7 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     }
 
     // 合并各线程的结果
-    std::priority_queue<std::pair<double, int32_t>> global_pq;
+    std::priority_queue<std::pair<double, uint64_t>> global_pq;
     for (int t = 0; t < omp_get_max_threads(); ++t) {
         while (!pq_list[t].empty()) {
             auto item = pq_list[t].top();
@@ -61,11 +61,9 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     }
 
     // 提取最终的结果
-    std::vector<int32_t> result;
+    std::vector<uint64_t> result;
     while (!global_pq.empty()) {
-        int32_t id_in_storage;
-        auto rec = storage_manager_->getVectorByUid(global_pq.top().second, id_in_storage).get();
-        result.push_back(id_in_storage);
+        result.push_back(global_pq.top().second);
         global_pq.pop();
     }
     reverse(result.begin(), result.end());

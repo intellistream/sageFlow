@@ -223,7 +223,7 @@ inline std::vector<uint64_t> HNSW::select_neighbors_heuristic(const VectorRecord
   return R;  // 返回选中的 M 个邻居
 }
 
-inline std::vector<int32_t> HNSW::query(std::unique_ptr<VectorRecord>& record, int k) {
+inline std::vector<uint64_t> HNSW::query(std::unique_ptr<VectorRecord>& record, int k) {
   if (entry_point_ == std::numeric_limits<uint64_t>::max()) return {};
 
   uint64_t ep = entry_point_;
@@ -255,11 +255,9 @@ inline std::vector<int32_t> HNSW::query(std::unique_ptr<VectorRecord>& record, i
   }
   std::ranges::sort(tmp, [](auto const& a, auto const& b) { return a.dist < b.dist; });
 
-  std::vector<int32_t> result;
+  std::vector<uint64_t> result;
   for (size_t i = 0; i < tmp.size() && static_cast<int>(i) < k; ++i) {
-    int32_t sto;
-    auto rec = storage_manager_->getVectorByUid(tmp[i].id, sto);
-    result.push_back(sto);  // 返回 storage 的下标
+    result.push_back(tmp[i].id);  // 返回 storage 的下标
   }
   return result;
 }
