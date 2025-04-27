@@ -18,7 +18,7 @@ candy::BlankController::~BlankController() = default;
 auto candy::BlankController::insert(std::unique_ptr<VectorRecord>& record) -> bool {
   const auto idx = storage_manager_->insert(record);
   if (index_) {
-    index_->insert(idx);
+    index_->insert(record->uid_);
   }
   return true;
 }
@@ -28,5 +28,5 @@ auto candy::BlankController::erase(std::unique_ptr<VectorRecord>& record) -> boo
 auto candy::BlankController::query(std::unique_ptr<VectorRecord>& record, int k)
     -> std::vector<std::unique_ptr<candy::VectorRecord>> {
   const auto idxes = index_->query(record, k);
-  return storage_manager_->getVectorsByIds(idxes);
+  return storage_manager_->getVectorsByUids(idxes);
 }
