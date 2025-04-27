@@ -35,6 +35,9 @@ struct VectorData {
 
   auto operator!=(const VectorData &other) const -> bool;
   // Inequality operator
+
+  bool Serialize(std::ostream &out) const;
+  bool Deserialize(std::istream &in);
 };
 
 // Wrapper for vector data with metadata (e.g., ID, timestamp)
