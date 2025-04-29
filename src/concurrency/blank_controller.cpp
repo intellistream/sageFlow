@@ -16,8 +16,8 @@ candy::BlankController::BlankController(std::shared_ptr<Index> index) {
 candy::BlankController::~BlankController() = default;
 
 auto candy::BlankController::insert(std::unique_ptr<VectorRecord>& record) -> bool {
-  storage_manager_->insert(record);
   index_->insert(record->uid_);
+  storage_manager_->insert(record);
   return true;
 }
 
