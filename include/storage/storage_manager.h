@@ -14,10 +14,8 @@ namespace candy {
 using idx_t = int32_t;
 
 class StorageManager {
-  
-
  public:
- // 写 private HNSW 访问不了
+  // 写 private HNSW 访问不了
   std::shared_ptr<ComputeEngine> engine_ = nullptr;
   // data
   std::unordered_map<uint64_t, int32_t> map_;
@@ -28,18 +26,18 @@ class StorageManager {
   // Destructor
   ~StorageManager() = default;
 
-  auto insert(std::unique_ptr<VectorRecord> &record);
+  auto insert(std::unique_ptr<VectorRecord> &record) -> void;
 
   auto erase(uint64_t vector_id) -> bool;
 
   auto getVectorByUid(uint64_t vector_id) -> std::unique_ptr<VectorRecord>;
-//   auto getVectorByUid(uint64_t vector_id, int32_t&) -> std::unique_ptr<VectorRecord>;
+  //   auto getVectorByUid(uint64_t vector_id, int32_t&) -> std::unique_ptr<VectorRecord>;
 
   auto getVectorsByUids(const std::vector<uint64_t> &vector_ids) -> std::vector<std::unique_ptr<VectorRecord>>;
 
-//   auto getVectorById(int32_t id) const -> std::unique_ptr<VectorRecord>;
+  //   auto getVectorById(int32_t id) const -> std::unique_ptr<VectorRecord>;
 
-//   auto getVectorsByIds(const std::vector<int32_t> &ids) const -> std::vector<std::unique_ptr<VectorRecord>>;
+  //   auto getVectorsByIds(const std::vector<int32_t> &ids) const -> std::vector<std::unique_ptr<VectorRecord>>;
   auto topk(const std::unique_ptr<VectorRecord> &record, int k) const -> std::vector<uint64_t>;
 
  private:

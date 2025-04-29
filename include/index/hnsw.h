@@ -6,34 +6,35 @@
 namespace candy {
 class HNSW final : public Index {
  public:
-  explicit HNSW(int m = 16, int efConstruction = 200, int efSearch = 50);
+  explicit HNSW(int m = 16, int ef_construction = 200, int ef_search = 50) {}
+
   ~HNSW() override = default;
 
-  bool insert(uint64_t uid) override;
-  bool erase(uint64_t uid) override;
-  std::vector<uint64_t> query(std::unique_ptr<VectorRecord>& record, int k) override;
-  std::vector<uint64_t> select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
-                                                         int lc, bool extendCandidates,
-                                                         bool keepPrunedConnections) const;
+  auto insert(uint64_t uid) -> bool override;
+  auto erase(uint64_t uid) -> bool override;
+  auto query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> override;
+  auto select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& c, int m, int lc,
+                                  bool extend_candidates, bool keep_pruned_connections) const -> std::vector<uint64_t>;
 
- inline std::vector<uint64_t> select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
-                                                           int lc) const;
+  inline auto select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
+                                     int lc) const -> std::vector<uint64_t>;
 
-     private : struct Neighbor {
-    uint64_t id;  // uid（即 storage_engine 中的 id）
-    float dist;   // 与查询向量的 L2 距离
+ private:
+  struct Neighbor {
+    uint64_t id_;  // uid（即 storage_engine 中的 id）
+    float dist_;   // 与查询向量的 L2 距离
 
-    bool operator<(Neighbor const& other) const { return dist > other.dist; }  // 小顶堆
+    auto operator<(Neighbor const& other) const -> bool { return dist_ > other.dist_; }  // 小顶堆
   };
 
   struct Node {
-    uint64_t id;                               // uid
-    int level;                                 // 节点的最高层级
-    std::vector<std::vector<uint64_t>> links;  // links[l] 为该节点在第 l 层的邻居 uid 列表
+    uint64_t id_;                               // uid
+    int level_;                                 // 节点的最高层级
+    std::vector<std::vector<uint64_t>> links_;  // links[l] 为该节点在第 l 层的邻居 uid 列表
   };
 
   // ---------- 参数 ----------
-  int M_;                // 每层最大邻居数（除顶层）
+  int m_;                // 每层最大邻居数（除顶层）
   int ef_construction_;  // 构建时候选集大小
   int ef_search_;        // 查询时候选集大小
 
@@ -44,9 +45,9 @@ class HNSW final : public Index {
   std::mt19937 rng_{std::random_device{}()};
 
   // ---------- 内部工具 ----------
-  float l2_distance(const VectorRecord& a, const VectorRecord& b) const;
+  auto l2_distance(const VectorRecord& a, const VectorRecord& b) const -> float;
   void search_layer(const VectorRecord& q, std::priority_queue<Neighbor>& top_candidates, int layer, int ef) const;
 
-  int random_level();
+  auto random_level() -> int;
 };
 }  // namespace candy
