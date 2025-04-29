@@ -31,13 +31,9 @@ class StorageManager {
   auto erase(uint64_t vector_id) -> bool;
 
   auto getVectorByUid(uint64_t vector_id) -> std::unique_ptr<VectorRecord>;
-  //   auto getVectorByUid(uint64_t vector_id, int32_t&) -> std::unique_ptr<VectorRecord>;
 
   auto getVectorsByUids(const std::vector<uint64_t> &vector_ids) -> std::vector<std::unique_ptr<VectorRecord>>;
 
-  //   auto getVectorById(int32_t id) const -> std::unique_ptr<VectorRecord>;
-
-  //   auto getVectorsByIds(const std::vector<int32_t> &ids) const -> std::vector<std::unique_ptr<VectorRecord>>;
   auto topk(const std::unique_ptr<VectorRecord> &record, int k) const -> std::vector<uint64_t>;
 
  private:

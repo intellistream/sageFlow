@@ -2,8 +2,9 @@
 
 namespace candy {
 class VectraFlow final : public Index {
-    private:
-        std::vector<uint64_t> datas;
+ private:
+  std::vector<uint64_t> datas_;
+
  public:
   ~VectraFlow() override;
   auto insert(uint64_t id) -> bool override;
