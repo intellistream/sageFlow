@@ -2,7 +2,7 @@
 
 #include <queue>
 
-auto candy::StorageManager::insert(std::unique_ptr<VectorRecord>& record) {
+auto candy::StorageManager::insert(std::unique_ptr<VectorRecord>& record) -> void {
   auto uid = record->uid_;
   auto idx = static_cast<int32_t>(records_.size());
   records_.push_back(std::move(record));

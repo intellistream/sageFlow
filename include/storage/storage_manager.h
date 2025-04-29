@@ -28,7 +28,7 @@ class StorageManager {
   // Destructor
   ~StorageManager() = default;
 
-  auto insert(std::unique_ptr<VectorRecord> &record);
+  auto insert(std::unique_ptr<VectorRecord> &record) -> void;
 
   auto erase(uint64_t vector_id) -> bool;
 
