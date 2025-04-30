@@ -1,6 +1,6 @@
 #pragma once
 #include <utility>
-#include <vector>
+#include <deque>
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -21,7 +21,7 @@ class FileStreamSource : public DataStreamSource {
 
  private:
   std::string file_path_;
-  std::vector<std::unique_ptr<VectorRecord>> records_;
+  std::deque<std::unique_ptr<VectorRecord>> records_;  // Using deque for efficient FIFO operations
   std::atomic<bool> running_{false};
   uint64_t timeout_ms_{1000};
   std::mutex mtx_;

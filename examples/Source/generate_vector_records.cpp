@@ -3,6 +3,7 @@
 #include <random>
 #include <string>
 #include <vector>
+#include <chrono>
 
 #include "common/data_types.h"
 
@@ -64,6 +65,12 @@ int main(int argc, char* argv[]) {
         output_path = argv[1];
     }
     
+    // Number of records to generate
+    int num_records = 1000;
+    if (argc > 2) {
+        num_records = std::stoi(argv[2]);
+    }
+    
     // Open output file
     std::ofstream output_file(output_path, std::ios::binary);
     if (!output_file.is_open()) {
@@ -77,14 +84,14 @@ int main(int argc, char* argv[]) {
     
     // Distributions for various fields
     std::uniform_int_distribution<uint64_t> uid_dist(1, 1000000);
-    std::uniform_int_distribution<int> dim_dist(2, 1024);  // Dimensions between 2 and 1024
+    std::uniform_int_distribution<int> dim_dist(2, 128);  // More reasonable dimensions
     std::uniform_int_distribution<int> type_dist(1, 6);    // Data types from Int8 to Float64
     
-    // Current timestamp as starting point
-    int64_t base_timestamp = static_cast<int64_t>(time(nullptr));
+    // Current timestamp as starting point - use high-precision clock
+    auto now = std::chrono::high_resolution_clock::now();
+    int64_t base_timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()).count();
     
-    // Generate and write 1000 vector records
-    const int num_records = 1000;
     std::cout << "Generating " << num_records << " vector records..." << std::endl;
     
     // Write number of records as header
@@ -94,9 +101,11 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < num_records; ++i) {
         // Generate random values for the vector record
         uint64_t uid = uid_dist(gen);
-        int64_t timestamp = base_timestamp + i;  // Sequential timestamps
-        int32_t dim = dim_dist(gen);
-        candy::DataType type = static_cast<candy::DataType>(type_dist(gen));
+        int64_t timestamp = base_timestamp + i*10;  // Sequential timestamps with 10ms interval
+        
+        // Fixed dimension and type for more consistent data
+        int32_t dim = 4;  // Fixed dimension for simplicity
+        candy::DataType type = candy::DataType::Float32;  // Fixed type for simplicity
         
         // Generate random vector data
         candy::VectorData vector_data = generateRandomVectorData(gen, dim, type);
@@ -112,13 +121,14 @@ int main(int argc, char* argv[]) {
         }
         
         // Progress output
-        if (i % 100 == 0) {
-            std::cout << "Generated " << i << " records..." << std::endl;
+        if (i % 100 == 0 || i == num_records - 1) {
+            std::cout << "Generated " << (i+1) << " records..." << std::endl;
         }
     }
     
     output_file.close();
     std::cout << "Successfully generated " << num_records << " vector records to " << output_path << std::endl;
+    std::cout << "Base timestamp: " << base_timestamp << std::endl;
     
     return 0;
 }

@@ -25,6 +25,19 @@ void candy::FileStreamSource::Init() {
       return;
     }
 
+    // Read the header to get number of records if present
+    int32_t record_count = 0;
+    auto header_pos = file.tellg();
+    file.read(reinterpret_cast<char*>(&record_count), sizeof(int32_t));
+    if (!file) {
+      // If header read fails, rewind and try to read records directly
+      file.clear();
+      file.seekg(header_pos);
+      std::cout << "No header found in file, attempting to read records directly" << std::endl;
+    } else {
+      std::cout << "File contains " << record_count << " records according to header" << std::endl;
+    }
+
     auto last_data_time = std::chrono::steady_clock::now();
     while (running_) {
       if (timeout_ms_ > 0) {
@@ -40,6 +53,11 @@ void candy::FileStreamSource::Init() {
       auto record = std::make_unique<VectorRecord>(0, 0, 0, DataType::None, nullptr);
       auto pos = file.tellg();
       if (!record->Deserialize(file)) {
+        // Handle end of file or read error
+        if (file.eof()) {
+          std::cout << "Reached end of file" << std::endl;
+          break;
+        }
         file.clear();
         file.seekg(pos);
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -54,7 +72,7 @@ void candy::FileStreamSource::Init() {
 
       {
         std::lock_guard<std::mutex> lock(mtx_);
-        records_.push_back(std::move(record));
+        records_.push_front(std::move(record));  // Use push_front so we can pop_back in FIFO order
       }
     }
     file.close();
