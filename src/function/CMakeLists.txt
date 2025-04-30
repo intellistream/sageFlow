@@ -6,4 +6,5 @@ add_lib(
         map_function.cpp
         sink_function.cpp
         topk_function.cpp
+        window_function.cpp
 )

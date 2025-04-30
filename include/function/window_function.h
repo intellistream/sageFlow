@@ -15,9 +15,9 @@ class WindowFunction final : public Function {
 
   auto Execute(Response &resp) -> Response override;
 
-  auto getWindowType() -> WindowType;
-  auto getWindowSize() -> int;
-  auto getSlideSize() -> int;
+  auto getWindowType() const -> WindowType;
+  auto getWindowSize() const -> int;
+  auto getSlideSize() const -> int;
 
  private:
   WindowType window_type_;

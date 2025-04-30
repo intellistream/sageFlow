@@ -12,7 +12,8 @@ enum class FunctionType {  // NOLINT
   Map,
   Join,
   Sink,
-  Topk
+  Topk,
+  Window
 };
 
 class Function {

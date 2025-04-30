@@ -9,7 +9,7 @@
 #include "function/function_api.h"
 
 namespace candy {
-enum class OperatorType { NONE, OUTPUT, FILTER, MAP, JOIN, SINK,TOPK };  // NOLINT
+enum class OperatorType { NONE, OUTPUT, FILTER, MAP, JOIN, SINK,TOPK,WINDOW };  // NOLINT
 
 // Base class for all operators
 class Operator {
