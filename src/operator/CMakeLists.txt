@@ -7,6 +7,9 @@ add_lib(
         output_operator.cpp
         sink_operator.cpp
         topk_operator.cpp
+        join_operator_methods/base_method.cpp
+        join_operator_methods/eager/bruteforce.cpp
+        join_operator_methods/lazy/bruteforce.cpp
 )
 target_link_libraries(
         operator

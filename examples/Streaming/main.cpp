@@ -61,7 +61,11 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
             }))
         ->join(join_stream, std::make_unique<JoinFunction>(
                                 "join1", [](std::unique_ptr<VectorRecord> &l,
-                                            std::unique_ptr<VectorRecord> &r) { return l->uid_ == r->uid_; })
+                                            std::unique_ptr<VectorRecord> &r) { 
+                                              auto ret = std::make_unique<VectorRecord>(l->uid_, l->timestamp_, l->data_);
+                                              return std :: move(ret);
+                                             // return l->uid_ == r->uid_; 
+                                          })
 
                    )
         ->writeSink(std::make_unique<SinkFunction>(

@@ -26,7 +26,7 @@ void candy::OutputOperator::open() {
 
 bool candy::OutputOperator::process(Response& data, int slot) {
   if (output_choice_ == OutputChoice::Broadcast) {
-    for (int i = 0; i < children_.size(); i++) {
+    for (size_t i = 0; i < children_.size(); i++) {
       auto copy = data;
       emit(i, copy);
     }

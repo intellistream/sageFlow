@@ -2,10 +2,16 @@
 
 candy::JoinFunction::JoinFunction(std::string name) : Function(std::move(name), FunctionType::Join) {}
 
-candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func)
-    : Function(std::move(name), FunctionType::Join), join_func_(std::move(join_func)) {}
+candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func) :
+  Function(std::move(name), FunctionType :: Join), join_func_(std::move(join_func)) {}
 
-candy::Response candy::JoinFunction::Execute(Response& left, Response& right) {
+// TODO : 确定这个滑动窗口的步长
+// 目前是 window / 4
+candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t time_window)
+    : Function(std::move(name), FunctionType::Join), 
+    windowL (time_window, time_window / 4), windowR(time_window, time_window / 4), join_func_(std::move(join_func)) {}
+
+candy::Response candy::JoinFunction::Execute(Response& left, Response& right){
   if (left.type_ == ResponseType::Record && right.type_ == ResponseType::Record) {
     if (auto left_record = std::move(left.record_), right_record = std::move(right.record_);
         join_func_(left_record, right_record)) {
@@ -21,4 +27,9 @@ auto candy::JoinFunction::getOtherStream() -> std::shared_ptr<Stream>& { return 
 
 auto candy::JoinFunction::setOtherStream(std::shared_ptr<Stream> other_plan) -> void {
   other_stream_ = std::move(other_plan);
+}
+
+auto candy::JoinFunction::setWindow(int64_t windowsize, int64_t stepsize) -> void { 
+  windowL.setWindow(windowsize, stepsize);
+  windowR.setWindow(windowsize, stepsize);
 }
