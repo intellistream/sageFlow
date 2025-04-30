@@ -8,7 +8,7 @@
 namespace candy {
 TEST(FileStreamSourceTest, BasicLoad) {
   // Create a temporary file with one serialized VectorRecord
-  const char* test_file = "/tmp/test_source.dat";
+  auto test_file = "/tmp/test_source.dat";
   {
     std::ofstream out(test_file, std::ios::binary);
     VectorRecord record(1, 100, 2, DataType::Int32, reinterpret_cast<char*>(new int[2]{10, 20}));

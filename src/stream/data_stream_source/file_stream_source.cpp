@@ -2,12 +2,14 @@
 // Created by Pygon on 25-3-14.
 //
 #include "stream/data_stream_source/file_stream_source.h"
-#include "common/data_types.h"
+
+#include <cassert>
+#include <chrono>
 #include <fstream>
 #include <iostream>
-#include <chrono>
 #include <thread>
-#include <cassert>
+
+#include "common/data_types.h"
 
 candy::FileStreamSource::FileStreamSource(std::string name)
     : DataStreamSource(std::move(name), DataStreamSourceType::File) {}
@@ -24,13 +26,14 @@ void candy::FileStreamSource::Init() {
       running_ = false;
       return;
     }
-
+    auto record_cnt = 0;
+    file.read(reinterpret_cast<char*>(&record_cnt), sizeof(int32_t));
     auto last_data_time = std::chrono::steady_clock::now();
     while (running_) {
       if (timeout_ms_ > 0) {
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-          std::chrono::steady_clock::now() - last_data_time
-        ).count();
+        auto elapsed =
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_data_time)
+                .count();
         if (static_cast<uint64_t>(elapsed) > timeout_ms_) {
           std::cout << "FileStreamSource timeout after " << elapsed << " ms" << std::endl;
           break;
