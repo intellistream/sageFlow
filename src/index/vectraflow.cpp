@@ -5,7 +5,7 @@
 candy::VectraFlow::~VectraFlow() = default;
 
 auto candy::VectraFlow::insert(uint64_t id) -> bool { 
-    datas.push_back(id);
+    datas_.push_back(id);
     return true; 
 }
 
@@ -16,9 +16,9 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     const auto rec = record.get();
     std::vector<std::priority_queue<std::pair<double, uint64_t>>> pq_list(omp_get_max_threads());
 
-    std::vector<double> selfquare(datas.size());
-    for (size_t i = 0; i < datas.size(); i++) {
-        auto rec = storage_manager_->getVectorByUid(datas[i]).get();
+    std::vector<double> selfquare(datas_.size());
+    for (size_t i = 0; i < datas_.size(); i++) {
+        auto rec = storage_manager_->getVectorByUid(datas_[i]).get();
         auto square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
         selfquare.emplace_back(square);
     }
@@ -29,8 +29,8 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     #ifdef _OPENMP
     #pragma omp parallel for
     #endif
-    for (size_t i = 0; i < datas.size(); ++i) {
-        const auto local_rec = storage_manager_->getVectorByUid(datas[i]).get();
+    for (size_t i = 0; i < datas_.size(); ++i) {
+        const auto local_rec = storage_manager_->getVectorByUid(datas_[i]).get();
         //auto dist = storage_manager_->engine_->EuclideanDistance(rec->data_, local_rec->data_);
 
         // VectraFlow 特有的计算方式
@@ -40,10 +40,10 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
         int thread_id = omp_get_thread_num(); // 获取当前线程的 ID
         // 对每个线程使用本地的优先队列
         if (pq_list[thread_id].size() < static_cast<size_t>(k)) {
-            pq_list[thread_id].emplace(dist, datas[i]);
+            pq_list[thread_id].emplace(dist, datas_[i]);
         } else if (dist < pq_list[thread_id].top().first) {
             pq_list[thread_id].pop();
-            pq_list[thread_id].emplace(dist, datas[i]);
+            pq_list[thread_id].emplace(dist, datas_[i]);
         }
     }
 
