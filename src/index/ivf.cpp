@@ -25,11 +25,11 @@ int Ivf::assignToCluster(const VectorData& vec) {
     int best_cluster = 0;
     double min_distance = std::numeric_limits<double>::max();
     
-    for (int i = 0; i < centroids_.size(); ++i) {
+    for (size_t i = 0; i < centroids_.size(); ++i) {
         double distance = storage_manager_->engine_->EuclideanDistance(vec, centroids_[i]);
         if (distance < min_distance) {
             min_distance = distance;
-            best_cluster = i;
+            best_cluster = static_cast<int>(i);
         }
     }
     

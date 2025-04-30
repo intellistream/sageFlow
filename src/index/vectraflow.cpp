@@ -16,28 +16,30 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     const auto rec = record.get();
     std::vector<std::priority_queue<std::pair<double, uint64_t>>> pq_list(omp_get_max_threads());
 
-		std::vector<double> selfquare(datas.size());
-		for (int i = 0; i < datas.size(); i ++) {
-			auto rec = storage_manager_->getVectorByUid(datas[i]).get();
-			auto square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
-			selfquare.emplace_back(square);
-		}
+    std::vector<double> selfquare(datas.size());
+    for (size_t i = 0; i < datas.size(); i++) {
+        auto rec = storage_manager_->getVectorByUid(datas[i]).get();
+        auto square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
+        selfquare.emplace_back(square);
+    }
 
-		auto input_vector_square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
+    auto input_vector_square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
 
     // 并行计算距离
+    #ifdef _OPENMP
     #pragma omp parallel for
-    for (int i = 0; i < datas.size(); ++i) {
+    #endif
+    for (size_t i = 0; i < datas.size(); ++i) {
         const auto local_rec = storage_manager_->getVectorByUid(datas[i]).get();
         //auto dist = storage_manager_->engine_->EuclideanDistance(rec->data_, local_rec->data_);
 
-				// VectraFlow 特有的计算方式
-				auto dist = input_vector_square + selfquare[i] - 
-					2 * storage_manager_->engine_->dotmultiply(rec->data_, local_rec->data_);
+        // VectraFlow 特有的计算方式
+        auto dist = input_vector_square + selfquare[i] - 
+            2 * storage_manager_->engine_->dotmultiply(rec->data_, local_rec->data_);
 
         int thread_id = omp_get_thread_num(); // 获取当前线程的 ID
         // 对每个线程使用本地的优先队列
-        if (pq_list[thread_id].size() < k) {
+        if (pq_list[thread_id].size() < static_cast<size_t>(k)) {
             pq_list[thread_id].emplace(dist, datas[i]);
         } else if (dist < pq_list[thread_id].top().first) {
             pq_list[thread_id].pop();
@@ -51,7 +53,7 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
         while (!pq_list[t].empty()) {
             auto item = pq_list[t].top();
             pq_list[t].pop();
-            if (global_pq.size() < k) {
+            if (global_pq.size() < static_cast<size_t>(k)) {
                 global_pq.emplace(item);
             } else if (item.first < global_pq.top().first) {
                 global_pq.pop();
