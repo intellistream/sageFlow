@@ -4,6 +4,7 @@ add_lib(
         stream.cpp
         data_stream_source/data_stream_source.cpp
         data_stream_source/file_stream_source.cpp
+        data_stream_source/simple_stream_source.cpp
 )
 target_link_libraries(
         stream

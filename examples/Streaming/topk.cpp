@@ -12,6 +12,7 @@
 #include "function/map_function.h"
 #include "function/sink_function.h"
 #include "stream/data_stream_source/file_stream_source.h"
+#include "stream/data_stream_source/simple_stream_source.h"
 
 using namespace std;    // NOLINT
 using namespace candy;  // NOLINT
@@ -48,7 +49,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
   try {
     auto concurrency_manager = env.getConcurrencyManager();
-    auto index_id = concurrency_manager->create_index("test_index", IndexType::BruteForce, 3);
+    auto index_id = concurrency_manager->create_index("test_index", IndexType::HNSW, 3);
     auto record = make_unique<VectorRecord>(
         1, 3, VectorData{3, DataType::Float32, reinterpret_cast<char *>(new float[3]{1, 2, 3})});
     concurrency_manager->insert(index_id, record);
@@ -58,7 +59,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     record = make_unique<VectorRecord>(
         3, 3, VectorData{3, DataType::Float32, reinterpret_cast<char *>(new float[3]{7, 8, 9})});
     concurrency_manager->insert(index_id, record);
-    auto file_stream = make_shared<FileStreamSource>("FileStream", conf.getString("inputPath"));
+    auto file_stream = make_shared<SimpleStreamSource>("FileStream", conf.getString("inputPath"));
     file_stream->topk(index_id, 2)
         ->writeSink(std::make_unique<SinkFunction>("sink1", [](const std::unique_ptr<VectorRecord> &record) {
           std::cout << "Sink1: " << record->uid_ << '\n';

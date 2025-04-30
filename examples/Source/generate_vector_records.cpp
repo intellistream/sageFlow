@@ -90,7 +90,7 @@ int main(int argc, char* argv[]) {
   // Write number of records as header
   int32_t record_count = num_records;
   output_file.write(reinterpret_cast<char*>(&record_count), sizeof(int32_t));
-  int32_t dim = dim_dist(gen);
+  int32_t dim = 3;
   candy::DataType type = static_cast<candy::DataType>(type_dist(gen));
   for (int i = 0; i < num_records; ++i) {
     // Generate random values for the vector record
