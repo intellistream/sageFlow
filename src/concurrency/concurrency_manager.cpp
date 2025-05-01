@@ -6,6 +6,7 @@
 #include "concurrency/blank_controller.h"
 #include "index/hnsw.h"
 #include "index/knn.h"
+#include "index/ivf.h"
 #include "index/vectraflow.h"
 
 candy::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
@@ -18,6 +19,9 @@ auto candy::ConcurrencyManager::create_index(const std::string& name, const Inde
   switch (index_type) {
     case IndexType::None:
       return -1;
+    case IndexType::IVF:
+      index = std::make_shared<Ivf>();
+      break;
     case IndexType::HNSW:
       index = std::make_shared<HNSW>();
       break;
@@ -31,6 +35,7 @@ auto candy::ConcurrencyManager::create_index(const std::string& name, const Inde
   index->dimension_ = dimension;
 
   index->storage_manager_ = storage_;
+  storage_->engine_ = std::make_shared<ComputeEngine>();
 
   const auto blank_controller = std::make_shared<BlankController>(index);
 

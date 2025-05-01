@@ -6,7 +6,7 @@
 namespace candy {
 class HNSW final : public Index {
  public:
-  explicit HNSW(int m = 16, int ef_construction = 200, int ef_search = 50) {}
+  HNSW(int m = 20, int ef_construction = 200, int ef_search = 50);
 
   ~HNSW() override = default;
 
@@ -22,9 +22,10 @@ class HNSW final : public Index {
  private:
   struct Neighbor {
     uint64_t id_;  // uid（即 storage_engine 中的 id）
-    float dist_;   // 与查询向量的 L2 距离
+    double dist_;   // 与查询向量的 L2 距离
 
-    auto operator<(Neighbor const& other) const -> bool { return dist_ > other.dist_; }  // 小顶堆
+    auto operator<(Neighbor const& other) const -> bool { return dist_ < other.dist_; } 
+    auto operator>(Neighbor const& other) const -> bool { return dist_ > other.dist_; }  
   };
 
   struct Node {
@@ -45,7 +46,7 @@ class HNSW final : public Index {
   std::mt19937 rng_{std::random_device{}()};
 
   // ---------- 内部工具 ----------
-  auto l2_distance(const VectorRecord& a, const VectorRecord& b) const -> float;
+  auto l2_distance(const VectorRecord& a, const VectorRecord& b) const -> double;
   void search_layer(const VectorRecord& q, std::priority_queue<Neighbor>& top_candidates, int layer, int ef) const;
 
   auto random_level() -> int;
