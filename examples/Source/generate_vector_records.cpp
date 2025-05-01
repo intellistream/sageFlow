@@ -90,9 +90,9 @@ int main(int argc, char* argv[]) {
   // Write number of records as header
   int32_t record_count = num_records;
   output_file.write(reinterpret_cast<char*>(&record_count), sizeof(int32_t));
-  int32_t dim = 3;
-  candy::DataType type = static_cast<candy::DataType>(type_dist(gen));
+  candy::DataType type = candy::Float32;
   for (int i = 0; i < num_records; ++i) {
+    int32_t dim = 3;
     // Generate random values for the vector record
     uint64_t uid = uid_dist(gen);
     int64_t timestamp = base_timestamp + i;  // Sequential timestamps

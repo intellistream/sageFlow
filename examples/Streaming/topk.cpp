@@ -49,7 +49,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
   try {
     auto concurrency_manager = env.getConcurrencyManager();
-    auto index_id = concurrency_manager->create_index("test_index", IndexType::HNSW, 3);
+    auto index_id = concurrency_manager->create_index("test_index", IndexType::BruteForce, 3);
     auto record = make_unique<VectorRecord>(
         1, 3, VectorData{3, DataType::Float32, reinterpret_cast<char *>(new float[3]{1, 2, 3})});
     concurrency_manager->insert(index_id, record);
