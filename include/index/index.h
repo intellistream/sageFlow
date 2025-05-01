@@ -14,7 +14,8 @@ enum class IndexType {  // NOLINT
   None,
   HNSW,
   BruteForce,
-  IVF
+  IVF,
+  Vectraflow
 };
 
 class Index {

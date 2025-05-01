@@ -25,6 +25,9 @@ class ComputeEngine {
   auto dotmultiply(const VectorData &vec1, const VectorData &vec2) -> double;
 
   ComputeEngine();  // Prevent instantiation
+  private:
+  template <typename T>
+  auto EuclideanDistanceImpl(const VectorData &vec1, const VectorData &vec2) -> double;
 };
 
 }  // namespace candy

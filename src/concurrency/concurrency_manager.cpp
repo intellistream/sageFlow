@@ -25,6 +25,9 @@ auto candy::ConcurrencyManager::create_index(const std::string& name, const Inde
     case IndexType::HNSW:
       index = std::make_shared<HNSW>();
       break;
+    case IndexType::Vectraflow:
+      index = std::make_shared<VectraFlow>();
+      break;
     case IndexType::BruteForce:
     default:
       index = std::make_shared<Knn>();
