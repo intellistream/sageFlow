@@ -13,7 +13,7 @@ class ITopkFunction final : public Function {
  public:
   explicit ITopkFunction(const std::string &name);
 
-  ITopkFunction(const std::string &name, int k, int index_id);
+  ITopkFunction(const std::string &name, int k);
 
   auto getK() const -> int;
 

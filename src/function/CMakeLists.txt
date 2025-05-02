@@ -7,4 +7,5 @@ add_lib(
         sink_function.cpp
         topk_function.cpp
         window_function.cpp
+        itopk_function.cpp
 )

@@ -8,6 +8,7 @@ add_lib(
         sink_operator.cpp
         topk_operator.cpp
         window_operator.cpp
+        itopk_operator.cpp
         join_operator_methods/base_method.cpp
         join_operator_methods/eager/bruteforce.cpp
         join_operator_methods/lazy/bruteforce.cpp
