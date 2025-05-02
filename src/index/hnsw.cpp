@@ -1,274 +1,498 @@
 #include "index/hnsw.h"
 
-#include <cmath>
-#include <limits>
-#include <memory>
-#include <queue>
-#include <random>
+#include <algorithm> // For std::min, std::max, std::sort, std::reverse, std::remove
+#include <cmath>     // For std::log
+#include <limits>    // For std::numeric_limits
+#include <memory>    // For std::unique_ptr, std::shared_ptr
+#include <queue>     // For std::priority_queue
+#include <random>    // For std::mt19937, std::random_device, std::uniform_real_distribution
+#include <stdexcept> // For std::runtime_error, std::invalid_argument, std::logic_error
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <string>    // For std::to_string in error messages
+
+// Include necessary headers for VectorRecord and StorageManager definitions
+// These might need adjustment based on your project structure.
+// Assuming they are accessible, potentially via "index/index.h" or other includes.
+#include "storage/storage_manager.h"
+
+
 
 namespace candy {
 
-inline auto HNSW::l2_distance(const VectorRecord& a, const VectorRecord& b) const -> float {
-  return storage_manager_->engine_->EuclideanDistance(a.data_, b.data_);
+// --- Constructor ---
+// Based on the provided hnsw.h
+HNSW::HNSW(int m, int ef_construction, int ef_search)
+    : m_(m),
+      ef_construction_(ef_construction),
+      ef_search_(ef_search),
+      max_level_(-1),
+      entry_point_(std::numeric_limits<uint64_t>::max()),
+      rng_(std::random_device{}())
+      // storage_manager_ is not declared in the provided hnsw.h,
+      // but is required for l2_distance. Assuming it's intended to be
+      // part of the class or set externally. Add member if needed.
+      // storage_manager_(nullptr) // Example if added
+{
+    if (m_ <= 0) {
+        throw std::invalid_argument("HNSW: M must be positive.");
+    }
+    if (ef_construction_ <= 0) {
+         throw std::invalid_argument("HNSW: efConstruction must be positive.");
+    }
+     if (ef_search_ <= 0) {
+         throw std::invalid_argument("HNSW: efSearch must be positive.");
+    }
+     // Note: m_max0_ (max neighbors for level 0) is not in the header.
+     // Using m_ for all levels, including level 0 pruning.
+}
+
+// --- Public API Implementation ---
+
+// Add a method to set the storage manager if it's a member variable.
+// This is crucial for functionality but missing from the provided header.
+// void HNSW::setStorageManager(std::shared_ptr<StorageManager> storage_manager) {
+//     storage_manager_ = storage_manager;
+// }
+
+
+// --- Private Helper Functions Implementation ---
+
+// Assumes storage_manager_ is accessible (e.g., a member variable)
+inline auto HNSW::l2_distance(const VectorRecord& a, const VectorRecord& b) const -> double {
+    // Add member 'std::shared_ptr<StorageManager> storage_manager_;' to hnsw.h if needed
+    // and initialize it (e.g., in constructor or via setStorageManager).
+    if (!storage_manager_ || !storage_manager_->engine_) {
+        throw std::runtime_error("HNSW::l2_distance: Storage manager or distance engine not available. Ensure storage_manager_ is set.");
+    }
+    return storage_manager_->engine_->EuclideanDistance(a.data_, b.data_);
 }
 
 inline auto HNSW::random_level() -> int {
-  std::uniform_real_distribution<float> dis(0.0F, 1.0F);
-  float p = 1.0F / std::log(static_cast<float>(m_));  // 常用参数 1/ln(M)
-  int level = 0;
-  while (dis(rng_) < p && level < 32) {
-    ++level;
-  }
-  return level;
+    if (m_ <= 1) return 0;
+    double ml = 1.0 / std::log(static_cast<double>(m_));
+    std::uniform_real_distribution<double> dis(0.0, 1.0);
+    double r = dis(rng_);
+    if (r == 0.0) r = std::nextafter(0.0, 1.0); // Avoid log(0)
+    int level = static_cast<int>(std::floor(-std::log(r) * ml));
+    return level;
 }
 
-inline auto HNSW::insert(uint64_t uid) -> bool {
-  if (!storage_manager_) {
-    return false;
-  }
-  const auto rec = storage_manager_->getVectorByUid(uid);
-  if (!rec) {
-    return false;
-  }
-
-  const int cur_level = random_level();
-  Node new_node{uid, cur_level, std::vector<std::vector<uint64_t>>(cur_level + 1)};
-
-  if (entry_point_ == std::numeric_limits<uint64_t>::max()) {
-    // 第一条向量
-    entry_point_ = uid;
-    max_level_ = cur_level;
-    nodes_.emplace(uid, std::move(new_node));
-    return true;
-  }
-
-  uint64_t ep = entry_point_;
-  // 从最高层往下，寻找最佳入口
-  for (int level = max_level_; level > cur_level; --level) {
-    bool improved = true;
-    while (improved) {
-      improved = false;
-      for (uint64_t nid : nodes_[ep].links_[level]) {
-        if (l2_distance(*rec, *storage_manager_->getVectorByUid(nid)) <
-            l2_distance(*rec, *storage_manager_->getVectorByUid(ep))) {
-          ep = nid;
-          improved = true;
-        }
-      }
-    }
-  }
-
-  // 在新节点的每一层建立邻接
-  for (int level = std::min(cur_level, max_level_); level >= 0; --level) {
-    std::priority_queue<Neighbor> top_candidates;
-    top_candidates.push({ep, l2_distance(*rec, *storage_manager_->getVectorByUid(ep))});
-    search_layer(*rec, top_candidates, level, ef_construction_);
-
-    // 选择前 m_ 个最近邻
-    std::vector<Neighbor> neighbors;
-    while (!top_candidates.empty()) {
-      neighbors.push_back(top_candidates.top());
-      top_candidates.pop();
-    }
-    if (neighbors.size() > static_cast<size_t>(m_)) {
-      std::partial_sort(neighbors.begin(), neighbors.begin() + m_, neighbors.end());
-      neighbors.resize(m_);
-    }
-
-    // 建立双向连接
-    for (auto const& nb : neighbors) {
-      nodes_[nb.id_].links_[level].push_back(uid);
-      new_node.links_[level].push_back(nb.id_);
-    }
-  }
-
-  // 更新入口
-  if (cur_level > max_level_) {
-    max_level_ = cur_level;
-    entry_point_ = uid;
-  }
-
-  nodes_.emplace(uid, std::move(new_node));
-  return true;
-}
-
-inline void HNSW::search_layer(const VectorRecord& q, std::priority_queue<Neighbor>& top_candidates, int layer,
+// Assumes STANDARD Neighbor comparison from hnsw.h:
+// operator< means smaller distance is "less".
+// Default priority_queue is max-heap (largest distance top).
+// priority_queue with std::greater is min-heap (smallest distance top).
+inline void HNSW::search_layer(const VectorRecord& q,
+                               std::priority_queue<Neighbor>& results_heap, // Max-heap (keeps ef nearest)
+                               int layer,
                                int ef) const {
-  std::unordered_set<uint64_t> visited;
-  std::priority_queue<Neighbor> candidates = top_candidates;  // 工作队列
+    if (results_heap.empty()) return;
+    if (!storage_manager_) throw std::runtime_error("HNSW::search_layer: Storage manager not set.");
 
-  // Step 1: 扩展候选节点并选择邻居
-  // 启发式方法：从当前候选节点中选择 m_ 个最接近 q 的邻居
-  std::vector<uint64_t> extended_candidates = select_neighbors_heuristic(q, {top_candidates.top().id_}, ef, layer,
-                                                                         true,   // 扩展候选
-                                                                         true);  // 保留丢弃的连接
-  // 非启发式
-  // std::vector<uint64_t> extended_candidates = select_neighbors_basic(q, {top_candidates.top().id_}, ef, layer);
+    std::unordered_set<uint64_t> visited;
+    // Min-heap for candidates (closest first)
+    std::priority_queue<Neighbor, std::vector<Neighbor>, std::greater<Neighbor>> candidates_min_heap;
 
-  for (uint64_t nid : extended_candidates) {
-    if (!visited.insert(nid).second) {
-      continue;
+    // Initialize visited and candidates from initial results
+    std::priority_queue<Neighbor> initial_results = results_heap;
+    while (!initial_results.empty()) {
+        const Neighbor& neighbor = initial_results.top();
+        if (visited.insert(neighbor.id_).second) {
+            candidates_min_heap.push(neighbor);
+        }
+        initial_results.pop();
     }
-    float dist = l2_distance(q, *storage_manager_->getVectorByUid(nid));
-    if (static_cast<int>(candidates.size()) < ef || dist < candidates.top().dist_) {
-      candidates.push({nid, dist});
-      if (static_cast<int>(candidates.size()) > ef) {
-        candidates.pop();
-      }
-    }
-  }
 
-  // 将候选结果存入 top_candidates
-  top_candidates = candidates;
+    while (!candidates_min_heap.empty()) {
+        Neighbor current_candidate = candidates_min_heap.top();
+        candidates_min_heap.pop();
+
+        // Optimization: Stop if closest candidate is farther than farthest in full results heap
+        if (results_heap.size() >= static_cast<size_t>(ef) && current_candidate.dist_ > results_heap.top().dist_) {
+            break;
+        }
+
+        auto node_iter = nodes_.find(current_candidate.id_);
+        if (node_iter != nodes_.end() && layer >= 0 && layer < static_cast<int>(node_iter->second.links_.size())) {
+            for (uint64_t neighbor_id : node_iter->second.links_[layer]) {
+                if (visited.insert(neighbor_id).second) {
+                    const auto neighbor_vec_ptr = storage_manager_->getVectorByUid(neighbor_id);
+                    if (!neighbor_vec_ptr) continue;
+                    double dist = l2_distance(q, *neighbor_vec_ptr);
+
+                    if (results_heap.size() < static_cast<size_t>(ef) || dist < results_heap.top().dist_) {
+                        candidates_min_heap.push({neighbor_id, dist});
+                        results_heap.push({neighbor_id, dist});
+                        if (results_heap.size() > static_cast<size_t>(ef)) {
+                            results_heap.pop();
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
-inline auto HNSW::erase(uint64_t uid) -> bool {
-  auto it = nodes_.find(uid);
-  if (it == nodes_.end()) {
-    return false;
-  }
+// Select M best neighbors from candidates C using basic heap selection.
+// Assumes STANDARD Neighbor comparison.
+inline auto HNSW::select_neighbors_basic(const VectorRecord& q,
+                                         const std::vector<uint64_t>& C,
+                                         int M,
+                                         [[maybe_unused]] int lc) const -> std::vector<uint64_t> {
+    std::priority_queue<Neighbor> results_max_heap; // Max-heap
+    if (!storage_manager_) throw std::runtime_error("HNSW::select_neighbors_basic: Storage manager not set.");
+    if (M <= 0) return {};
 
-  // 删除所有层的引用
-  for (int level = 0; level <= it->second.level_; ++level) {
-    for (uint64_t nb : it->second.links_[level]) {
-      auto& vec = nodes_[nb].links_[level];
-      std::erase(vec, uid);
-    }
-  }
+    for (uint64_t candidate_id : C) {
+        const auto candidate_vec_ptr = storage_manager_->getVectorByUid(candidate_id);
+        if (!candidate_vec_ptr) continue;
+        double dist = l2_distance(q, *candidate_vec_ptr);
 
-  // 更新入口点（简单做法：若删的是入口，则随便取一个剩余节点）
-  if (entry_point_ == uid) {
-    if (nodes_.size() > 1) {
-      entry_point_ = nodes_.begin()->first;
-    } else {
-      entry_point_ = std::numeric_limits<uint64_t>::max();
-      max_level_ = -1;
+        if (results_max_heap.size() < static_cast<size_t>(M)) {
+            results_max_heap.push({candidate_id, dist});
+        } else if (dist < results_max_heap.top().dist_) {
+            results_max_heap.pop();
+            results_max_heap.push({candidate_id, dist});
+        }
     }
-  }
-  nodes_.erase(it);
-  return true;
+
+    std::vector<uint64_t> result_ids;
+    result_ids.reserve(results_max_heap.size());
+    while (!results_max_heap.empty()) {
+        result_ids.push_back(results_max_heap.top().id_);
+        results_max_heap.pop();
+    }
+    std::reverse(result_ids.begin(), result_ids.end()); // Nearest first
+    return result_ids;
 }
 
-inline auto HNSW::select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& c, int m,
-                                         int lc) const -> std::vector<uint64_t> {
-  std::vector<uint64_t> r;         // 存储选中的 M 个邻居
-  std::unordered_set<uint64_t> w;  // 工作队列，存放候选节点
-  w.insert(c.begin(), c.end());    // 初始候选节点
-
-  // Step 1: 从当前候选节点 C 中选择距离最小的 M 个邻居
-  while (w.size() > 0 && r.size() < static_cast<size_t>(m)) {
-    // 提取距离 q 最近的元素 e
-    uint64_t e = *std::min_element(w.begin(), w.end(), [&q, this](uint64_t a, uint64_t b) {
-      return l2_distance(*storage_manager_->getVectorByUid(a), q) <
-             l2_distance(*storage_manager_->getVectorByUid(b), q);
-    });
-    w.erase(e);  // 从 W 中移除 e
-
-    // 如果 e 更接近 q，相较于 R 中的任何元素，则加入 R
-    if (r.size() < static_cast<size_t>(m)) {
-      r.push_back(e);
-    }
-  }
-
-  return r;  // 返回选中的 M 个邻居
-}
-
-inline auto HNSW::select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& c, int m, int lc,
+// Select M neighbors using heuristic algorithm.
+// Assumes STANDARD Neighbor comparison.
+inline auto HNSW::select_neighbors_heuristic(const VectorRecord& q,
+                                             const std::vector<uint64_t>& C,
+                                             int M,
+                                             int lc,
                                              bool extend_candidates,
                                              bool keep_pruned_connections) const -> std::vector<uint64_t> {
-  std::vector<uint64_t> r;         // 存储选中的邻居
-  std::unordered_set<uint64_t> w;  // 工作队列，存放候选节点
-  w.insert(c.begin(), c.end());    // 初始候选节点
+     if (!storage_manager_) throw std::runtime_error("HNSW::select_neighbors_heuristic: Storage manager not set.");
+     if (M <= 0) return {};
 
-  // Step 1: 扩展候选节点的邻居
-  if (extend_candidates) {
-    for (uint64_t e : c) {
-      auto const& e_neighborhood = nodes_.at(e).links_[lc];  // 获取节点 e 的邻居
-      for (uint64_t eadj : e_neighborhood) {
-        if (w.find(eadj) == w.end()) {  // 如果 eadj 不在 W 中
-          w.insert(eadj);               // 将 eadj 加入 W
+    std::priority_queue<Neighbor, std::vector<Neighbor>, std::greater<Neighbor>> W_min_heap; // Min-heap for candidates
+    std::unordered_set<uint64_t> W_set;
+
+    for (uint64_t start_node_id : C) {
+        const auto vec_ptr = storage_manager_->getVectorByUid(start_node_id);
+        if (!vec_ptr) continue;
+        double dist = l2_distance(q, *vec_ptr);
+        if (W_set.insert(start_node_id).second) {
+             W_min_heap.push({start_node_id, dist});
         }
-      }
     }
-  }
 
-  std::unordered_set<uint64_t> wd;  // 丢弃的候选节点（那些不能加入 R 的）
-
-  // Step 2: 从 W 中选择前 M 个最接近 q 的邻居
-  while (w.size() > 0 && r.size() < static_cast<size_t>(m)) {
-    // 提取距离 q 最近的元素 e
-    uint64_t e = *std::min_element(w.begin(), w.end(), [&q, this](uint64_t a, uint64_t b) {
-      return l2_distance(*storage_manager_->getVectorByUid(a), q) <
-             l2_distance(*storage_manager_->getVectorByUid(b), q);
-    });
-    w.erase(e);  // 从 W 中移除 e
-
-    // 如果 e 更接近 q，相较于 R 中的任何元素，则加入 R
-    if (r.size() < static_cast<size_t>(m)) {
-      r.push_back(e);
-    } else {
-      // 如果 e 不在 R 中，加入丢弃队列 Wd
-      wd.insert(e);
+    if (extend_candidates) {
+        std::vector<uint64_t> initial_candidates = C;
+        for (uint64_t e_id : initial_candidates) {
+            auto node_iter = nodes_.find(e_id);
+            if (node_iter != nodes_.end() && lc >= 0 && lc < static_cast<int>(node_iter->second.links_.size())) {
+                for (uint64_t e_adj_id : node_iter->second.links_[lc]) {
+                    if (W_set.insert(e_adj_id).second) {
+                        const auto vec_ptr = storage_manager_->getVectorByUid(e_adj_id);
+                        if (!vec_ptr) continue;
+                        double dist = l2_distance(q, *vec_ptr);
+                        W_min_heap.push({e_adj_id, dist});
+                    }
+                }
+            }
+        }
     }
-  }
 
-  // Step 3: 如果 keepPrunedConnections 为真，处理丢弃的连接（从 Wd 中选）
-  if (keep_pruned_connections) {
-    while (wd.size() > 0 && r.size() < static_cast<size_t>(m)) {
-      uint64_t e = *std::min_element(wd.begin(), wd.end(), [&q, this](uint64_t a, uint64_t b) {
-        return l2_distance(*storage_manager_->getVectorByUid(a), q) <
-               l2_distance(*storage_manager_->getVectorByUid(b), q);
-      });
-      wd.erase(e);     // 从 Wd 中移除 e
-      r.push_back(e);  // 将 e 加入 R
+    std::priority_queue<Neighbor> R_max_heap; // Max-heap for results
+    std::priority_queue<Neighbor> W_pruned_max_heap; // Max-heap for pruned
+
+    while (!W_min_heap.empty()) {
+        Neighbor e = W_min_heap.top();
+        W_min_heap.pop();
+
+        if (R_max_heap.size() >= static_cast<size_t>(M) && e.dist_ > R_max_heap.top().dist_) {
+             if (!keep_pruned_connections) break;
+             W_pruned_max_heap.push(e);
+             continue;
+        }
+
+        if (R_max_heap.size() < static_cast<size_t>(M)) {
+            R_max_heap.push(e);
+        } else {
+            Neighbor removed = R_max_heap.top();
+            R_max_heap.pop();
+            R_max_heap.push(e);
+            if (keep_pruned_connections) {
+                W_pruned_max_heap.push(removed);
+            }
+        }
     }
-  }
 
-  return r;  // 返回选中的 M 个邻居
+    if (keep_pruned_connections) {
+        while (!W_pruned_max_heap.empty() && R_max_heap.size() < static_cast<size_t>(M)) {
+            R_max_heap.push(W_pruned_max_heap.top());
+            W_pruned_max_heap.pop();
+        }
+    }
+
+    std::vector<uint64_t> result_ids;
+    result_ids.reserve(R_max_heap.size());
+    while (!R_max_heap.empty()) {
+        result_ids.push_back(R_max_heap.top().id_);
+        R_max_heap.pop();
+    }
+    std::reverse(result_ids.begin(), result_ids.end()); // Nearest first
+    return result_ids;
 }
 
-inline auto HNSW::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> {
-  if (entry_point_ == std::numeric_limits<uint64_t>::max()) {
-    return {};
-  }
 
-  uint64_t ep = entry_point_;
-  // 先从顶层向下贪婪搜索
-  for (int level = max_level_; level > 0; --level) {
-    bool improved = true;
-    while (improved) {
-      improved = false;
-      for (uint64_t nid : nodes_[ep].links_[level]) {
-        if (l2_distance(*record, *storage_manager_->getVectorByUid(nid)) <
-            l2_distance(*record, *storage_manager_->getVectorByUid(ep))) {
-          ep = nid;
-          improved = true;
-        }
-      }
+// --- Public API Implementation Continued ---
+
+auto HNSW::insert(uint64_t uid) -> bool {
+    if (!storage_manager_) throw std::runtime_error("HNSW::insert: Storage manager not set.");
+
+    const auto rec_ptr = storage_manager_->getVectorByUid(uid);
+    if (!rec_ptr) throw std::runtime_error("HNSW::insert: Vector data for UID " + std::to_string(uid) + " not found.");
+
+    const VectorRecord& rec = *rec_ptr;
+
+    // Use lock/atomic for concurrent access checks/modifications below
+    if (nodes_.count(uid)) return false; // Node already exists
+
+    const int cur_level = random_level();
+    Node new_node{uid, cur_level, std::vector<std::vector<uint64_t>>(cur_level + 1)};
+
+    uint64_t current_ep = entry_point_;
+    int current_max_level = max_level_;
+
+    if (current_ep == std::numeric_limits<uint64_t>::max()) { // Empty graph
+        entry_point_ = uid;
+        max_level_ = cur_level;
+        nodes_.emplace(uid, std::move(new_node));
+        return true;
     }
-  }
 
-  // 在 0 层做 ef_search_ 搜索
-  std::priority_queue<Neighbor> top_candidates;
-  top_candidates.push({ep, l2_distance(*record, *storage_manager_->getVectorByUid(ep))});
-  search_layer(*record, top_candidates, 0, std::max(ef_search_, k));
+    const auto ep_vec_ptr = storage_manager_->getVectorByUid(current_ep);
+    if (!ep_vec_ptr) throw std::runtime_error("HNSW::insert: Entry point vector UID " + std::to_string(current_ep) + " missing.");
+    double ep_dist = l2_distance(rec, *ep_vec_ptr);
 
-  // 输出前 k 个 uid，按距离由近到远排序
-  std::vector<Neighbor> tmp;
-  while (!top_candidates.empty()) {
-    tmp.push_back(top_candidates.top());
-    top_candidates.pop();
-  }
-  std::ranges::sort(tmp, [](auto const& a, auto const& b) { return a.dist_ < b.dist_; });
+    // Phase 1: Find entry points from top level down to cur_level + 1
+    for (int level = current_max_level; level > cur_level; --level) {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            uint64_t next_ep = current_ep;
+            double min_dist = ep_dist;
+            auto node_iter = nodes_.find(current_ep);
+            if (node_iter == nodes_.end() || level < 0 || level >= static_cast<int>(node_iter->second.links_.size())) break;
 
-  std::vector<uint64_t> result;
-  for (size_t i = 0; i < tmp.size() && static_cast<int>(i) < k; ++i) {
-    result.push_back(tmp[i].id_);  // 返回 storage 的下标
-  }
-  return result;
+            for (uint64_t neighbor_id : node_iter->second.links_[level]) {
+                const auto neighbor_vec_ptr = storage_manager_->getVectorByUid(neighbor_id);
+                if (!neighbor_vec_ptr) continue;
+                double d = l2_distance(rec, *neighbor_vec_ptr);
+                if (d < min_dist) {
+                    min_dist = d; next_ep = neighbor_id; changed = true;
+                }
+            }
+            current_ep = next_ep;
+            const auto current_ep_vec_ptr_updated = storage_manager_->getVectorByUid(current_ep);
+            if (!current_ep_vec_ptr_updated) throw std::runtime_error("HNSW::insert: Vector for updated entry point UID " + std::to_string(current_ep) + " missing.");
+            ep_dist = l2_distance(rec, *current_ep_vec_ptr_updated);
+        }
+    }
+
+    // Phase 2: Insert from level cur_level down to 0
+    uint64_t ep_for_level = current_ep;
+    for (int level = std::min(cur_level, current_max_level); level >= 0; --level) {
+        std::priority_queue<Neighbor> top_candidates_max_heap; // Max-heap for search results
+        const auto ep_level_vec_ptr = storage_manager_->getVectorByUid(ep_for_level);
+        if (!ep_level_vec_ptr) throw std::runtime_error("HNSW::insert: Entry point vector UID " + std::to_string(ep_for_level) + " for level " + std::to_string(level) + " missing.");
+        top_candidates_max_heap.push({ep_for_level, l2_distance(rec, *ep_level_vec_ptr)});
+
+        search_layer(rec, top_candidates_max_heap, level, ef_construction_);
+
+        // Select M neighbors (using m_ for all levels as m_max0_ is not in header)
+        int M = m_;
+        std::vector<Neighbor> candidates_vec;
+        candidates_vec.reserve(top_candidates_max_heap.size());
+        while(!top_candidates_max_heap.empty()){ candidates_vec.push_back(top_candidates_max_heap.top()); top_candidates_max_heap.pop(); }
+        std::reverse(candidates_vec.begin(), candidates_vec.end()); // Nearest first
+
+        std::vector<uint64_t> candidate_ids;
+        candidate_ids.reserve(candidates_vec.size());
+        for(const auto& n : candidates_vec) candidate_ids.push_back(n.id_);
+
+        // Use heuristic selection for potentially better graph structure
+        std::vector<uint64_t> selected_neighbor_ids = select_neighbors_heuristic(rec, candidate_ids, M, level, true, false);
+
+        // Connect new node
+        if (level < static_cast<int>(new_node.links_.size())) {
+            new_node.links_[level] = selected_neighbor_ids;
+        } else {
+            throw std::logic_error("HNSW::insert: new_node links vector size mismatch.");
+        }
+
+        // Connect neighbors back and prune
+        for (uint64_t neighbor_id : selected_neighbor_ids) {
+            auto neighbor_node_iter = nodes_.find(neighbor_id);
+            if (neighbor_node_iter != nodes_.end()) {
+                auto& neighbor_node = neighbor_node_iter->second;
+                if (level >= static_cast<int>(neighbor_node.links_.size())) {
+                     neighbor_node.links_.resize(level + 1);
+                }
+                auto& neighbor_links = neighbor_node.links_[level];
+                neighbor_links.push_back(uid); // Add back link
+
+                // Prune neighbor connections if exceeding M
+                if (neighbor_links.size() > static_cast<size_t>(M)) {
+                    const auto neighbor_vec_ptr = storage_manager_->getVectorByUid(neighbor_id);
+                    if (neighbor_vec_ptr) {
+                        std::vector<uint64_t> current_neighbor_ids = neighbor_links;
+                        std::vector<uint64_t> pruned_neighbor_ids = select_neighbors_heuristic(*neighbor_vec_ptr, current_neighbor_ids, M, level, true, false);
+                        neighbor_links = pruned_neighbor_ids;
+                    } // else: cannot prune without vector data
+                }
+            } // else: neighbor node not found? inconsistency.
+        }
+        if (!candidates_vec.empty()) ep_for_level = candidates_vec[0].id_; // Update entry for next level
+    }
+
+    // Add the new node to the map
+    nodes_.emplace(uid, std::move(new_node));
+
+    // Phase 3: Update global entry point/max level if needed
+    if (cur_level > current_max_level) {
+        max_level_ = cur_level;
+        entry_point_ = uid;
+    }
+
+    return true;
 }
 
-}  // namespace candy
+
+auto HNSW::erase(uint64_t uid) -> bool {
+    // Use lock for concurrent access
+    auto node_iter = nodes_.find(uid);
+    if (node_iter == nodes_.end()) return false; // Not found
+
+    const Node& node_to_erase = node_iter->second;
+    int erased_node_level = node_to_erase.level_;
+    std::vector<std::vector<uint64_t>> links_copy = node_to_erase.links_;
+
+    // Remove incoming links
+    for (int level = 0; level <= erased_node_level; ++level) {
+        if (level >= static_cast<int>(links_copy.size())) continue;
+        for (uint64_t neighbor_id : links_copy[level]) {
+            auto neighbor_iter = nodes_.find(neighbor_id);
+            if (neighbor_iter != nodes_.end() && level < static_cast<int>(neighbor_iter->second.links_.size())) {
+                auto& neighbor_links = neighbor_iter->second.links_[level];
+                neighbor_links.erase(std::remove(neighbor_links.begin(), neighbor_links.end(), uid), neighbor_links.end());
+            }
+        }
+    }
+
+    // Remove the node
+    nodes_.erase(node_iter);
+
+    // Update entry point / max level
+    bool need_max_level_recalc = false;
+    if (entry_point_ == uid) {
+        if (nodes_.empty()) {
+            entry_point_ = std::numeric_limits<uint64_t>::max(); max_level_ = -1;
+        } else {
+            uint64_t new_entry_point = nodes_.begin()->first; int new_max_level = -1;
+            for (const auto& pair : nodes_) {
+                if (pair.second.level_ > new_max_level) {
+                    new_max_level = pair.second.level_; new_entry_point = pair.first;
+                }
+            }
+            entry_point_ = new_entry_point; max_level_ = new_max_level;
+        }
+    } else if (!nodes_.empty() && erased_node_level == max_level_) {
+        bool found_other_at_max = false;
+        for (const auto& pair : nodes_) { if (pair.second.level_ == max_level_) { found_other_at_max = true; break; } }
+        if (!found_other_at_max) need_max_level_recalc = true;
+    } else if (nodes_.empty()) {
+         entry_point_ = std::numeric_limits<uint64_t>::max(); max_level_ = -1;
+    }
+
+    if (need_max_level_recalc) {
+        int current_max_level = -1;
+        for (const auto& pair : nodes_) current_max_level = std::max(current_max_level, pair.second.level_);
+        max_level_ = current_max_level;
+    }
+
+    return true;
+}
+
+
+auto HNSW::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> {
+    if (!storage_manager_) throw std::runtime_error("HNSW::query: Storage manager not set.");
+    if (!record) throw std::invalid_argument("HNSW::query: Query record is null.");
+    const VectorRecord& q = *record;
+
+    // Use lock for concurrent access
+    uint64_t current_ep = entry_point_;
+    int current_max_level = max_level_;
+
+    if (current_ep == std::numeric_limits<uint64_t>::max()) return {}; // Empty graph
+    if (k <= 0) return {}; // Invalid k
+
+    const auto ep_vec_ptr = storage_manager_->getVectorByUid(current_ep);
+    if (!ep_vec_ptr) throw std::runtime_error("HNSW::query: Entry point vector UID " + std::to_string(current_ep) + " missing.");
+    double ep_dist = l2_distance(q, *ep_vec_ptr);
+
+    // Phase 1: Greedy search down to level 1
+    for (int level = current_max_level; level > 0; --level) {
+        bool changed = true;
+        while (changed) {
+            changed = false;
+            uint64_t next_ep = current_ep; double min_dist = ep_dist;
+            auto node_iter = nodes_.find(current_ep);
+            if (node_iter == nodes_.end() || level < 0 || level >= static_cast<int>(node_iter->second.links_.size())) break;
+
+            for (uint64_t neighbor_id : node_iter->second.links_[level]) {
+                const auto neighbor_vec_ptr = storage_manager_->getVectorByUid(neighbor_id);
+                if (!neighbor_vec_ptr) continue;
+                double d = l2_distance(q, *neighbor_vec_ptr);
+                if (d < min_dist) { min_dist = d; next_ep = neighbor_id; changed = true; }
+            }
+            current_ep = next_ep;
+            const auto current_ep_vec_ptr_updated = storage_manager_->getVectorByUid(current_ep);
+            if (!current_ep_vec_ptr_updated) throw std::runtime_error("HNSW::query: Vector for updated entry point UID " + std::to_string(current_ep) + " missing.");
+            ep_dist = l2_distance(q, *current_ep_vec_ptr_updated);
+        }
+    }
+
+    // Phase 2: Search layer 0
+    std::priority_queue<Neighbor> top_candidates_max_heap; // Max-heap for results
+    const auto final_ep_vec_ptr = storage_manager_->getVectorByUid(current_ep);
+    if (!final_ep_vec_ptr) throw std::runtime_error("HNSW::query: Entry point vector UID " + std::to_string(current_ep) + " for layer 0 search is invalid.");
+    top_candidates_max_heap.push({current_ep, l2_distance(q, *final_ep_vec_ptr)});
+
+    search_layer(q, top_candidates_max_heap, 0, std::max(ef_search_, k));
+
+    // Phase 3: Extract top K
+    std::vector<uint64_t> final_result_ids;
+    final_result_ids.reserve(k);
+    std::vector<Neighbor> results_temp;
+    results_temp.reserve(top_candidates_max_heap.size());
+    while (!top_candidates_max_heap.empty()) { results_temp.push_back(top_candidates_max_heap.top()); top_candidates_max_heap.pop(); }
+    std::reverse(results_temp.begin(), results_temp.end()); // Nearest first
+
+    int count = 0;
+    for (const auto& neighbor : results_temp) {
+        if (count >= k) break;
+        final_result_ids.push_back(neighbor.id_);
+        count++;
+    }
+
+    return final_result_ids;
+}
+
+
+} // namespace candy
