@@ -3,8 +3,8 @@
 //
 #include "operator/itopk_operator.h"
 
-candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& itopk_func) : Operator(OperatorType::ITOPK) {
-  itopk_func_ = std::move(itopk_func);
-}
+candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& itopk_func,
+                                    const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
+    : Operator(OperatorType::ITOPK), itopk_func_(std::move(itopk_func)), concurrency_manager_(concurrency_manager) {}
 
-bool candy::ITopkOperator::process(Response& data, const int slot) { return Operator::process(data, slot); }
+auto candy::ITopkOperator::process(Response& data, const int slot) -> bool { return Operator::process(data, slot); }
