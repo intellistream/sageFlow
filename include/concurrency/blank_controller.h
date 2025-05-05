@@ -18,6 +18,8 @@ class BlankController final : public ConcurrencyController {
 
   auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<std::unique_ptr<VectorRecord>> override;
 
+  auto erase(uint64_t uid) -> bool override;
+
  private:
   std::shared_ptr<Index> index_;
 };

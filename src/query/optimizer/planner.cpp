@@ -4,8 +4,10 @@
 
 #include "query/optimizer/planner.h"
 
-
 #include "function/function_api.h"
+#include "function/window_function.h"
+#include "operator/itopk_operator.h"
+#include "operator/window_operator.h"
 
 candy::Planner::Planner(const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
     : concurrency_manager_(concurrency_manager) {}
@@ -33,7 +35,19 @@ auto candy::Planner::plan(const std::shared_ptr<Stream>& stream) const -> std::s
     } else if (stream->function_->getType() == FunctionType::Sink) {
       op = std::make_shared<SinkOperator>(stream->function_);
     } else if (stream->function_->getType() == FunctionType::Topk) {
-      op = std::make_shared<TopkOperator>(stream->function_,concurrency_manager_);
+      op = std::make_shared<TopkOperator>(stream->function_, concurrency_manager_);
+    } else if (stream->function_->getType() == FunctionType::Window) {
+      auto func = stream->function_.get();
+      auto window_func = dynamic_cast<WindowFunction*>(func);
+      if (window_func->getWindowType() == WindowType::Tumbling) {
+        op = std::make_shared<TumblingWindowOperator>(stream->function_);
+      } else if (window_func->getWindowType() == WindowType::Sliding) {
+        op = std::make_shared<SlidingWindowOperator>(stream->function_);
+      } else {
+        throw std::runtime_error("Unsupported window type");
+      }
+    } else if (stream->function_->getType() == FunctionType::ITopk) {
+      op = std::make_shared<ITopkOperator>(stream->function_, concurrency_manager_);
     } else {
       throw std::runtime_error("Unsupported function type");
     }

@@ -5,8 +5,8 @@
 
 #include "concurrency/blank_controller.h"
 #include "index/hnsw.h"
-#include "index/knn.h"
 #include "index/ivf.h"
+#include "index/knn.h"
 #include "index/vectraflow.h"
 
 candy::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
@@ -65,6 +65,15 @@ auto candy::ConcurrencyManager::erase(const int index_id, std::unique_ptr<Vector
   }
   const auto& controller = it->second;
   return controller->erase(record);
+}
+
+auto candy::ConcurrencyManager::erase(int index_id, uint64_t uid) -> bool {
+  const auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return false;
+  }
+  const auto& controller = it->second;
+  return controller->erase(uid);
 }
 
 auto candy::ConcurrencyManager::query(const int index_id, std::unique_ptr<VectorRecord>& record, int k)

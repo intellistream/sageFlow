@@ -38,6 +38,28 @@ auto Stream::join(std::shared_ptr<Stream> other_stream, std::unique_ptr<JoinFunc
   return stream;
 }
 
+auto Stream::window(std::unique_ptr<Function>& window_func) -> std::shared_ptr<Stream> {
+  return window(std::move(window_func));
+}
+
+auto Stream::window(std::unique_ptr<Function> window_func) -> std::shared_ptr<Stream> {
+  auto stream = std::make_shared<Stream>(name_ + '_' + window_func->getName());
+  stream->function_ = std::move(window_func);
+  streams_.push_back(stream);
+  return stream;
+}
+
+auto Stream::itopk(std::unique_ptr<Function>& itopk_func) -> std::shared_ptr<Stream> {
+  return itopk(std::move(itopk_func));
+}
+
+auto Stream::itopk(std::unique_ptr<Function> itopk_func) -> std::shared_ptr<Stream> {
+  auto stream = std::make_shared<Stream>(name_ + '_' + itopk_func->getName());
+  stream->function_ = std::move(itopk_func);
+  streams_.push_back(stream);
+  return stream;
+}
+
 auto Stream::topk(const int32_t index_id, int k) -> std::shared_ptr<Stream> {
   auto stream = std::make_shared<Stream>(name_ + "_topk_" + std::to_string(index_id));
   auto topk_func = std::make_unique<TopkFunction>("topk", k, index_id);

@@ -3,8 +3,51 @@
 //
 #include "operator/itopk_operator.h"
 
-candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& itopk_func,
-                                    const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
-    : Operator(OperatorType::ITOPK), itopk_func_(std::move(itopk_func)), concurrency_manager_(concurrency_manager) {}
+#include "function/itopk_function.h"
 
-auto candy::ITopkOperator::process(Response& data, const int slot) -> bool { return Operator::process(data, slot); }
+candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& func,
+                                    const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
+    : Operator(OperatorType::ITOPK), itopk_func_(std::move(func)), concurrency_manager_(concurrency_manager) {
+  auto itopk_func = dynamic_cast<ITopkFunction*>(itopk_func_.get());
+  if (itopk_func != nullptr) {
+    k_ = itopk_func->getK();
+  }
+  index_id_ = concurrency_manager_->create_index("itopk_index", IndexType::BruteForce, itopk_func->getDim());
+  record_ = itopk_func->getRecord();
+}
+
+auto candy::ITopkOperator::process(Response& data, const int slot) -> bool {
+  if (data.type_ == ResponseType::Record) {
+    return false;
+  }
+  if (data.type_ == ResponseType::List) {
+    const auto records = std::move(data.records_);
+    for (auto& record : *records) {
+      auto uid = record->uid_;
+      if (uids_.contains(uid)) {
+        uids_.erase(uid);
+      }
+    }
+    // controller erase
+    for (auto& uid : uids_) {
+      concurrency_manager_->erase(index_id_, uid);
+    }
+    uids_.clear();
+    for (auto& record : *records) {
+      auto uid = record->uid_;
+      uids_.insert(uid);
+      concurrency_manager_->insert(index_id_, record);
+    }
+    auto topk_record = getRecord();
+    auto res = concurrency_manager_->query(index_id_, topk_record, k_);
+    auto topk_records = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>(std::move(res));
+    auto resp = Response{ResponseType::List, std::move(topk_records)};
+    emit(0, resp);
+    return true;
+  }
+  return false;
+}
+
+auto candy::ITopkOperator::getRecord() const -> std::unique_ptr<VectorRecord> {
+  return std::make_unique<VectorRecord>(*record_);
+}

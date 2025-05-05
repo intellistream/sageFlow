@@ -37,5 +37,6 @@ class StorageManager {
   auto topk(const std::unique_ptr<VectorRecord> &record, int k) const -> std::vector<uint64_t>;
 
  private:
+  int begin_ = 0;
 };
 }  // namespace candy

@@ -5,8 +5,11 @@
 
 candy::ITopkFunction::ITopkFunction(const std::string& name) : Function(name, FunctionType::Topk) {}
 
-candy::ITopkFunction::ITopkFunction(const std::string& name, int k) : Function(name, FunctionType::Topk), k_(k) {}
+candy::ITopkFunction::ITopkFunction(const std::string& name, int k, int dim, std::unique_ptr<VectorRecord> record)
+    : Function(name, FunctionType::ITopk), k_(k), dim_(dim), record_(std::move(record)) {}
 
-auto candy::ITopkFunction::getK() const -> int {
-  return k_;
-}
+auto candy::ITopkFunction::getK() const -> int { return k_; }
+
+auto candy::ITopkFunction::getDim() const -> int { return dim_; }
+
+auto candy::ITopkFunction::getRecord()-> std::unique_ptr<VectorRecord> { return std::move(record_); }

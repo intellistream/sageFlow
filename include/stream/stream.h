@@ -33,9 +33,14 @@ class Stream {
   auto join(std::shared_ptr<Stream>& other_plan, std::unique_ptr<JoinFunction>& join_func) -> std::shared_ptr<Stream>;
   auto join(std::shared_ptr<Stream> other_stream, std::unique_ptr<JoinFunction> join_func) -> std::shared_ptr<Stream>;
 
+  auto window(std::unique_ptr<Function>& window_func) -> std::shared_ptr<Stream>;
+  auto window(std::unique_ptr<Function> window_func) -> std::shared_ptr<Stream>;
+
+  auto itopk(std::unique_ptr<Function>& itopk_func) -> std::shared_ptr<Stream>;
+  auto itopk(std::unique_ptr<Function> itopk_func) -> std::shared_ptr<Stream>;
+
   // topk
   auto topk(int32_t index_id, int k) -> std::shared_ptr<Stream>;
-
 
   // Write to a sink
   auto writeSink(std::unique_ptr<SinkFunction>& sink_func) -> std::shared_ptr<Stream>;

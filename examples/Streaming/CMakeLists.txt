@@ -6,11 +6,20 @@ add_executable(
         topk
         topk.cpp
 )
+add_executable(
+        itopk
+        itopk.cpp
+)
 target_link_libraries(
         Streaming_example
         candy
 )
 target_link_libraries(
         topk
+        candy
+)
+
+target_link_libraries(
+        itopk
         candy
 )

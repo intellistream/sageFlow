@@ -32,6 +32,8 @@ class ConcurrencyManager {
 
   auto erase(int index_id, std::unique_ptr<VectorRecord> &record) -> bool;  // maybe local index would use this
 
+  auto erase(int index_id, uint64_t) -> bool;  // maybe local index would use this
+
   auto query(int index_id, std::unique_ptr<VectorRecord> &record, int k) -> std::vector<std::unique_ptr<VectorRecord>>;
 
  private:

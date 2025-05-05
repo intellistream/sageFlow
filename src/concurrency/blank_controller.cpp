@@ -30,3 +30,10 @@ auto candy::BlankController::query(std::unique_ptr<VectorRecord>& record, int k)
   const auto idxes = index_->query(record, k);
   return storage_manager_->getVectorsByUids(idxes);
 }
+
+auto candy::BlankController::erase(const uint64_t uid) -> bool {
+  if (index_) {
+    index_->erase(uid);
+  }
+  return storage_manager_->erase(uid);
+}
