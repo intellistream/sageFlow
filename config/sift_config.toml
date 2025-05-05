@@ -1,0 +1,13 @@
+# Configuration for SIFT windowed stream example
+
+# Path to the SIFT data file
+siftDataPath = "data/siftsmall/siftsmall_base.fvecs"
+
+# Window configuration
+windowSize = 50    # Process 50 vectors in each window
+windowSlide = 25   # Slide by 25 vectors for each new window
+
+# Optional configuration parameters
+# These are useful for extensions to the example
+similarityThreshold = 0.8  # Threshold for similarity comparisons
+topK = 10                  # Number of top results to keep
