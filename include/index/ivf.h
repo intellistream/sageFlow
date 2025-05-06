@@ -15,6 +15,8 @@ class Ivf final : public Index {
         int rebuild_threshold_;
         // Counter for vectors added since last rebuild
         int vectors_since_last_rebuild_;
+        // Number of clusters to probe during query
+        int nprobes_ = 1;
         
         // Perform k-means clustering
         void rebuildClusters();
@@ -23,7 +25,7 @@ class Ivf final : public Index {
 
  public:
         // Constructor
-        explicit Ivf(int num_clusters = 100, int rebuild_threshold = 1000);
+        explicit Ivf(int num_clusters = 100, int rebuild_threshold = 1000, int nprobes = 1);
         // Destructor 
         ~Ivf() override;
         

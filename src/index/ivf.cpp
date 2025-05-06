@@ -6,10 +6,11 @@
 
 namespace candy {
 
-Ivf::Ivf(int num_clusters, int rebuild_threshold) 
+Ivf::Ivf(int num_clusters, int rebuild_threshold, int nprobes) 
     : num_clusters_(num_clusters),
       rebuild_threshold_(rebuild_threshold),
-      vectors_since_last_rebuild_(0) {
+      vectors_since_last_rebuild_(0),
+      nprobes_(nprobes) {
     // Initialize empty centroids and inverted lists
     centroids_.clear();
     inverted_lists_.clear();
@@ -239,38 +240,47 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
     if (centroids_.empty()) {
         return {};
     }
-    
-    // Find closest cluster
-    int cluster = assignToCluster(record->data_);
-    if (cluster < 0 || inverted_lists_.find(cluster) == inverted_lists_.end()) {
-        return {};
+
+    // Find the closest nprobes_ clusters
+    std::vector<std::pair<int, double>> cluster_distances;
+    for (size_t i = 0; i < centroids_.size(); ++i) {
+        double distance = storage_manager_->engine_->EuclideanDistance(record->data_, centroids_[i]);
+        cluster_distances.push_back({static_cast<int>(i), distance});
     }
-    
-    // Get IDs from the closest cluster
-    const auto& candidate_ids = inverted_lists_[cluster];
-    
-    // Get all candidate vectors
+
+    // Sort clusters by distance
+    std::sort(cluster_distances.begin(), cluster_distances.end(), [](const auto& a, const auto& b) {
+        return a.second < b.second;
+    });
+
+    // Probe the top nprobes_ clusters
     std::vector<std::pair<uint64_t, double>> results;
-    for (const auto& id : candidate_ids) {
-        auto candidate = storage_manager_->getVectorByUid(id);
-        if (candidate) {
-            double distance = storage_manager_->engine_->EuclideanDistance(
-                record->data_, candidate->data_);
-            results.push_back({id, distance});
+    for (size_t i = 0; i < cluster_distances.size() && (results.size()<k || i < this->nprobes_); ++i) {
+        int cluster = cluster_distances[i].first;
+        if (inverted_lists_.find(cluster) != inverted_lists_.end()) {
+            const auto& candidate_ids = inverted_lists_[cluster];
+            for (const auto& id : candidate_ids) {
+                auto candidate = storage_manager_->getVectorByUid(id);
+                if (candidate) {
+                    double distance = storage_manager_->engine_->EuclideanDistance(record->data_, candidate->data_);
+                    results.push_back({id, distance});
+                }
+            }
         }
     }
-    
+
     // Sort by distance
-    std::sort(results.begin(), results.end(), 
-              [](const auto& a, const auto& b) { return a.second < b.second; });
-    
+    std::sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
+        return a.second < b.second;
+    });
+
     // Return top-k IDs
     std::vector<uint64_t> top_ids;
     int result_count = std::min(k, static_cast<int>(results.size()));
     for (int i = 0; i < result_count; ++i) {
         top_ids.push_back(results[i].first);
     }
-    
+
     return top_ids;
 }
 
