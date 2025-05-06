@@ -9,17 +9,21 @@
 #include <chrono>
 #include <iostream>
 #include <memory>
-#include <random>  // For data generation
+#include <mutex>    // For thread safety
+#include <numeric>  // For std::accumulate  // For data generation
+#include <random>   // For data generation
 #include <stdexcept>
 #include <string>
+#include <unordered_map>  // For start time tracking
 #include <vector>
 
 #include "concurrency/concurrency_manager.h"  // Include ConcurrencyManager explicitly
+#include "function/map_function.h"            // Include MapFunction
 #include "function/sink_function.h"
-#include "stream/data_stream_source/file_stream_source.h"
-#include "stream/data_stream_source/simple_stream_source.h"
-#include "stream/data_stream_source/sift_stream_source.h"  // Include SiftStreamSource explicitly
 #include "function/window_function.h"
+#include "stream/data_stream_source/file_stream_source.h"
+#include "stream/data_stream_source/sift_stream_source.h"  // Include SiftStreamSource explicitly
+#include "stream/data_stream_source/simple_stream_source.h"
 
 using namespace std;    // NOLINT
 using namespace candy;  // NOLINT
@@ -39,21 +43,20 @@ const string KEY_SOURCE_TYPE = "sourceType";  // "Simple" or "File"
 const string KEY_INPUT_PATH = "inputPath";    // Required if sourceType is "File"
 
 void ValidateConfiguration(const ConfigMap &conf) {
-    cerr << "Validating configuration..." << endl;
-    if (!conf.exist("inputPath") || !conf.exist("outputPath")) {
-      throw runtime_error("Missing required configuration keys: inputPath or outputPath.");
-    }
-    if (!conf.exist("topK")) {
-      throw runtime_error("Missing required configuration key: topK.");
-    }
-    if (!conf.exist("similarityThreshold")) {
-      throw runtime_error("Missing required configuration key: similarityThreshold.");
-    }
+  cerr << "Validating configuration..." << endl;
+  if (!conf.exist("inputPath") || !conf.exist("outputPath")) {
+    throw runtime_error("Missing required configuration keys: inputPath or outputPath.");
   }
+  if (!conf.exist("topK")) {
+    throw runtime_error("Missing required configuration key: topK.");
+  }
+  if (!conf.exist("similarityThreshold")) {
+    throw runtime_error("Missing required configuration key: similarityThreshold.");
+  }
+}
 
 void SetupAndRunPipeline(const std::string &config_file_path) {
-
-  StreamEnvironment env; 
+  StreamEnvironment env;
 
   const auto conf = candy::StreamEnvironment::loadConfiguration(config_file_path);
   try {
@@ -63,14 +66,17 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     cerr << "Configuration Error: " << e.what() << endl;
     throw;
   }
-  
-  string index_type_str = "KNN";  // 更改测试的 Index 算法
-  const int dimension = 128; // SIFT 数据集维度
-  const int num_base_vectors = 10000; // SIFT 数据集向量个数
-  long num_stream_records = 100;  // 查询向量个数， 也就是流里的向量个数
-  int k = 10;
 
-  string source_type = "Simple";  
+  // --------------------------- 配置 ---------------------------------
+
+  string index_type_str = "HNSW";      // 更改测试的 Index 算法
+  const int dimension = 128;           // SIFT 数据集维度
+  const int num_base_vectors = 10000;  // SIFT 数据集向量个数
+  long num_stream_records = 100;       // 查询向量个数， 也就是流里的向量个数
+  int k = 10;                          // TopK
+  // ------------------------------------------------------------------
+
+  string source_type = "Simple";
 
   cout << "--- Streaming Performance Test ---" << endl;
   cout << "Config File: " << config_file_path << endl;
@@ -83,9 +89,10 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   if (source_type == "File") {
     cout << "Input Path: " << conf.getString(KEY_INPUT_PATH) << endl;
   }
-  // Print index-specific params if loaded
+  // ------------------------------------ Print index-specific params if loaded
+  // ------------------------------------------------------------------------------------
 
-  // --- 1. Setup Index ---
+  // ---------------------------------------- 1. Setup Index -------------------------------------------------
   cout << "\nSetting up index..." << endl;
   auto concurrency_manager = env.getConcurrencyManager();  // Get CM from environment
 
@@ -116,19 +123,21 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   string input_path = conf.getString(KEY_INPUT_PATH);
 
   auto base_vector_source = make_shared<SiftStreamSource>("base_input_source", "./data/siftsmall/siftsmall_base.fvecs");
-  base_vector_source -> Init();
+  base_vector_source->Init();
 
   cerr << "Base vector source initialized." << endl;
+
+  // ------------------------ Insert base vectors into the index ---------------------------------
 
   for (int i = 0; i < num_base_vectors; ++i) {
     uint64_t uid = i + 1;  // Simple UIDs
     // auto record = generate_dummy_vector(uid, dimnsion);
-    auto record = base_vector_source -> Next();
+    auto record = base_vector_source->Next();
     if (!record) {
       cerr << "Error: Failed to generate or read base vector with UID " << uid << endl;
       continue;  // Skip this iteration if record is null
     }
-    
+
     if (!concurrency_manager->insert(index_id, record)) {
       // Handle potential insertion failure
       cerr << "Warning: Failed to insert base vector with UID " << uid << endl;
@@ -136,12 +145,14 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     // 'record' is likely moved (nulled) after successful insert
   }
 
+  // ----------------------------------------------------------
 
   auto build_end = high_resolution_clock::now();
   auto build_duration = duration_cast<milliseconds>(build_end - build_start);
   cout << "Index population finished in " << build_duration.count() / 1000.0 << " s." << endl;
 
-  // --- 2. Setup Stream ---
+  // -------------------------------- 2. Setup Stream
+  // --------------------------------------------------------------------------------------------------------------
   cout << "\nSetting up stream pipeline..." << endl;
   shared_ptr<DataStreamSource> source_stream;
 
@@ -152,13 +163,13 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
       throw runtime_error(
           "SimpleStreamSource workaround requires inputPath in config pointing to pre-generated data file.");
     }
-    
-    // TODO: 这里强行改了 input_path
+
+    // TODO: 这里改了 input_path
 
     input_path = "./data/siftsmall/siftsmall_query.fvecs";
     cout << "Using SimpleStream (as workaround for Simple) reading from: " << input_path << endl;
     cout << "Ensure the file contains approx. " << num_stream_records << " records." << endl;
-    
+
     source_stream = make_shared<SiftStreamSource>("FilePerfSource", input_path);
 
   } else {
@@ -167,27 +178,60 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
   // Atomic counter for processed records in the sink
   std::atomic<long> processed_count(0);
-  long expected_count = (source_type == "Simple") ? num_stream_records * k : -1;  // -1 if count is unknown for FileSource
+  long expected_count =
+      (source_type == "Simple") ? num_stream_records * k : -1;  // -1 if count is unknown for FileSource
 
   // Define the pipeline: source -> topk -> sink
-  //file_stream->window(std::make_unique<WindowFunction>("window1", 10, 0, WindowType::Tumbling)
-  source_stream
-  
-  // TODO: Window 用不了
-  //->window(std::make_unique<WindowFunction>("window1", 10, 0, WindowType::Tumbling))
-  
-  ->topk(index_id, k)
-      ->writeSink(std::make_unique<SinkFunction>("PerfSink",
-                                                 [&processed_count](const std::unique_ptr<VectorRecord> & /*record*/) {
-                                                   // Minimal work in sink: just count
-                                                   processed_count.fetch_add(1, std::memory_order_relaxed);
-                                                   // Optional: Add minimal logging for debugging, but avoid heavy I/O
-                                                   // if (processed_count.load() % 10000 == 0) { // Log every 10k
-                                                   // records
-                                                   //    std::cout << "."; std::cout.flush();
-                                                   // }
-                                                 }));
 
+  // ------------------------ 设置运行环境 -----------------------------------------
+
+  // --- Shared state for latency measurement ---
+  std::unordered_map<uint64_t, high_resolution_clock::time_point> start_times;
+  std::vector<double> latencies_us;  // Store latencies in microseconds
+  std::mutex data_mutex;             // Mutex to protect start_times and latencies_us
+  // -------------------------------------------
+
+  // Atomic counter for processed records in the sink
+  // std::atomic<long> processed_count(0);
+  // Expected count should be num_stream_records (queries) * k (results per query) if topk outputs k results
+  // Or just num_stream_records if topk outputs one result structure per query.
+  // Let's assume the sink counts *results* for now. Adjust if needed.
+  // long expected_count = num_stream_records * k;
+  // long expected_count = -1; // Set to -1 as we don't know exact output count easily
+
+  // Define the pipeline: source -> map (record start time) -> topk -> sink (calculate latency)
+  cout << "Pipeline configured: Source -> Map(RecordStartTime) -> topk(k=" << k << ", index=" << index_id
+       << ") -> Sink(CalcLatency)" << endl;
+
+  source_stream
+      ->map(std::make_unique<MapFunction>("RecordStartTime",
+                                          [&start_times, &data_mutex](std::unique_ptr<VectorRecord> &record) {
+                                            if (record) {
+                                              auto now = high_resolution_clock::now();
+                                              std::lock_guard<std::mutex> lock(data_mutex);
+                                              start_times[record->uid_] = now;
+                                            }
+                                            // Pass the record through
+                                          }))
+      ->topk(index_id, k)
+      ->writeSink(std::make_unique<SinkFunction>(
+          "PerfSink",
+          [&processed_count, &start_times, &latencies_us, &data_mutex](const std::unique_ptr<VectorRecord> &record) {
+            if (!record) return;  // Skip if record is null
+
+            auto end_time = high_resolution_clock::now();
+            processed_count.fetch_add(1, std::memory_order_relaxed);
+            std::lock_guard<std::mutex> lock(data_mutex);
+            auto it = start_times.find(record->uid_);
+            if (it != start_times.end()) {
+              auto start_time = it->second;
+              double latency = duration_cast<microseconds>(end_time - start_time).count();
+              latencies_us.push_back(latency);
+              start_times.erase(it);
+            } else {
+              cerr << "Warning: Start time not found for result UID: " << record->uid_ << endl;
+            }
+          }));
   // Add the source stream to the environment
   env.addStream(std::move(source_stream));
   cout << "Pipeline configured: Source -> topk(k=" << k << ", index=" << index_id << ") -> Sink" << endl;
@@ -230,6 +274,41 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
   // Print results from PerformanceMonitor if it provides relevant info
   cout << "\n--- Performance Monitor Details ---" << endl;
+  cout << "\n--- Latency Results ---" << endl;
+  if (!latencies_us.empty()) {
+    double total_latency_us = std::accumulate(latencies_us.begin(), latencies_us.end(), 0.0);
+    double avg_latency_ms = (total_latency_us / latencies_us.size()) / 1000.0;
+
+    // Calculate Percentile Latency (e.g., P95, P99)
+    std::sort(latencies_us.begin(), latencies_us.end());
+    double p95_latency_ms = latencies_us[static_cast<size_t>(latencies_us.size() * 0.95)] / 1000.0;
+    double p99_latency_ms = latencies_us[static_cast<size_t>(latencies_us.size() * 0.99)] / 1000.0;
+    double min_latency_ms = latencies_us.front() / 1000.0;
+    double max_latency_ms = latencies_us.back() / 1000.0;
+
+    cout << "Number of Latency Samples: " << latencies_us.size() << endl;
+    cout << "Average Latency: " << avg_latency_ms << " ms" << endl;
+    cout << "Min Latency: " << min_latency_ms << " ms" << endl;
+    cout << "Max Latency: " << max_latency_ms << " ms" << endl;
+    cout << "P95 Latency: " << p95_latency_ms << " ms" << endl;
+    cout << "P99 Latency: " << p99_latency_ms << " ms" << endl;
+
+    // Check if any start times were not found (indicates potential issue)
+    std::lock_guard<std::mutex> lock(data_mutex);  // Lock needed to safely check start_times size
+    if (!start_times.empty()) {
+      cerr << "Warning: " << start_times.size() << " start times remained in the map after execution." << endl;
+    }
+
+  } else {
+    cout << "No latency data collected." << endl;
+    // Check if start_times map has entries, indicating map ran but sink didn't find matches
+    std::lock_guard<std::mutex> lock(data_mutex);
+    if (!start_times.empty()) {
+      cerr << "Warning: " << start_times.size() << " start times were recorded but no matching results arrived at sink."
+           << endl;
+    }
+  }
+
   // monitor.PrintProfilingResult();
 }
 
@@ -237,22 +316,21 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
 // Main function remains the same
 auto main(int argc, char *argv[]) -> int {
-    const std::string default_config_file = CANDY_PATH + CONFIG_DIR + "default_config.toml";
-  
-    string config_file_path;
-    if (argc < 2) {
-      config_file_path = default_config_file;
-    } else {
-      config_file_path = CANDY_PATH + CONFIG_DIR + string(argv[1]);
-    }
-  
-    try {
-      SetupAndRunPipeline(config_file_path);
-    } catch (const exception &e) {
-      cerr << "Error: " << e.what() << '\n';
-      return 1;
-    }
-  
-    return 0;
+  const std::string default_config_file = CANDY_PATH + CONFIG_DIR + "default_config.toml";
+
+  string config_file_path;
+  if (argc < 2) {
+    config_file_path = default_config_file;
+  } else {
+    config_file_path = CANDY_PATH + CONFIG_DIR + string(argv[1]);
   }
-  
+
+  try {
+    SetupAndRunPipeline(config_file_path);
+  } catch (const exception &e) {
+    cerr << "Error: " << e.what() << '\n';
+    return 1;
+  }
+
+  return 0;
+}
