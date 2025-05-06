@@ -19,6 +19,7 @@
 #include "stream/data_stream_source/file_stream_source.h"
 #include "stream/data_stream_source/simple_stream_source.h"
 #include "stream/data_stream_source/sift_stream_source.h"  // Include SiftStreamSource explicitly
+#include "function/window_function.h"
 
 using namespace std;    // NOLINT
 using namespace candy;  // NOLINT
@@ -63,22 +64,12 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     throw;
   }
   
-  //cerr << "Config loaded successfully." << endl;
-
-  // Extract config values
- // string index_type_str = conf.getString(KEY_INDEX_TYPE);
-  
-  //   int dimension = conf.getInt(KEY_DIMENSION);
-  //   int num_base_vectors = conf.getInt(KEY_NUM_BASE_VECTORS);
-  //   long num_stream_records = conf.getLong(KEY_NUM_STREAM_RECORDS); // Use long for potentially large numbers
-  //   int k = conf.getInt(KEY_TOP_K);
-  string index_type_str = "HNSW";  // 更改测试的 Index 算法
+  string index_type_str = "KNN";  // 更改测试的 Index 算法
   const int dimension = 128; // SIFT 数据集维度
   const int num_base_vectors = 10000; // SIFT 数据集向量个数
   long num_stream_records = 100;  // 查询向量个数， 也就是流里的向量个数
-  int k = 100;
+  int k = 10;
 
-  //string source_type = conf.getString(KEY_SOURCE_TYPE);
   string source_type = "Simple";  
 
   cout << "--- Streaming Performance Test ---" << endl;
@@ -126,9 +117,12 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
   auto base_vector_source = make_shared<SiftStreamSource>("base_input_source", "./data/siftsmall/siftsmall_base.fvecs");
   base_vector_source -> Init();
+
+  cerr << "Base vector source initialized." << endl;
+
   for (int i = 0; i < num_base_vectors; ++i) {
     uint64_t uid = i + 1;  // Simple UIDs
-    // auto record = generate_dummy_vector(uid, dimension);
+    // auto record = generate_dummy_vector(uid, dimnsion);
     auto record = base_vector_source -> Next();
     if (!record) {
       cerr << "Error: Failed to generate or read base vector with UID " << uid << endl;
@@ -151,6 +145,8 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   cout << "\nSetting up stream pipeline..." << endl;
   shared_ptr<DataStreamSource> source_stream;
 
+  assert(source_type == "Simple");
+
   if (source_type == "Simple") {
     if (!conf.exist(KEY_INPUT_PATH)) {
       throw runtime_error(
@@ -171,10 +167,16 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
   // Atomic counter for processed records in the sink
   std::atomic<long> processed_count(0);
-  long expected_count = (source_type == "Simple") ? num_stream_records : -1;  // -1 if count is unknown for FileSource
+  long expected_count = (source_type == "Simple") ? num_stream_records * k : -1;  // -1 if count is unknown for FileSource
 
   // Define the pipeline: source -> topk -> sink
-  source_stream->topk(index_id, k)
+  //file_stream->window(std::make_unique<WindowFunction>("window1", 10, 0, WindowType::Tumbling)
+  source_stream
+  
+  // TODO: Window 用不了
+  //->window(std::make_unique<WindowFunction>("window1", 10, 0, WindowType::Tumbling))
+  
+  ->topk(index_id, k)
       ->writeSink(std::make_unique<SinkFunction>("PerfSink",
                                                  [&processed_count](const std::unique_ptr<VectorRecord> & /*record*/) {
                                                    // Minimal work in sink: just count

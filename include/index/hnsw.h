@@ -6,7 +6,7 @@
 namespace candy {
 class HNSW final : public Index {
  public:
-  HNSW(int m = 5, int ef_construction = 40, int ef_search = 10);
+  HNSW(int m = 10, int ef_construction = 40, int ef_search = 10);
 
   ~HNSW() override = default;
 

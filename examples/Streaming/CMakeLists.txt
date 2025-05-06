@@ -14,10 +14,7 @@ add_executable(
         sift_windowed_stream
         sift_windowed_stream.cpp
 )
-add_executable(
-        IndexTest
-        IndexTest.cpp
-)
+
 target_link_libraries(
         Streaming_example
         candy
@@ -34,9 +31,5 @@ target_link_libraries(
 
 target_link_libraries(
         sift_windowed_stream
-        candy
-)
-target_link_libraries(
-        IndexTest
         candy
 )
