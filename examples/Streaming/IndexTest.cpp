@@ -18,6 +18,7 @@
 #include "function/sink_function.h"
 #include "stream/data_stream_source/file_stream_source.h"
 #include "stream/data_stream_source/simple_stream_source.h"
+#include "stream/data_stream_source/sift_stream_source.h"  // Include SiftStreamSource explicitly
 
 using namespace std;    // NOLINT
 using namespace candy;  // NOLINT
@@ -123,7 +124,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
   string input_path = conf.getString(KEY_INPUT_PATH);
 
-  auto base_vector_source = make_shared<SimpleStreamSource>("base_input_source", "./data/siftsmall_bin/siftsmall_base.bin");
+  auto base_vector_source = make_shared<SiftStreamSource>("base_input_source", "./data/siftsmall/siftsmall_base.fvecs");
   base_vector_source -> Init();
   for (int i = 0; i < num_base_vectors; ++i) {
     uint64_t uid = i + 1;  // Simple UIDs
@@ -158,11 +159,11 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     
     // TODO: 这里强行改了 input_path
 
-    input_path = "./data/siftsmall_bin/siftsmall_query.bin";
+    input_path = "./data/siftsmall/siftsmall_query.fvecs";
     cout << "Using SimpleStream (as workaround for Simple) reading from: " << input_path << endl;
     cout << "Ensure the file contains approx. " << num_stream_records << " records." << endl;
     
-    source_stream = make_shared<SimpleStreamSource>("FilePerfSource", input_path);
+    source_stream = make_shared<SiftStreamSource>("FilePerfSource", input_path);
 
   } else {
     throw runtime_error("Unsupported source type: " + source_type);
