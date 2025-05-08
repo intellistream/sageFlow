@@ -5,20 +5,23 @@
 #include <unordered_map>
 
 #include "concurrency/concurrency_controller.h"
+#include "concurrency/id_with_type.h"
 #include "index/index.h"
 
 namespace candy {
-struct IdWithType {
-  int id_;
-  IndexType index_type_;
-};
 
+/**
+ * @brief Manages concurrent access to indices and storage
+ * 
+ * The ConcurrencyManager coordinates access to various indices and handles
+ * the creation, deletion, and operations on different index types.
+ */
 class ConcurrencyManager {
-  std::shared_ptr<StorageManager> storage_;
+  StorageManager& storage_;  // Changed from shared_ptr to reference
 
  public:
-  // Constructor
-  explicit ConcurrencyManager(std::shared_ptr<StorageManager> storage);
+  // Constructor now accepts a reference
+  explicit ConcurrencyManager(StorageManager& storage);
 
   // Destructor
   ~ConcurrencyManager();
@@ -44,4 +47,4 @@ class ConcurrencyManager {
   std::atomic<int> index_id_counter_ = 0;  // atomic counter for index id
 };
 
-};  // namespace candy
+}  // namespace candy

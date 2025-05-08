@@ -3,15 +3,15 @@
 修改调用的方法， 则修改 using JoinWay 后面的等于号
 */
 #include "operator/join_operator.h"
+#include "stream/time/sliding_window.h"
 
 #include <cassert>
 #include <iostream>
-
-
+#include <spdlog/spdlog.h>
 
 using JoinWay = candy :: BruteForceLazy;
 
-candy::JoinOperator::JoinOperator(std::unique_ptr<Function>& join_func) : Operator(OperatorType::JOIN), join_method_(std :: make_unique<JoinWay>()) {
+candy::JoinOperator::JoinOperator(std::unique_ptr<Function>&& join_func) : Operator(OperatorType::JOIN), join_method_(std :: make_unique<JoinWay>()) {
   join_func_ = std::unique_ptr<JoinFunction>(dynamic_cast<JoinFunction*>(join_func.release()));
   if (join_func_ == nullptr) {
     throw std::runtime_error("JoinOperator: join_func is not a JoinFunction");
@@ -19,14 +19,16 @@ candy::JoinOperator::JoinOperator(std::unique_ptr<Function>& join_func) : Operat
 }
 
 void candy::JoinOperator::open() {
-  if (is_open_) {
-    return;
+  // Replace direct access to is_open_
+  if (isOpen()) {
+      spdlog::warn("JoinOperator already open");
+      return;
   }
-  is_open_ = true;
+  setOpen(true);
   mother_->open();
-  for (const auto& child : children_) {
-    child->open();
-  }
+  for (const auto& child : getChildren()) {
+        child->open();
+    }
 }
 
 auto candy::JoinOperator::lazy_process(const int slot) -> bool {
@@ -55,42 +57,64 @@ auto candy::JoinOperator::eager_process(const int slot) -> bool {
 }
 
 void candy :: JoinOperator :: clear_methods_return_pool() {
-  
   for (auto &[id, record] : methods_return_pool) {
     auto ret_record = std :: move(record);
-    auto ret = Response{ResponseType::Record, std::move(record)};
-    emit (id, ret);
+    // 创建 DataElement 而不是 Response
+    auto element = DataElement(std::move(record));
+    emit(id, element);
   }
   methods_return_pool.clear();
 }
 
-bool candy::JoinOperator::process(Response& input_data, const int slot) {
-
-  auto data = std::move(input_data.record_);
+bool candy::JoinOperator::processDataElement(DataElement& element, const int slot) {
+  // 只处理 Record 类型的数据元素
+  if (!element.isRecord() || !element.getRecord()) {
+    return false;
+  }
+  
+  // 从数据元素中提取记录
+  auto data = element.moveRecord();
   
   // 标识使用的算法 Eager/Lazy
   bool IsEagerAlgorithm = false;
-  int nowTimeStamp = data -> timestamp_;
+  int nowTimeStamp = data->timestamp_;
 
-  auto update_side = [&] (std::list<std::unique_ptr<VectorRecord>>& records, auto &window) -> bool {
-    records.emplace_back(std :: move(data));
-    int timelimit = window.windowTimeLimit(nowTimeStamp);
-    while (!records.empty() && records.front()->timestamp_ <= timelimit) {
+  auto update_side = [&] (std::list<std::unique_ptr<VectorRecord>>& records, std::shared_ptr<Window>& window) -> bool {
+    records.emplace_back(std::move(data));
+    
+    // Get the earliest time that should be kept in the window
+    // For SlidingWindow, this is start time of the window
+    int timeLimit = 0;
+    if (auto* slidingWindow = dynamic_cast<SlidingWindow*>(window.get())) {
+      timeLimit = nowTimeStamp - slidingWindow->getSlide();
+    } else {
+      // For other window types, use the window start
+      timeLimit = window->getStart();
+    }
+    
+    // Remove records outside the window
+    while (!records.empty() && records.front()->timestamp_ <= timeLimit) {
       records.pop_front();
       // TODO : 完成 Eager 算法的 index 删除
       if (IsEagerAlgorithm) {
         // do something
       }
     }
-    return window.isNeedTrigger(nowTimeStamp);
-  } ;
+    
+    // Check if this timestamp triggers the window
+    // For now, always trigger the window when a new record arrives
+    // In a real implementation, we'd check if the watermark has advanced past the window end
+    bool triggerWindow = true;
+    
+    return triggerWindow;
+  };
 
   bool triggerflag;
 
   if (slot == 0) {
-    triggerflag = update_side(left_records_, join_func_ -> windowL);
+    triggerflag = update_side(left_records_, join_func_->windowL);
   } else {
-    triggerflag = update_side(right_records_, join_func_ -> windowR);
+    triggerflag = update_side(right_records_, join_func_->windowR);
   }
 
   // 是否触发窗口

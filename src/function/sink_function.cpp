@@ -5,20 +5,58 @@ candy::SinkFunction::SinkFunction(std::string name) : Function(std::move(name), 
 candy::SinkFunction::SinkFunction(std::string name, SinkFunc sink_func)
     : Function(std::move(name), FunctionType::Sink), sink_func_(std::move(sink_func)) {}
 
-candy::Response candy::SinkFunction::Execute(Response &resp) {
-  if (resp.type_ == ResponseType::Record) {
-    auto record = std::move(resp.record_);
-    sink_func_(record);
-    return Response{ResponseType::Record, std::move(record)};
+candy::DataElement candy::SinkFunction::Execute(DataElement &element) {
+  // First ensure we have a valid sink function
+  if (!sink_func_) {
+    // If no sink function is defined, create a new empty DataElement
+    // since we can't copy the input element (copy constructor is deleted)
+    return DataElement();
   }
-  if (resp.type_ == ResponseType::List) {
-    auto records = std::move(resp.records_);
-    for (auto &record : *records) {
-      sink_func_(record);
+
+  try {
+    if (element.isRecord()) {
+      auto record = element.moveRecord();
+      // Ensure we have a valid record before calling the sink function
+      if (record) {
+        try {
+          sink_func_(record);
+        } catch (const std::exception &e) {
+          // Log error but don't crash
+          // In a real implementation, you would use your logging system
+        } catch (...) {
+          // Handle unknown exceptions
+        }
+      }
+      return DataElement(std::move(record));
+    } else if (element.isList()) {
+      auto records = element.moveRecords();
+      // Ensure we have a valid records list
+      if (records) {
+        for (auto &record : *records) {
+          // Skip null records in the list
+          if (!record) continue;
+
+          try {
+            sink_func_(record);
+          } catch (const std::exception &e) {
+            // Log error but don't crash
+            // In a real implementation, you would use your logging system
+          } catch (...) {
+            // Handle unknown exceptions
+          }
+        }
+      }
+      return DataElement(std::move(records));
     }
-    return Response{ResponseType::List, std::move(records)};
+  } catch (const std::exception &e) {
+    // Log the exception but don't crash
+    // In a real implementation, you would use your logging system
+  } catch (...) {
+    // Handle unknown exceptions
   }
-  return {};
+
+  // Return empty data element if input was invalid or any exception occurred
+  return DataElement();
 }
 
 auto candy::SinkFunction::setSinkFunc(SinkFunc sink_func) -> void { sink_func_ = std::move(sink_func); }

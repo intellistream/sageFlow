@@ -1,19 +1,42 @@
 #include "function/function.h"
 
-candy::Function::Function(std::string name, FunctionType type) : name_(std::move(name)), type_(type) {}
+#include <utility>
 
-candy::Function::~Function() = default;
+namespace candy {
+Function::Function(std::string name, FunctionType type) : name_(std::move(name)), type_(type) {}
 
-auto candy::Function::getName() const -> std::string { return name_; }
+Function::Function(FunctionType type) : type_(type) {}
 
-auto candy::Function::getType() const -> FunctionType { return type_; }
+Function::~Function() = default;
 
-void candy::Function::setName(const std::string& name) { name_ = name; }
+auto Function::getName() const -> std::string { return name_; }
 
-void candy::Function::setType(const FunctionType type) { type_ = type; }
+auto Function::getType() const -> FunctionType { return type_; }
 
-auto candy::Function::Execute(Response& resp) -> Response { return {}; }
+void Function::setName(const std::string& name) { name_ = name; }
 
-auto candy::Function::Execute(Response& left, Response& right) -> Response {
-  return {};
+void Function::setType(FunctionType type) { type_ = type; }
+
+// 使用 DataElement 替换 Response
+auto Function::Execute(DataElement& element) -> DataElement {
+  // 创建一个带有移动内容的新 DataElement
+  if (element.isRecord() && element.getRecord()) {
+    return DataElement(element.moveRecord());
+  } else if (element.isList() && element.getRecords()) {
+    return DataElement(element.moveRecords());
+  }
+  return DataElement(); // 空数据元素
 }
+
+// 使用 DataElement 替换 Response
+auto Function::Execute(DataElement& left, DataElement& right) -> DataElement {
+  // 从 left 创建一个带有移动内容的新 DataElement
+  if (left.isRecord() && left.getRecord()) {
+    return DataElement(left.moveRecord());
+  } else if (left.isList() && left.getRecords()) {
+    return DataElement(left.moveRecords());
+  }
+  return DataElement(); // 空数据元素
+}
+
+};  // namespace candy

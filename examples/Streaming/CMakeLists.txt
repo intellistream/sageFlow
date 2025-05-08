@@ -6,11 +6,19 @@ add_executable(
         topk
         topk.cpp
 )
+add_executable(
+        windowed_stream
+        windowed_stream.cpp
+)
 target_link_libraries(
         Streaming_example
         candy
 )
 target_link_libraries(
         topk
+        candy
+)
+target_link_libraries(
+        windowed_stream
         candy
 )

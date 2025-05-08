@@ -16,8 +16,8 @@ class HNSW final : public Index {
   auto select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& c, int m, int lc,
                                   bool extend_candidates, bool keep_pruned_connections) const -> std::vector<uint64_t>;
 
-  inline auto select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
-                                     int lc) const -> std::vector<uint64_t>;
+  inline auto select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M, int lc) const
+      -> std::vector<uint64_t>;
 
  private:
   struct Neighbor {

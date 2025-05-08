@@ -12,9 +12,12 @@ class SinkFunction final : public Function {
 
   SinkFunction(std::string name, SinkFunc sink_func);
 
-  auto Execute(Response &resp) -> Response override;
+  auto Execute(DataElement &element) -> DataElement override;
 
   auto setSinkFunc(SinkFunc sink_func) -> void;
+
+  // Getter for the sink function lambda
+  auto getSinkFunction() const -> SinkFunc { return sink_func_; }
 
  private:
   SinkFunc sink_func_;

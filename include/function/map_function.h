@@ -12,7 +12,7 @@ class MapFunction final : public Function {
 
   MapFunction(std::string name, MapFunc map_func);
 
-  auto Execute(Response &resp) -> Response override;
+  auto Execute(DataElement &element) -> DataElement override;
 
   auto setMapFunc(MapFunc map_func) -> void;
 

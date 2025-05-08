@@ -8,9 +8,10 @@
 namespace candy {
 class FilterOperator final : public Operator {
  public:
-  explicit FilterOperator(std::unique_ptr<Function> &filter_func);
+  explicit FilterOperator(std::unique_ptr<Function>&& filter_func);
 
-  auto process(Response &data, int slot) -> bool override;
+  // 重写父类的 processDataElement 方法来实现过滤功能
+  auto processDataElement(DataElement& element, int slot) -> bool override;
 
  private:
   std::unique_ptr<Function> filter_func_;

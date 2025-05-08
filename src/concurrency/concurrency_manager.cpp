@@ -6,7 +6,7 @@
 #include "concurrency/blank_controller.h"
 #include "index/knn.h"
 
-candy::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
+candy::ConcurrencyManager::ConcurrencyManager(StorageManager& storage) : storage_(storage) {}
 
 candy::ConcurrencyManager::~ConcurrencyManager() = default;
 
@@ -27,7 +27,8 @@ auto candy::ConcurrencyManager::create_index(const std::string& name, const Inde
   index->index_type_ = index_type;
   index->dimension_ = dimension;
 
-  index->storage_manager_ = storage_;
+  // Pass pointer to StorageManager instead of shared_ptr
+  index->storage_manager_ = &storage_;
 
   const auto blank_controller = std::make_shared<BlankController>(index);
 

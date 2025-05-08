@@ -10,9 +10,9 @@
 namespace candy {
 class SinkOperator final : public Operator {
  public:
-  explicit SinkOperator(std::unique_ptr<Function> &sink_func);
+  explicit SinkOperator(std::unique_ptr<Function>&& sink_func);
 
-  auto process(Response &data, int slot) -> bool override;
+  auto process(DataElement& element, int slot) -> bool override;
 
  private:
   std::unique_ptr<Function> sink_func_;

@@ -10,13 +10,13 @@
 namespace candy {
 class TopkOperator final : public Operator {
  public:
-  explicit TopkOperator(std::unique_ptr<Function> &topk_func,
-                        const std::shared_ptr<ConcurrencyManager> &concurrency_manager);
+  explicit TopkOperator(std::unique_ptr<Function>&& topk_func,
+                        ConcurrencyManager& concurrency_manager);
 
-  auto process(Response &data, int slot) -> bool override;
+  auto process(DataElement& element, int slot) -> bool override;
 
  private:
   std::unique_ptr<Function> topk_func_;
-  std::shared_ptr<ConcurrencyManager> concurrency_manager_;
+  ConcurrencyManager& concurrency_manager_;
 };
 }  // namespace candy

@@ -7,11 +7,11 @@
 
 namespace candy {
 
-class TopkFunction final : public Function {
+class TopKFunction final : public Function {
  public:
-  explicit TopkFunction(const std::string &name);
+  explicit TopKFunction(const std::string &name);
 
-  TopkFunction(const std::string &name, int k, int index_id);
+  TopKFunction(const std::string &name, int k, int index_id);
 
   auto getK() const -> int;
   auto getIndexId() const -> int;

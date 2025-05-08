@@ -31,11 +31,11 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     #endif
     for (size_t i = 0; i < datas_.size(); ++i) {
         const auto local_rec = storage_manager_->getVectorByUid(datas_[i]).get();
-        //auto dist = storage_manager_->engine_->EuclideanDistance(rec->data_, local_rec->data_);
+        //auto dist = storage_manager_->engine_->calcEuclideanDistance(rec->data_, local_rec->data_);
 
         // VectraFlow 特有的计算方式
         auto dist = input_vector_square + selfquare[i] - 
-            2 * storage_manager_->engine_->dotmultiply(rec->data_, local_rec->data_);
+            2 * storage_manager_->engine_->DotMultiply(rec->data_, local_rec->data_);
 
         int thread_id = omp_get_thread_num(); // 获取当前线程的 ID
         // 对每个线程使用本地的优先队列

@@ -4,6 +4,7 @@ add_lib(
         stream.cpp
         data_stream_source/data_stream_source.cpp
         data_stream_source/file_stream_source.cpp
+        time/watermark_generator.cpp
 )
 target_link_libraries(
         stream

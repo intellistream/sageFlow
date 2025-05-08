@@ -6,12 +6,19 @@ namespace candy {
     }
     void BruteForceEager :: Excute(std :: vector<std :: pair<int, std::unique_ptr<VectorRecord>>> &emit_pool, std::unique_ptr<candy::JoinFunction> &joinfuc, std::unique_ptr<VectorRecord> &data, std::list<std::unique_ptr<VectorRecord>> &records_, int slot) {
         for (auto &rec : records_) {
-            auto response_rec = Response{ResponseType::Record, std::move(rec)};
-            auto response_data = Response{ResponseType::Record, std::move(data)};
-            auto ret = joinfuc -> Execute(response_rec, response_data);
-            auto &ret_record = ret.record_;
-            if (ret_record != NULL)
-                emit_pool.emplace_back(0, std :: move(ret_record));
+            // Create deep copies since we need to retain the originals
+            std::unique_ptr<VectorRecord> rec_copy = std::make_unique<VectorRecord>(*rec);
+            std::unique_ptr<VectorRecord> data_copy = std::make_unique<VectorRecord>(*data);
+            
+            auto element_rec = DataElement(std::move(rec_copy));
+            auto element_data = DataElement(std::move(data_copy));
+            
+            auto ret = joinfuc->Execute(element_rec, element_data);
+            
+            if (ret.isRecord() && ret.getRecord() != nullptr) {
+                std::unique_ptr<VectorRecord> ret_record = std::make_unique<VectorRecord>(*ret.getRecord());
+                emit_pool.emplace_back(0, std::move(ret_record));
+            }
         }
     }
 }

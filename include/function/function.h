@@ -4,20 +4,16 @@
 #include <vector>
 
 #include "common/data_types.h"
+#include "function/function_types.h"
 
 namespace candy {
-enum class FunctionType {  // NOLINT
-  None,
-  Filter,
-  Map,
-  Join,
-  Sink,
-  Topk
-};
 
 class Function {
  public:
   explicit Function(std::string name, FunctionType type);
+
+  // Constructor with only type parameter
+  explicit Function(FunctionType type);
 
   virtual ~Function();
 
@@ -29,12 +25,12 @@ class Function {
 
   void setType(FunctionType type);
 
-  virtual auto Execute(Response &resp) -> Response;
+  virtual auto Execute(DataElement &element) -> DataElement;
 
-  virtual auto Execute(Response &left, Response &right) -> Response;
+  virtual auto Execute(DataElement &left, DataElement &right) -> DataElement;
 
  private:
   std::string name_;
   FunctionType type_ = FunctionType::None;
 };
-};  // namespace candy
+}  // namespace candy

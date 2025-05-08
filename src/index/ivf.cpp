@@ -26,7 +26,7 @@ int Ivf::assignToCluster(const VectorData& vec) {
     double min_distance = std::numeric_limits<double>::max();
     
     for (size_t i = 0; i < centroids_.size(); ++i) {
-        double distance = storage_manager_->engine_->EuclideanDistance(vec, centroids_[i]);
+        double distance = storage_manager_->engine_->calcEuclideanDistance(vec, centroids_[i]);
         if (distance < min_distance) {
             min_distance = distance;
             best_cluster = static_cast<int>(i);
@@ -79,7 +79,7 @@ void Ivf::rebuildClusters() {
             int best_cluster = -1;
             
             for (int j = 0; j < actual_clusters; ++j) {
-                double dist = storage_manager_->engine_->EuclideanDistance(
+                double dist = storage_manager_->engine_->calcEuclideanDistance(
                     storage_manager_->records_[i]->data_, centroids_[j]);
                 
                 if (dist < min_dist) {
@@ -254,7 +254,7 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
     for (const auto& id : candidate_ids) {
         auto candidate = storage_manager_->getVectorByUid(id);
         if (candidate) {
-            double distance = storage_manager_->engine_->EuclideanDistance(
+            double distance = storage_manager_->engine_->calcEuclideanDistance(
                 record->data_, candidate->data_);
             results.push_back({id, distance});
         }

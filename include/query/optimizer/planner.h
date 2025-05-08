@@ -9,11 +9,14 @@ namespace candy {
 
 class Planner {
  public:
-  explicit Planner(const std::shared_ptr<ConcurrencyManager>& concurrency_manager);
+  // Changed to take a reference instead of shared_ptr
+  explicit Planner(ConcurrencyManager& concurrency_manager);
 
+  // Keep this as shared_ptr since streams are shared by design
   auto plan(const std::shared_ptr<Stream>& stream) const -> std::shared_ptr<Operator>;
 
  private:
-  std::shared_ptr<ConcurrencyManager> concurrency_manager_;
+  // Hold a reference instead of shared_ptr
+  ConcurrencyManager& concurrency_manager_;
 };
 }  // namespace candy

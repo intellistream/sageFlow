@@ -1,113 +1,138 @@
-src/
-├── core/ # Core functionalities of the vector database
-│ ├── vector_db.cpp # Main vector DB operations (CRUD on vectors)
-│ ├── versioning.cpp # Version control for optimistic concurrency
-│ ├── transaction.cpp # Transaction handling, locking mechanisms
-│ └── partitioning.cpp # Sharding and partitioning logic
-├── concurrency/ # Concurrency mechanisms (multi-threading, locks)
-│ ├── locks.cpp # Readers-writers locks, mutexes, and synchronization
-│ ├── thread_pool.cpp # Thread pool for managing concurrent tasks
-│ └── deadlock_prevention.cpp # Deadlock detection and prevention algorithms
-├── gpu/ # GPU-related code for vector operations
-│ ├── gpu_kernels.cu # GPU kernels (e.g., k-NN, vector operations)
-│ ├── gpu_memory.cpp # GPU memory management (allocation, deallocation)
-│ ├── gpu_scheduler.cpp # Scheduling GPU tasks, using CUDA streams
-│ └── gpu_benchmark.cpp # Benchmarking GPU performance for specific queries
-├── io/ # Input/Output utilities for data loading, persistence
-│ ├── data_loader.cpp # Load vectors from files or external databases
-│ ├── wal.cpp # Write-ahead logging for fault tolerance
-│ ├── backup_restore.cpp # Backup and restore functionalities
-│ └── s3_storage.cpp # Cloud storage integration (AWS S3, etc.)
-├── utils/ # Utility functions (logging, timing, etc.)
-│ ├── logging.cpp # Logging framework with various log levels
-│ ├── timing.cpp # Performance metrics, benchmarking utilities
-│ ├── config.cpp # Configuration file parser (JSON, YAML, etc.)
-│ └── error_handling.cpp # Error handling and exception management
-├── algorithms/ # Search and data processing algorithms
-│ ├── knn_search.cpp # k-NN search implementation (with multi-threading/GPU support)
-│ ├── clustering.cpp # Clustering algorithms (e.g., K-Means, hierarchical clustering)
-│ ├── approximate_nn.cpp # Approximate Nearest Neighbor (ANN) search algorithms
-│ ├── hybrid_search.cpp # Hybrid search (combining ANN with filtering)
-│ └── parallel_helpers.cpp # Abstractions for parallelizing algorithms (multi-threaded/GPU)
-├── ml_optimization/ # Machine Learning (ML) modules for optimizing ANNS
-│ ├── drl_optimization.cpp # Deep Reinforcement Learning-based optimizer for ANNS
-│ ├── ml_models.cpp # Generic machine learning models for optimization
-│ └── model_training.cpp # Training logic for ML models, including DRL agents
-├── rag/ # Retrieval-Augmented Generation (RAG) and LLM Agent integration
-│ ├── embedding_api.cpp # API to interact with vector database from Python (e.g., for embeddings)
-│ ├── retriever_api.cpp # API for retrieving vectors for RAG
-│ └── agent_integration.cpp # APIs for agent-based interaction with LLMs
-└── performance/ # Performance monitoring and benchmarking tools
-│ ├── benchmark.cpp # Benchmark tools for testing performance
-│ └── monitoring.cpp # Real-time monitoring of system metrics (CPU, memory, etc.)
-`-- To be supported --
-├── access_control/ # Security and access control features
-│ ├── rbac.cpp # Role-based access control (RBAC) implementation
-│ ├── permissions.cpp # User-level permissions for read/write access
-│ └── audit_logging.cpp # Logging of user activity for auditing
-├── fault_tolerance/ # Fault tolerance and recovery features
-│ ├── checkpointing.cpp # Checkpointing for long-running operations
-│ ├── transaction_log.cpp # Transaction log for recovery in case of failure
-│ └── replication.cpp # Data replication for fault tolerance
-├── cloud/ # Cloud integration and API
-│ ├── api_server.cpp # RESTful API server for external communication
-│ ├── grpc_server.cpp # gRPC server for high-performance communication
-│ ├── docker_support/ # Docker and Kubernetes deployment files (Dockerfile, Helm charts)
-│ │ ├── Dockerfile # Docker configuration for containerization
-│ │ └── k8s_deployment.yaml # Kubernetes configuration for deployment
-├── security/ # Data security and encryption
-│ ├── encryption.cpp # Encryption for data at rest and in transit
-│ ├── secure_queries.cpp # Secure query execution (e.g., with encrypted data)
-│ └── data_sanitization.cpp # Data sanitization for sensitive information
--- To be supported --
-`
+# CandyFlow Project Structure
 
-include/
-├── core/
-├── concurrency/
-├── gpu/
-├── io/
-├── utils/
-├── algorithms/
-├── ml_optimization/ # Header files for ML optimization
-├── access_control/
-├── fault_tolerance/
-├── cloud/
-├── security/
-└── rag_support/
+## Overview
 
-apps/ # Example applications and client tools
-├── db_client.cpp # CLI tool for interacting with the vector database
-├── query_tool.cpp # Tool for issuing interactive queries
-├── ml_optimizer_tool.cpp # Tool to interact with and benchmark ML-based optimization
-└── benchmark_tool.cpp # Tool for benchmarking database performance
+CandyFlow is a stream processing system for vector data with support for high-performance similarity search, windowed operations, and real-time processing. The system follows a modular architecture organized into several logical components.
 
-python_bindings/ # Python bindings for RAG and API access
-├── py_vector_db.py # Python wrapper for vector database
-├── py_retriever.py # Python retriever for RAG integration
-├── py_agent_api.py # Python API to interact with agents and LLMs
-└── py_ml_optimizer.py # Python wrapper for interacting with ML models (e.g., DRL for optimization)
+## Core Components
 
-ml_models/ # Pre-trained machine learning models (can be expanded to different ML algorithms)
-├── drl_models/ # Models for deep reinforcement learning-based optimization
-└── generic_models/ # Other generic ML models (e.g., supervised models for vector search optimization)
+### 1. Stream Processing System
 
-docs/ # Documentation
-├── architecture.md # Architectural overview of the project
-├── developer_guide.md # Developer guide for contributing
-└── api_docs/ # Documentation for API (RESTful, gRPC)
+- **Stream Manager**: Central coordinator for stream operations
+  - Manages time semantics, watermarks, and window progression
+  - Coordinates operator execution and stream flow
+  - Handles performance monitoring and metrics collection
+  
+- **Stream**: Represents a data stream with transformation capabilities
+  - Supports fluent API for operation chaining
+  - Provides methods for filtering, mapping, windowing, joining, and more
+  
+- **Operators**: Building blocks that perform operations on data
+  - Types: Filter, Map, Join, Sink, TopK, Window
+  - Form a directed graph of operations that process data
 
-test/ # Unit tests for various modules
-├── core_tests/
-    ├── core_tests.cpp # 
-├── concurrency_tests/
-├── gpu_tests/
-├── io_tests/
-├── algorithms_tests/
-├── ml_optimization_tests/ # Tests for machine learning models and optimizations
-├── fault_tolerance_tests/
-├── access_control_tests/
-└── rag_support_tests/
+- **Functions**: Encapsulate the actual logic for operations
+  - Abstract interfaces for different operation types
+  - User-defined implementations for customized processing
 
-third_party/ # External libraries and dependencies
-└── README.md # Documentation on external libraries used
+### 2. Vector Index and Storage
+
+- **Storage Manager**: Handles vector record storage and retrieval
+  - Manages vector records with associated metadata
+  - Provides interfaces for inserting, retrieving, and removing vectors
+  
+- **Index**: Implements vector similarity search
+  - Types: HNSW, BruteForce
+  - Supports k-nearest neighbor search for vectors
+  
+- **Compute Engine**: Provides vector computation utilities
+  - Implements similarity metrics (cosine, Euclidean)
+  - Provides vector normalization and other operations
+
+### 3. Concurrency Management
+
+- **Concurrency Manager**: Coordinates parallel operations
+  - Creates and manages indexes
+  - Provides thread-safe access to storage and index operations
+  
+- **Concurrency Controller**: Manages access to shared resources
+  - Controls concurrent operations on indexes and storage
+  - Implements appropriate locking strategies
+
+### 4. Common Utilities
+
+- **Data Types**: Core data structures used throughout the system
+  - VectorRecord: Primary data unit with vectors and metadata
+  - Response: Wrapper for data returned by operators
+  - Windows, Watermarks, Punctuations: Stream processing concepts
+
+## Class Relationships Diagram
+
+```
++---------------+      +---------------+      +---------------+
+| StreamManager |----->| Stream        |----->| Operator      |
++---------------+      +---------------+      +---------------+
+       |                      |                      |
+       |                      |                      |
+       v                      v                      v
++---------------+      +---------------+      +---------------+
+| StorageManager|      | Function      |      | Function      |
++---------------+      +---------------+      +---------------+
+       |                                              
+       |                                              
+       v                                              
++---------------+      +---------------+              
+| Index         |----->| ComputeEngine |              
++---------------+      +---------------+              
+       |
+       |
+       v
++---------------+
+| Concurrency   |
+| Manager       |
++---------------+
+```
+
+## Challenges in Current Architecture
+
+1. **Tight Coupling**: Some components have strong dependencies on each other, making the system less flexible and harder to test.
+
+2. **Inconsistent Memory Management**: Mix of raw pointers, unique_ptr, and shared_ptr without clear ownership semantics.
+
+3. **Limited Abstraction**: Some implementations leak through interfaces rather than being properly encapsulated.
+
+4. **Incomplete Documentation**: Many classes lack proper documentation on their purpose and usage.
+
+## Optimization Suggestions
+
+### 1. Improve Class Structure and Dependencies
+
+- **Dependency Injection**: Use dependency injection throughout the codebase to reduce direct dependencies between components.
+- **Interface-Based Design**: Define clearer interfaces for major components and implement concrete classes behind these interfaces.
+- **Component Isolation**: Better isolate components to make them independently testable and replaceable.
+
+### 2. Memory Management Standardization
+
+- **Ownership Policy**: Define clearer ownership semantics for objects throughout the system.
+- **Smart Pointer Strategy**: Standardize smart pointer usage:
+  - Use `std::unique_ptr` for exclusive ownership
+  - Use `std::shared_ptr` for shared ownership
+  - Avoid raw pointers for ownership
+  - Use references or pointers for non-owning references
+
+### 3. API Improvements
+
+- **Consistent Error Handling**: Implement consistent error handling strategy (exceptions vs. error codes).
+- **Fluent Interface**: Extend the fluent interface throughout the API for more readable code.
+- **Parameter Validation**: Add better validation of input parameters.
+
+### 4. Performance Optimizations
+
+- **Memory Pool**: Implement memory pooling for frequently allocated vector data.
+- **Thread Pool**: Create a central thread pool for better resource utilization.
+- **Lock-Free Algorithms**: Replace mutex-based synchronization with lock-free algorithms where appropriate.
+
+### 5. Testing and Documentation
+
+- **Unit Testing**: Increase unit test coverage for all components.
+- **Integration Testing**: Add integration tests for component interactions.
+- **API Documentation**: Improve code documentation with clear descriptions of class responsibilities, method contracts, and usage examples.
+
+## Implementation Prioritization
+
+1. Define clearer interfaces and reduce coupling between components
+2. Standardize memory management and ownership semantics
+3. Implement consistent error handling
+4. Add comprehensive unit and integration tests
+5. Improve documentation
+6. Optimize performance-critical paths

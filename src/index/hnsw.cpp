@@ -12,7 +12,7 @@
 namespace candy {
 
 inline auto HNSW::l2_distance(const VectorRecord& a, const VectorRecord& b) const -> float {
-  return storage_manager_->engine_->EuclideanDistance(a.data_, b.data_);
+  return storage_manager_->engine_->calcEuclideanDistance(a.data_, b.data_);
 }
 
 inline auto HNSW::random_level() -> int {
