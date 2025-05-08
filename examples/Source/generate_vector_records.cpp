@@ -84,7 +84,7 @@ int main(int argc, char* argv[]) {
   int64_t base_timestamp = static_cast<int64_t>(time(nullptr));
 
   // Generate and write 1000 vector records
-  const int num_records = 20;
+  const int num_records = 1000;
   std::cout << "Generating " << num_records << " vector records..." << std::endl;
 
   // Write number of records as header

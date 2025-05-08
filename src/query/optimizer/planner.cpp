@@ -6,6 +6,7 @@
 
 #include "function/function_api.h"
 #include "function/window_function.h"
+#include "operator/aggregate_operator.h"
 #include "operator/itopk_operator.h"
 #include "operator/window_operator.h"
 
@@ -48,6 +49,8 @@ auto candy::Planner::plan(const std::shared_ptr<Stream>& stream) const -> std::s
       }
     } else if (stream->function_->getType() == FunctionType::ITopk) {
       op = std::make_shared<ITopkOperator>(stream->function_, concurrency_manager_);
+    } else if (stream->function_->getType() == FunctionType::Aggregate) {
+      op = std::make_shared<AggregateOperator>(stream->function_);
     } else {
       throw std::runtime_error("Unsupported function type");
     }

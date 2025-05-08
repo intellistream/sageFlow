@@ -10,10 +10,12 @@ add_executable(
         itopk
         itopk.cpp
 )
+
 add_executable(
-        sift_windowed_stream
-        sift_windowed_stream.cpp
+        aggregate
+        aggregate.cpp
 )
+
 target_link_libraries(
         Streaming_example
         candy
@@ -29,6 +31,6 @@ target_link_libraries(
 )
 
 target_link_libraries(
-        sift_windowed_stream
+        aggregate
         candy
 )

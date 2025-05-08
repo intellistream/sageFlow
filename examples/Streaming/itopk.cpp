@@ -53,10 +53,11 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     auto itopk_record = make_unique<VectorRecord>(
         1, 3, VectorData{3, DataType::Float32, reinterpret_cast<char *>(new float[3]{1, 2, 3})});
     auto file_stream = make_shared<SimpleStreamSource>("FileStream", conf.getString("inputPath"));
-    file_stream->window(std::make_unique<WindowFunction>("window1", 10, 0, WindowType::Tumbling))
+    int cnt = 0;
+    file_stream->window(std::make_unique<WindowFunction>("window1", 50, 10, WindowType::Sliding))
         ->itopk(std::make_unique<ITopkFunction>("itopk1", 1, 3, std::move(itopk_record)))
-        ->writeSink(std::make_unique<SinkFunction>("sink1", [](const std::unique_ptr<VectorRecord> &record) {
-          std::cout << "Sink1: " << record->uid_ << '\n';
+        ->writeSink(std::make_unique<SinkFunction>("sink1", [&cnt](const std::unique_ptr<VectorRecord> &record) {
+          std::cout << "Sink1: " << record->uid_ << " " << cnt++ << '\n';
         }));
     env.addStream(std::move(file_stream));
     env.execute();

@@ -3,6 +3,8 @@
 //
 #include "operator/itopk_operator.h"
 
+#include <iostream>
+
 #include "function/itopk_function.h"
 
 candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& func,
@@ -16,16 +18,21 @@ candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& func,
   record_ = itopk_func->getRecord();
 }
 
+static int cnt = 0;
+
 auto candy::ITopkOperator::process(Response& data, const int slot) -> bool {
+  // std::cout << "ITopkOperator: " << ++cnt << '\n';
   if (data.type_ == ResponseType::Record) {
     return false;
   }
   if (data.type_ == ResponseType::List) {
     const auto records = std::move(data.records_);
+    std::unordered_set<uint64_t> uids;
     for (auto& record : *records) {
       auto uid = record->uid_;
       if (uids_.contains(uid)) {
         uids_.erase(uid);
+        uids.insert(uid);
       }
     }
     // controller erase
@@ -36,7 +43,9 @@ auto candy::ITopkOperator::process(Response& data, const int slot) -> bool {
     for (auto& record : *records) {
       auto uid = record->uid_;
       uids_.insert(uid);
-      concurrency_manager_->insert(index_id_, record);
+      if (!uids.contains(uid)) {
+        concurrency_manager_->insert(index_id_, record);
+      }
     }
     auto topk_record = getRecord();
     auto res = concurrency_manager_->query(index_id_, topk_record, k_);

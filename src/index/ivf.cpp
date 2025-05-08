@@ -3,13 +3,15 @@
 #include <limits>
 #include <random>
 #include <unordered_set>
+#include <iostream>
 
 namespace candy {
 
-Ivf::Ivf(int num_clusters, int rebuild_threshold) 
-    : num_clusters_(num_clusters),
+Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes) 
+    : nlist_(nlist),
       rebuild_threshold_(rebuild_threshold),
-      vectors_since_last_rebuild_(0) {
+      vectors_since_last_rebuild_(0),
+      nprobes_(nprobes) {
     // Initialize empty centroids and inverted lists
     centroids_.clear();
     inverted_lists_.clear();
@@ -40,10 +42,11 @@ void Ivf::rebuildClusters() {
     if (storage_manager_->records_.empty()) {
         return;
     }
-    
-    int dataset_size = storage_manager_->records_.size();
-    int actual_clusters = std::min(num_clusters_, dataset_size);
-    
+    int t = sqrt(size_);
+    if (t > nlist_) {
+        nlist_ = t;
+    }
+    int actual_clusters = std::min(nlist_, size_);
     // Initialize centroids with random vectors from the dataset
     centroids_.clear();
     std::vector<int> selected_indices;
@@ -51,7 +54,7 @@ void Ivf::rebuildClusters() {
     // Random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distrib(0, dataset_size - 1);
+    std::uniform_int_distribution<> distrib(0, size_ - 1);
     
     // Select random initial centroids
     while (centroids_.size() < actual_clusters) {
@@ -68,13 +71,13 @@ void Ivf::rebuildClusters() {
     bool changed = true;
     int iteration = 0;
     
-    std::vector<int> assignments(dataset_size, -1);
+    std::vector<int> assignments(size_, -1);
     
     while (changed && iteration < MAX_ITERATIONS) {
         changed = false;
         
         // Assign each vector to nearest centroid
-        for (int i = 0; i < dataset_size; ++i) {
+        for (int i = 0; i < size_; ++i) {
             double min_dist = std::numeric_limits<double>::max();
             int best_cluster = -1;
             
@@ -123,7 +126,7 @@ void Ivf::rebuildClusters() {
         }
         
         // Sum vectors for each cluster
-        for (int i = 0; i < dataset_size; ++i) {
+        for (int i = 0; i < size_; ++i) {
             int cluster = assignments[i];
             if (cluster >= 0) {
                 const auto& record = storage_manager_->records_[i];
@@ -168,7 +171,6 @@ void Ivf::rebuildClusters() {
                 }
             }
         }
-        
         // Update centroids
         centroids_ = std::move(new_centroids);
         iteration++;
@@ -176,7 +178,7 @@ void Ivf::rebuildClusters() {
     
     // Rebuild inverted lists
     inverted_lists_.clear();
-    for (int i = 0; i < dataset_size; ++i) {
+    for (int i = 0; i < size_; ++i) {
         int cluster = assignments[i];
         if (cluster >= 0) {
             uint64_t id = storage_manager_->records_[i]->uid_;
@@ -200,7 +202,7 @@ auto Ivf::insert(uint64_t id) -> bool {
     }
     
     // If no clusters yet or reached rebuild threshold, rebuild clusters
-    if (centroids_.empty() || vectors_since_last_rebuild_ >= rebuild_threshold_) {
+    if (centroids_.empty() || vectors_since_last_rebuild_ >= rebuild_threshold_* size_) {
         rebuildClusters();
     } else {
         // Otherwise, just assign to nearest cluster
@@ -209,7 +211,7 @@ auto Ivf::insert(uint64_t id) -> bool {
             inverted_lists_[cluster].push_back(id);
         }
     }
-    
+    size_++;
     vectors_since_last_rebuild_++;
     return true;
 }
@@ -230,6 +232,7 @@ auto Ivf::erase(uint64_t id) -> bool {
     // Consider rebuilding if too many vectors have been removed
     if (found) {
         vectors_since_last_rebuild_--;
+        size_--;
     }
     
     return found;
@@ -239,38 +242,46 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
     if (centroids_.empty()) {
         return {};
     }
-    
-    // Find closest cluster
-    int cluster = assignToCluster(record->data_);
-    if (cluster < 0 || inverted_lists_.find(cluster) == inverted_lists_.end()) {
-        return {};
+
+    // Find the closest nprobes_ clusters
+    std::vector<std::pair<int, double>> cluster_distances;
+    for (size_t i = 0; i < centroids_.size(); ++i) {
+        double distance = storage_manager_->engine_->EuclideanDistance(record->data_, centroids_[i]);
+        cluster_distances.push_back({static_cast<int>(i), distance});
     }
-    
-    // Get IDs from the closest cluster
-    const auto& candidate_ids = inverted_lists_[cluster];
-    
-    // Get all candidate vectors
+
+    // Sort clusters by distance
+    std::sort(cluster_distances.begin(), cluster_distances.end(), [](const auto& a, const auto& b) {
+        return a.second < b.second;
+    });
+
+    // Probe the top nprobes_ clusters
     std::vector<std::pair<uint64_t, double>> results;
-    for (const auto& id : candidate_ids) {
-        auto candidate = storage_manager_->getVectorByUid(id);
-        if (candidate) {
-            double distance = storage_manager_->engine_->EuclideanDistance(
-                record->data_, candidate->data_);
-            results.push_back({id, distance});
+    for (size_t i = 0; i < cluster_distances.size() && (results.size()<k || i < this->nprobes_); ++i) {
+        int cluster = cluster_distances[i].first;
+        if (inverted_lists_.find(cluster) != inverted_lists_.end()) {
+            const auto& candidate_ids = inverted_lists_[cluster];
+            for (const auto& id : candidate_ids) {
+                auto candidate = storage_manager_->getVectorByUid(id);
+                if (candidate) {
+                    double distance = storage_manager_->engine_->EuclideanDistance(record->data_, candidate->data_);
+                    results.push_back({id, distance});
+                }
+            }
         }
     }
-    
+
     // Sort by distance
-    std::sort(results.begin(), results.end(), 
-              [](const auto& a, const auto& b) { return a.second < b.second; });
-    
+    std::sort(results.begin(), results.end(), [](const auto& a, const auto& b) {
+        return a.second < b.second;
+    });
     // Return top-k IDs
     std::vector<uint64_t> top_ids;
     int result_count = std::min(k, static_cast<int>(results.size()));
     for (int i = 0; i < result_count; ++i) {
         top_ids.push_back(results[i].first);
     }
-    
+
     return top_ids;
 }
 

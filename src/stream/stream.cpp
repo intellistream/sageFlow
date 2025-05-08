@@ -60,6 +60,17 @@ auto Stream::itopk(std::unique_ptr<Function> itopk_func) -> std::shared_ptr<Stre
   return stream;
 }
 
+auto Stream::aggregate(std::unique_ptr<Function>& aggregate_func) -> std::shared_ptr<Stream> {
+  return aggregate(std::move(aggregate_func));
+}
+
+auto Stream::aggregate(std::unique_ptr<Function> aggregate_func) -> std::shared_ptr<Stream> {
+  auto stream = std::make_shared<Stream>(name_ + '_' + aggregate_func->getName());
+  stream->function_ = std::move(aggregate_func);
+  streams_.push_back(stream);
+  return stream;
+}
+
 auto Stream::topk(const int32_t index_id, int k) -> std::shared_ptr<Stream> {
   auto stream = std::make_shared<Stream>(name_ + "_topk_" + std::to_string(index_id));
   auto topk_func = std::make_unique<TopkFunction>("topk", k, index_id);

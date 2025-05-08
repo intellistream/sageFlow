@@ -8,7 +8,7 @@ auto candy::TopkOperator::process(Response& data, int slot) -> bool {
   auto topk = dynamic_cast<TopkFunction*>(topk_func_.get());
   if (data.type_ == ResponseType::Record) {
     auto record = std::move(data.record_);
-    std::cout << "topk: " << record->uid_ << '\n';
+    //std::cout << "topk: " << record->uid_ << '\n';
     auto index_id = topk->getIndexId();
     auto k = topk->getK();
     auto res = concurrency_manager_->query(index_id, record, k);

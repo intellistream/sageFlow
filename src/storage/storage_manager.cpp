@@ -37,7 +37,7 @@ auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector
 }
 
 auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord>& record, int k) const -> std::vector<uint64_t> {
-  if (engine_ == NULL) throw std::runtime_error("StorageManager::topk: Compute engine is not set.");
+  if (engine_ == nullptr) throw std::runtime_error("StorageManager::topk: Compute engine is not set.");
   const auto rec = record.get();
   std::priority_queue<std::pair<double, int32_t>> pq;
   for (size_t i = 0; i < records_.size(); ++i) {
@@ -49,8 +49,9 @@ auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord>& record, in
     if (pq.size() < static_cast<size_t>(k)) {
       pq.emplace(dist, static_cast<int32_t>(i));
     } else if (dist < pq.top().first) {
-      pq.pop();
+      
       pq.emplace(dist, static_cast<int32_t>(i));
+      pq.pop();
     }
   }
   std::vector<uint64_t> result;

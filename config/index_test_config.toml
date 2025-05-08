@@ -1,0 +1,8 @@
+# Default configuration for the vector processing pipeline
+
+inputPath = "./data/siftsmall/siftsmall_query.fvecs"
+outputPath = "./data/vectors_output.csv"
+topK = 100
+similarityThreshold = 0.8
+indexType = "IVF"
+genanswer = "false"

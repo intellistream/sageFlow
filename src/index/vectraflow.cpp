@@ -15,8 +15,12 @@ auto candy::VectraFlow::erase(uint64_t id) -> bool { return true; }
 
 // 并行没搞明白 先不鸟它了
 auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> {
+
+
+
+    
     const auto rec = record.get();
-    //std::vector<std::priority_queue<std::pair<double, uint64_t>>> pq_list(omp_get_max_threads());
+    
     std :: priority_queue<std::pair<double, uint64_t>> pq;
 
     std::vector<double> selfquare(datas_.size());
@@ -29,18 +33,21 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     auto input_vector_square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
 
     for (size_t i = 0; i < datas_.size(); ++i) {
-        const auto local_rec = storage_manager_->getVectorByUid(datas_[i]).get();
+        
         //auto dist = storage_manager_->engine_->EuclideanDistance(rec->data_, local_rec->data_);
 
         // VectraFlow 特有的计算方式
+        
         auto dist = input_vector_square + selfquare[i] - 
-            2 * storage_manager_->engine_->dotmultiply(rec->data_, local_rec->data_);
+            2 * storage_manager_->engine_->dotmultiply(rec->data_, storage_manager_->getVectorByUid(datas_[i])->data_);
+
+        //auto dist = storage_manager_->engine_->EuclideanDistance(rec->data_, storage_manager_->getVectorByUid(datas_[i])->data_);
 
         if (pq.size() < static_cast<size_t>(k)) {
             pq.emplace(dist, datas_[i]);
         } else if (dist < pq.top().first) {
-            pq.pop();
             pq.emplace(dist, datas_[i]);
+            pq.pop();
         }
     }
     std::vector<uint64_t> result;

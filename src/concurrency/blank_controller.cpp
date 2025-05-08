@@ -19,6 +19,10 @@ auto candy::BlankController::insert(std::unique_ptr<VectorRecord>& record) -> bo
   auto uid = record->uid_;
   storage_manager_->insert(record);
   // Pay attention to "Record is empty now "!
+
+  // gpu insert
+
+
   index_->insert(uid);
   return true;
 }

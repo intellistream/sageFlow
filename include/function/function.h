@@ -15,7 +15,8 @@ enum class FunctionType {  // NOLINT
   Topk,
   Window,
   ITopk,
-  IFilter
+  IFilter,
+  Aggregate,
 };
 
 class Function {

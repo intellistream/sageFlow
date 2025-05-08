@@ -8,4 +8,5 @@ add_lib(
         topk_function.cpp
         window_function.cpp
         itopk_function.cpp
+        aggregate_function.cpp
 )

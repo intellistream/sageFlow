@@ -39,6 +39,9 @@ class Stream {
   auto itopk(std::unique_ptr<Function>& itopk_func) -> std::shared_ptr<Stream>;
   auto itopk(std::unique_ptr<Function> itopk_func) -> std::shared_ptr<Stream>;
 
+  auto aggregate(std::unique_ptr<Function>& aggregate_func) -> std::shared_ptr<Stream>;
+  auto aggregate(std::unique_ptr<Function> aggregate_func) -> std::shared_ptr<Stream>;
+
   // topk
   auto topk(int32_t index_id, int k) -> std::shared_ptr<Stream>;
 
