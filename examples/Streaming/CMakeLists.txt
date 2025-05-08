@@ -34,3 +34,9 @@ target_link_libraries(
         aggregate
         candy
 )
+macro(add_test name)
+    add_executable(${name} ${name}.cpp)
+    target_link_libraries(${name} candy)
+endmacro()
+add_test(test1)
+add_test(test2)

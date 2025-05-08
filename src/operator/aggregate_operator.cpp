@@ -21,7 +21,7 @@ auto Sum(std::unique_ptr<candy::VectorRecord>& record, std::unique_ptr<candy::Ve
 }
 
 void Avg(const std::unique_ptr<candy::VectorRecord>& record, int size) {
-  if (const auto data = record->data_; data.type_ == candy::DataType::Float32) {
+  if (const auto& data = record->data_; data.type_ == candy::DataType::Float32) {
     const auto d1 = reinterpret_cast<float*>(data.data_.get());
     for (int i = 0; i < data.dim_; ++i) {
       d1[i] /= size;

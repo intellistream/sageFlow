@@ -19,8 +19,6 @@ candy::TumblingWindowOperator::TumblingWindowOperator(std::unique_ptr<Function>&
   records_->reserve(window_size_);
 }
 
-static int cnt = 0;
-
 auto candy::TumblingWindowOperator::process(Response& data, const int slot) -> bool {
   if (data.type_ == ResponseType::Record) {
     auto record = std::move(data.record_);
@@ -47,7 +45,7 @@ bool candy::SlidingWindowOperator::process(Response& data, const int slot) {
   if (data.type_ == ResponseType::Record) {
     auto record = std::move(data.record_);
     records_.push_back(std::move(record));
-  }std::cout<< "cnt: " << cnt++ << '\n';
+  }
   if (records_.size() >= window_size_) {
 
     auto records = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>();
