@@ -8,10 +8,6 @@
 #include "operator/operator.h"
 #include "operator/join_operator_methods/base_method.h"
 #include "concurrency/concurrency_manager.h"
-#include "index/ivf.h"
-// Forward declare IvfEager and IvfLazy if full include causes issues, but direct include is fine here.
-#include "operator/join_operator_methods/eager/ivf.h"
-#include "operator/join_operator_methods/lazy/ivf.h"
 
 namespace candy {
   class JoinOperator final : public Operator {
