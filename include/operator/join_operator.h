@@ -7,6 +7,7 @@
 #include "common/data_types.h"
 #include "operator/operator.h"
 #include "operator/join_operator_methods/base_method.h"
+#include "concurrency/concurrency_manager.h"
 #include "operator/join_operator_methods/join_methods.h"
 
 namespace candy {
@@ -34,7 +35,8 @@ namespace candy {
     std::list<std::unique_ptr<VectorRecord>> left_records_;
     std::list<std::unique_ptr<VectorRecord>> right_records_;
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> methods_return_pool;
-    //VectorDatabase vector_db_;
+    std::shared_ptr<ConcurrencyManager> concurrency_manager_;
+    // VectorDatabase vector_db_;
   
   };
   }  // namespace candy
