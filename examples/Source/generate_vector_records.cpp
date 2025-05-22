@@ -5,48 +5,50 @@
 #include <vector>
 
 #include "common/data_types.h"
+static int cnt = 0;
 
 // Helper function to generate a random vector
-candy::VectorData generateRandomVectorData(std::mt19937& gen, int dim, candy::DataType dataType) {
-  candy::VectorData vectorData(dim, dataType);
-
+auto GenerateRandomVectorData(std::mt19937& gen, int dim, candy::DataType data_type) -> candy::VectorData {
+  candy::VectorData vector_data(dim, data_type);
+  float begin = 0;
+  float end = 1.0F;
   // Create distributions based on data type
   std::uniform_int_distribution<int> int_dist(-100, 100);
-  std::uniform_real_distribution<float> float_dist(-100.0f, 100.0f);
+  std::uniform_real_distribution<float> float_dist(begin, end);
   std::uniform_real_distribution<double> double_dist(-100.0, 100.0);
 
   // Fill the vector with random data based on its type
-  int element_size = candy::DATA_TYPE_SIZE[dataType];
+  int element_size = candy::DATA_TYPE_SIZE[data_type];
   for (int i = 0; i < dim; ++i) {
-    switch (dataType) {
+    switch (data_type) {
       case candy::Int8: {
-        int8_t value = static_cast<int8_t>(int_dist(gen) % 128);
-        std::memcpy(vectorData.data_.get() + i * element_size, &value, element_size);
+        auto value = static_cast<int8_t>(int_dist(gen) % 128);
+        std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
       case candy::Int16: {
-        int16_t value = static_cast<int16_t>(int_dist(gen));
-        std::memcpy(vectorData.data_.get() + i * element_size, &value, element_size);
+        auto value = static_cast<int16_t>(int_dist(gen));
+        std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
       case candy::Int32: {
         int32_t value = int_dist(gen);
-        std::memcpy(vectorData.data_.get() + i * element_size, &value, element_size);
+        std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
       case candy::Int64: {
-        int64_t value = static_cast<int64_t>(int_dist(gen));
-        std::memcpy(vectorData.data_.get() + i * element_size, &value, element_size);
+        auto value = static_cast<int64_t>(int_dist(gen));
+        std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
       case candy::Float32: {
         float value = float_dist(gen);
-        std::memcpy(vectorData.data_.get() + i * element_size, &value, element_size);
+        std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
       case candy::Float64: {
         double value = double_dist(gen);
-        std::memcpy(vectorData.data_.get() + i * element_size, &value, element_size);
+        std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
       default:
@@ -54,12 +56,14 @@ candy::VectorData generateRandomVectorData(std::mt19937& gen, int dim, candy::Da
     }
   }
 
-  return vectorData;
+  return vector_data;
 }
 
-int main(int argc, char* argv[]) {
+auto main(int argc, char* argv[]) -> int {
   // Set the output file path
-  std::string output_path = "vector_records.bin";
+  const int num_records = 100000;
+  int32_t dim = 25;
+  std::string output_path = "vector_records_" + std::to_string(dim) + "_" + std::to_string(num_records) + ".bin";
   if (argc > 1) {
     output_path = argv[1];
   }
@@ -81,10 +85,10 @@ int main(int argc, char* argv[]) {
   std::uniform_int_distribution<int> type_dist(1, 6);    // Data types from Int8 to Float64
 
   // Current timestamp as starting point
-  int64_t base_timestamp = static_cast<int64_t>(time(nullptr));
+  auto base_timestamp = static_cast<int64_t>(time(nullptr));
 
   // Generate and write 1000 vector records
-  const int num_records = 1000;
+
   std::cout << "Generating " << num_records << " vector records..." << std::endl;
 
   // Write number of records as header
@@ -92,32 +96,30 @@ int main(int argc, char* argv[]) {
   output_file.write(reinterpret_cast<char*>(&record_count), sizeof(int32_t));
   candy::DataType type = candy::Float32;
   for (int i = 0; i < num_records; ++i) {
-    int32_t dim = 3;
     // Generate random values for the vector record
-    uint64_t uid = uid_dist(gen);
+    uint64_t uid = i;
     int64_t timestamp = base_timestamp + i;  // Sequential timestamps
 
     // Generate random vector data
-    candy::VectorData vector_data = generateRandomVectorData(gen, dim, type);
+    candy::VectorData vector_data = GenerateRandomVectorData(gen, dim, type);
 
     // Create vector record
-    candy::VectorRecord record(uid, timestamp, std::move(vector_data));
 
     // Serialize and write to file
-    if (!record.Serialize(output_file)) {
-      std::cerr << "Failed to serialize record " << i << std::endl;
+    if (candy::VectorRecord record(uid, timestamp, std::move(vector_data)); !record.Serialize(output_file)) {
+      std::cerr << "Failed to serialize record " << i << '\n';
       output_file.close();
       return 1;
     }
 
     // Progress output
     if (i % 100 == 0) {
-      std::cout << "Generated " << i << " records..." << std::endl;
+      std::cout << "Generated " << i << " records..." << '\n';
     }
   }
 
   output_file.close();
-  std::cout << "Successfully generated " << num_records << " vector records to " << output_path << std::endl;
+  std::cout << "Successfully generated " << num_records << " vector records to " << output_path << '\n';
 
   return 0;
 }
