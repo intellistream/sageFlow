@@ -12,7 +12,7 @@ namespace candy {
 class ComputeEngine {
  public:
   // Calculate cosine similarity between two VectorRecords
-  auto Similarity(const VectorData &vec1, const VectorData &vec2) -> double;
+  auto Similarity(const VectorData &vec1, const VectorData &vec2, double alpha = 0.1) -> double;
 
   // Compute Euclidean distance between two VectorRecords
   auto EuclideanDistance(const VectorData &vec1, const VectorData &vec2) -> double;

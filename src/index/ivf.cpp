@@ -10,31 +10,34 @@
 namespace candy {
 
 Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes)
-    : nlist_(nlist), rebuild_threshold_(rebuild_threshold), vectors_since_last_rebuild_(0), nprobes_(nprobes) {
-  // Initialize empty centroids and inverted lists
-  centroids_.clear();
-  inverted_lists_.clear();
+    : nlist_(nlist),
+      rebuild_threshold_(rebuild_threshold),
+      vectors_since_last_rebuild_(0),
+      nprobes_(nprobes) {
+    // Initialize empty centroids and inverted lists
+    centroids_.clear();
+    inverted_lists_.clear();
 }
 
 Ivf::~Ivf() = default;
 
-auto Ivf::assignToCluster(const VectorData& vec) -> int {
-  if (centroids_.empty()) {
-    return -1;  // No clusters yet
-  }
-
-  int best_cluster = 0;
-  double min_distance = std::numeric_limits<double>::max();
-
-  for (size_t i = 0; i < centroids_.size(); ++i) {
-    double distance = storage_manager_->engine_->EuclideanDistance(vec, centroids_[i]);
-    if (distance < min_distance) {
-      min_distance = distance;
-      best_cluster = static_cast<int>(i);
+auto Ivf::assignToCluster(const VectorData& vec) -> int { // Use trailing return type
+    if (centroids_.empty()) {
+        return -1; // No clusters yet
     }
-  }
-
-  return best_cluster;
+    
+    int best_cluster = 0;
+    double min_distance = std::numeric_limits<double>::max();
+    
+    for (size_t i = 0; i < centroids_.size(); ++i) {
+        double distance = storage_manager_->engine_->EuclideanDistance(vec, centroids_[i]);
+        if (distance < min_distance) {
+            min_distance = distance;
+            best_cluster = static_cast<int>(i);
+        }
+    }
+    
+    return best_cluster;
 }
 
 void Ivf::rebuildClusters() {
@@ -290,4 +293,41 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
   return top_ids;
 }
 
+auto Ivf::query_for_join(std::unique_ptr<VectorRecord>& record, double join_similarity_threshold) -> std::vector<uint64_t> {
+  if (centroids_.empty()) {
+    return {};
+  }
+
+  // Find the closest nprobes_ clusters
+  std::vector<std::pair<int, double>> cluster_distances;
+  for (size_t i = 0; i < centroids_.size(); ++i) {
+    double distance = storage_manager_->engine_->EuclideanDistance(record->data_, centroids_[i]);
+    cluster_distances.emplace_back(static_cast<int>(i), distance);
+  }
+
+  // Sort clusters by distance
+  std::ranges::sort(cluster_distances, [](const auto& a, const auto& b) {
+      return a.second < b.second;
+  });
+
+  // Probe the top nprobes_ clusters
+  constexpr double epsilon = 1e-6;
+  std::vector<uint64_t> results;
+  for (size_t i = 0; i < cluster_distances.size() && std::cmp_less(i , this->nprobes_); ++i) {
+    int cluster = cluster_distances[i].first;
+    if (inverted_lists_.contains(cluster)) {
+      const auto& candidate_ids = inverted_lists_.at(cluster);
+      for (const auto& id_val : candidate_ids) {
+        if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
+          double similarity = storage_manager_->engine_->Similarity(record->data_, candidate->data_);
+          if (similarity - join_similarity_threshold > epsilon) {
+            results.emplace_back(id_val);
+          }
+        }
+      }
+    }
+  }
+
+  return results;
+}
 }  // namespace candy

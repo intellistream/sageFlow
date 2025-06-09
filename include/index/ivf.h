@@ -1,4 +1,5 @@
 #pragma once
+#include "index/index.h"
 #include <unordered_map>
 
 #include "index/index.h"
@@ -25,13 +26,15 @@ class Ivf final : public Index {
   auto assignToCluster(const VectorData& vec) -> int;
 
  public:
-  // Constructor
-  explicit Ivf(int num_clusters = 1000, double rebuild_threshold = 0.5, int nprobes = 10);
-  // Destructor
-  ~Ivf() override;
+        // Constructor
+        explicit Ivf(int num_clusters = 1000, double rebuild_threshold = 0.5, int nprobes = 10);
+        // Destructor
+        ~Ivf() override;
 
-  auto insert(uint64_t id) -> bool override;
-  auto erase(uint64_t id) -> bool override;
-  auto query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> override;
+        auto insert(uint64_t id) -> bool override;
+        auto erase(uint64_t id) -> bool override;
+        auto query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> override;
+        auto query_for_join(std::unique_ptr<VectorRecord>& record,
+                            double join_similarity_threshold) -> std::vector<uint64_t> override;
 };
 }  // namespace candy

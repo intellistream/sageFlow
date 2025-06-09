@@ -14,6 +14,7 @@ auto StreamEnvironment::loadConfiguration(const std::string &file_path) -> Confi
   return config;
 }
 
+// 计划在这里进行多线程的分配
 auto StreamEnvironment::execute() -> void {
   if (streams_.empty()) {
     throw std::runtime_error("No streams to execute.");

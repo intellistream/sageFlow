@@ -10,6 +10,10 @@ add_executable(
         itopk
         itopk.cpp
 )
+#add_executable(
+#        join
+#        join.cpp
+#)
 
 add_executable(
         aggregate
@@ -29,6 +33,10 @@ target_link_libraries(
         itopk
         candy
 )
+#target_link_libraries(
+#        join
+#        candy
+#)
 
 target_link_libraries(
         aggregate

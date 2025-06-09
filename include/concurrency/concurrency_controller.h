@@ -22,6 +22,11 @@ class ConcurrencyController {
 
   virtual auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<std::unique_ptr<VectorRecord>> = 0;
 
+  // New method for join-specific queries, returning UIDs
+  virtual auto query_for_join(std::unique_ptr<VectorRecord>& record,
+                              double join_similarity_threshold) -> std::vector<std::unique_ptr<VectorRecord>> = 0;
+
   std::shared_ptr<StorageManager> storage_manager_ = nullptr;
 };
 };  // namespace candy
+

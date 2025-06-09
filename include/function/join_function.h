@@ -55,10 +55,10 @@ namespace candy {
   
   class JoinFunction final : public Function {
    public:
-    explicit JoinFunction(std::string name);
+    explicit JoinFunction(std::string name, int dim);
   
-    explicit JoinFunction(std::string name, JoinFunc join_func);
-    explicit JoinFunction(std::string name, JoinFunc join_func, int64_t time_window);
+    explicit JoinFunction(std::string name, JoinFunc join_func, int dim);
+    explicit JoinFunction(std::string name, JoinFunc join_func, int64_t time_window, int dim);
     
     auto Execute(Response &left, Response &right)
         -> Response override;
@@ -66,6 +66,8 @@ namespace candy {
     auto setJoinFunc(JoinFunc join_func) -> void;
   
     auto getOtherStream() -> std::shared_ptr<Stream> &;
+
+    auto getDim() const -> int;
   
     auto setOtherStream(std::shared_ptr<Stream> other_plan) -> void;
   
@@ -75,6 +77,7 @@ namespace candy {
   
    private:
     JoinFunc join_func_;
+    int dim_ = 0;
     std::shared_ptr<Stream> other_stream_ = nullptr;
     // TODO : 把Window逻辑扩展
     // 现在的 window 是固定长度步长的滑动窗口
