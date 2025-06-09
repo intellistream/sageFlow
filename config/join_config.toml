@@ -1,0 +1,24 @@
+# config/join_config.toml
+
+# Paths for the two input data streams
+# Data format: fvecs format used by FileStreamSource
+inputPath = "../data/siftsmall/siftsmall_learn.fvecs" # Main input stream
+rightInputPath = "../data/siftsmall/siftsmall_query.fvecs" # Join stream
+
+# Path for output (currently unused by sink, but good for future)
+outputPath = "../data/join_output.txt"
+
+# Join operator parameters
+# joinMethod can be: "bruteforce_lazy", "bruteforce_eager", "ivf_lazy", "ivf_eager"
+joinMethod = "bruteforce_eager"
+SimilarityThreshold = 0.85 # Adjust based on your data and similarity metric
+
+# Vector and window parameters
+dimension = 128 # Dimension of vectors in SIFT
+timeWindow = 5000 # Time window for join operator in milliseconds (e.g., 5 seconds)
+# stepSize is internally calculated by JoinFunction as timeWindow / 4
+
+# Optional: IVF specific parameters (if you modify JoinOperator to accept them from config)
+# ivfNlist = 100
+# ivfNprobes = 10
+# ivfRebuildThreshold = 0.2

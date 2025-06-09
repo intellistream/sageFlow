@@ -41,3 +41,9 @@ auto candy::BlankController::erase(const uint64_t uid) -> bool {
   }
   return storage_manager_->erase(uid);
 }
+
+auto candy::BlankController::query_for_join(std::unique_ptr<VectorRecord>& record,
+                                            double join_similarity_threshold)-> std::vector<std::unique_ptr<candy::VectorRecord>> {
+  const auto idxes = index_->query_for_join(record, join_similarity_threshold);
+  return storage_manager_->getVectorsByUids(idxes);
+}
