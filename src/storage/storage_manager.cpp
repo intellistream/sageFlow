@@ -11,7 +11,16 @@ auto candy::StorageManager::insert(std::unique_ptr<VectorRecord>& record) -> voi
 
 auto candy::StorageManager::erase(const uint64_t vector_id) -> bool {
   if (const auto it = map_.find(vector_id); it != map_.end()) {
-    records_[it->second].reset();
+    int idx = it->second;
+    int last_idx = static_cast<int>(records_.size()) - 1;
+
+    // 若待删除元素不是最后一项，则将最后一项交换到 idx 处，并更新其在 map_ 中的索引
+    if (idx != last_idx) {
+      std::swap(records_[idx], records_[last_idx]);
+      map_[records_[idx]->uid_] = idx;
+    }
+
+    records_.pop_back();
     map_.erase(it);
     return true;
   }

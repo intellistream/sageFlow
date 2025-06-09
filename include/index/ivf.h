@@ -21,16 +21,18 @@ class Ivf final : public Index {
         // Perform k-means clustering
         void rebuildClusters();
         // Assign a vector to a cluster
-        int assignToCluster(const VectorData& vec);
+        auto assignToCluster(const VectorData& vec) -> int;
 
  public:
         // Constructor
         explicit Ivf(int num_clusters = 100, double rebuild_threshold = 0.5, int nprobes = 10);
-        // Destructor 
+        // Destructor
         ~Ivf() override;
         
         auto insert(uint64_t id) -> bool override;
         auto erase(uint64_t id) -> bool override;
         auto query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> override;
+        auto query_for_join(std::unique_ptr<VectorRecord>& record,
+                            double join_similarity_threshold) -> std::vector<uint64_t> override;
 };
 }  // namespace candy

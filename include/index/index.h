@@ -34,6 +34,8 @@ class Index {
   virtual auto insert(uint64_t id) -> bool = 0;
   virtual auto erase(uint64_t id) -> bool = 0;
   virtual auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<uint64_t> = 0;
+  virtual auto query_for_join(std::unique_ptr<VectorRecord> &record,
+                              double join_similarity_threshold) -> std::vector<uint64_t> = 0;
 };
 
 class GlobalIndex final : public Index {

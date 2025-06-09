@@ -58,7 +58,7 @@ auto candy::ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecor
   return controller->insert(record);
 }
 
-auto candy::ConcurrencyManager::erase(const int index_id, std::unique_ptr<VectorRecord>& record) -> bool {
+auto candy::ConcurrencyManager::erase(int index_id, std::unique_ptr<VectorRecord>& record) -> bool {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return false;
@@ -76,7 +76,7 @@ auto candy::ConcurrencyManager::erase(int index_id, uint64_t uid) -> bool {
   return controller->erase(uid);
 }
 
-auto candy::ConcurrencyManager::query(const int index_id, std::unique_ptr<VectorRecord>& record, int k)
+auto candy::ConcurrencyManager::query(int index_id, std::unique_ptr<VectorRecord>& record, int k)
     -> std::vector<std::unique_ptr<VectorRecord>> {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
@@ -85,3 +85,14 @@ auto candy::ConcurrencyManager::query(const int index_id, std::unique_ptr<Vector
   const auto& controller = it->second;
   return controller->query(record, k);
 }
+
+auto candy::ConcurrencyManager::query_for_join(int index_id, std::unique_ptr<VectorRecord>& record,
+                      double join_similarity_threshold) -> std::vector<std::unique_ptr<VectorRecord>> {
+  const auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return {};
+  }
+  const auto& controller = it->second;
+  return controller->query_for_join(record, join_similarity_threshold);
+}
+

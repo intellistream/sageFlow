@@ -4,10 +4,11 @@
 #include <random>
 #include <unordered_set>
 #include <iostream>
+#include <utility>
 
 namespace candy {
 
-Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes) 
+Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes)
     : nlist_(nlist),
       rebuild_threshold_(rebuild_threshold),
       vectors_since_last_rebuild_(0),
@@ -19,7 +20,7 @@ Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes)
 
 Ivf::~Ivf() = default;
 
-int Ivf::assignToCluster(const VectorData& vec) {
+auto Ivf::assignToCluster(const VectorData& vec) -> int { // Use trailing return type
     if (centroids_.empty()) {
         return -1; // No clusters yet
     }
@@ -42,10 +43,9 @@ void Ivf::rebuildClusters() {
     if (storage_manager_->records_.empty()) {
         return;
     }
-    int t = sqrt(size_);
-    if (t > nlist_) {
-        nlist_ = t;
-    }
+    auto t = static_cast<int>(sqrt(size_));
+    nlist_ = std::max(nlist_, t);
+
     int actual_clusters = std::min(nlist_, size_);
     // Initialize centroids with random vectors from the dataset
     centroids_.clear();
@@ -65,14 +65,14 @@ void Ivf::rebuildClusters() {
             centroids_.push_back(storage_manager_->records_[idx]->data_);
         }
     }
-    
+
     // K-means iterations
     const int MAX_ITERATIONS = 20;
     bool changed = true;
     int iteration = 0;
     
     std::vector<int> assignments(size_, -1);
-    
+
     while (changed && iteration < MAX_ITERATIONS) {
         changed = false;
         
@@ -107,22 +107,22 @@ void Ivf::rebuildClusters() {
             // Create new VectorData with the same dimension and type as our data
             DataType type = storage_manager_->records_[0]->data_.type_;
             int32_t dim = storage_manager_->records_[0]->data_.dim_;
-            VectorData newCentroid(dim, type);
-            
+            VectorData new_centroid(dim, type);
+
             // Initialize with zeros
             if (type == DataType::Float32) {
-                float* data_ptr = reinterpret_cast<float*>(newCentroid.data_.get());
+                auto* data_ptr = reinterpret_cast<float*>(new_centroid.data_.get());
                 for (int d = 0; d < dim; ++d) {
                     data_ptr[d] = 0.0f;
                 }
             } else if (type == DataType::Float64) {
-                double* data_ptr = reinterpret_cast<double*>(newCentroid.data_.get());
+                auto* data_ptr = reinterpret_cast<double*>(new_centroid.data_.get()); // Use auto
                 for (int d = 0; d < dim; ++d) {
                     data_ptr[d] = 0.0;
                 }
             }
             
-            new_centroids.push_back(std::move(newCentroid));
+            new_centroids.push_back(std::move(new_centroid));
         }
         
         // Sum vectors for each cluster
@@ -135,14 +135,14 @@ void Ivf::rebuildClusters() {
                 
                 // Add this vector to the centroid sum
                 if (type == DataType::Float32) {
-                    float* centroid_ptr = reinterpret_cast<float*>(new_centroids[cluster].data_.get());
-                    float* vector_ptr = reinterpret_cast<float*>(record->data_.data_.get());
+                    auto* centroid_ptr = reinterpret_cast<float*>(new_centroids[cluster].data_.get()); // Use auto
+                    auto* vector_ptr = reinterpret_cast<float*>(record->data_.data_.get()); // Use auto
                     for (int d = 0; d < dim; ++d) {
                         centroid_ptr[d] += vector_ptr[d];
                     }
                 } else if (type == DataType::Float64) {
-                    double* centroid_ptr = reinterpret_cast<double*>(new_centroids[cluster].data_.get());
-                    double* vector_ptr = reinterpret_cast<double*>(record->data_.data_.get());
+                    auto* centroid_ptr = reinterpret_cast<double*>(new_centroids[cluster].data_.get()); // Use auto
+                    auto* vector_ptr = reinterpret_cast<double*>(record->data_.data_.get()); // Use auto
                     for (int d = 0; d < dim; ++d) {
                         centroid_ptr[d] += vector_ptr[d];
                     }
@@ -159,14 +159,14 @@ void Ivf::rebuildClusters() {
                 int32_t dim = new_centroids[j].dim_;
                 
                 if (type == DataType::Float32) {
-                    float* data_ptr = reinterpret_cast<float*>(new_centroids[j].data_.get());
+                    auto* data_ptr = reinterpret_cast<float*>(new_centroids[j].data_.get()); // Use auto
                     for (int d = 0; d < dim; ++d) {
-                        data_ptr[d] /= cluster_sizes[j];
+                        data_ptr[d] /= static_cast<float>(cluster_sizes[j]); // Explicit cast
                     }
                 } else if (type == DataType::Float64) {
-                    double* data_ptr = reinterpret_cast<double*>(new_centroids[j].data_.get());
+                    auto* data_ptr = reinterpret_cast<double*>(new_centroids[j].data_.get()); // Use auto
                     for (int d = 0; d < dim; ++d) {
-                        data_ptr[d] /= cluster_sizes[j];
+                        data_ptr[d] /= static_cast<double>(cluster_sizes[j]); // Explicit cast
                     }
                 }
             }
@@ -247,7 +247,7 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
     std::vector<std::pair<int, double>> cluster_distances;
     for (size_t i = 0; i < centroids_.size(); ++i) {
         double distance = storage_manager_->engine_->EuclideanDistance(record->data_, centroids_[i]);
-        cluster_distances.push_back({static_cast<int>(i), distance});
+        cluster_distances.emplace_back(static_cast<int>(i), distance);
     }
 
     // Sort clusters by distance
@@ -257,15 +257,15 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
 
     // Probe the top nprobes_ clusters
     std::vector<std::pair<uint64_t, double>> results;
-    for (size_t i = 0; i < cluster_distances.size() && (results.size()<k || i < this->nprobes_); ++i) {
+    for (size_t i = 0; i < cluster_distances.size() && (std::cmp_less(results.size(), k) || std::cmp_less(i, this->nprobes_)); ++i) { // Explicit cast for comparison
         int cluster = cluster_distances[i].first;
-        if (inverted_lists_.find(cluster) != inverted_lists_.end()) {
-            const auto& candidate_ids = inverted_lists_[cluster];
-            for (const auto& id : candidate_ids) {
-                auto candidate = storage_manager_->getVectorByUid(id);
+        if (inverted_lists_.contains(cluster)) {
+            const auto& candidate_ids = inverted_lists_.at(cluster);
+            for (const auto& id_val : candidate_ids) {
+                auto candidate = storage_manager_->getVectorByUid(id_val);
                 if (candidate) {
                     double distance = storage_manager_->engine_->EuclideanDistance(record->data_, candidate->data_);
-                    results.push_back({id, distance});
+                    results.emplace_back(id_val, distance);
                 }
             }
         }
@@ -285,4 +285,42 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
     return top_ids;
 }
 
+auto Ivf::query_for_join(std::unique_ptr<VectorRecord>& record, double join_similarity_threshold) -> std::vector<uint64_t> {
+  if (centroids_.empty()) {
+    return {};
+  }
+
+  // Find the closest nprobes_ clusters
+  std::vector<std::pair<int, double>> cluster_distances;
+  for (size_t i = 0; i < centroids_.size(); ++i) {
+    double distance = storage_manager_->engine_->EuclideanDistance(record->data_, centroids_[i]);
+    cluster_distances.emplace_back(static_cast<int>(i), distance);
+  }
+
+  // Sort clusters by distance
+  std::sort(cluster_distances.begin(), cluster_distances.end(), [](const auto& a, const auto& b) {
+      return a.second < b.second;
+  });
+
+  // Probe the top nprobes_ clusters
+  constexpr double epsilon = 1e-6;
+  std::vector<uint64_t> results;
+  for (size_t i = 0; i < cluster_distances.size() && std::cmp_less(i , this->nprobes_); ++i) {
+    int cluster = cluster_distances[i].first;
+    if (inverted_lists_.contains(cluster)) {
+      const auto& candidate_ids = inverted_lists_.at(cluster);
+      for (const auto& id_val : candidate_ids) {
+        if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
+          double similarity = storage_manager_->engine_->Similarity(record->data_, candidate->data_);
+          if (similarity - join_similarity_threshold > epsilon) {
+            results.emplace_back(id_val);
+          }
+        }
+      }
+    }
+  }
+
+  return results;
+}
 }  // namespace candy
+

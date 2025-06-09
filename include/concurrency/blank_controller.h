@@ -18,6 +18,9 @@ class BlankController final : public ConcurrencyController {
 
   auto query(std::unique_ptr<VectorRecord> &record, int k) -> std::vector<std::unique_ptr<VectorRecord>> override;
 
+  auto query_for_join(std::unique_ptr<VectorRecord>& record,
+                      double join_similarity_threshold) -> std::vector<std::unique_ptr<VectorRecord>> override;
+
   auto erase(uint64_t uid) -> bool override;
 
  private:
