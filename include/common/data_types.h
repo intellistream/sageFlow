@@ -4,6 +4,7 @@
 #include <cstring>
 #include <memory>
 #include <vector>
+#include <iostream>
 
 namespace candy {
 enum DataType {  // NOLINT
@@ -36,6 +37,7 @@ struct VectorData {
   auto operator!=(const VectorData &other) const -> bool;
   // Inequality operator
 
+  void printData(std::ostream &os = std::cout) const;
   bool Serialize(std::ostream &out) const;
   bool Deserialize(std::istream &in);
 };
@@ -58,7 +60,7 @@ struct VectorRecord {
 
   // Equality operator for comparisons
   auto operator==(const VectorRecord &other) const -> bool;
-
+  void printRecord(std::ostream &os = std::cout) const;
   bool Serialize(std::ostream &out) const;
   bool Deserialize(std::istream &in);
 };

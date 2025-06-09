@@ -49,6 +49,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   try {
     auto file_stream = make_shared<FileStreamSource>("FileStream", conf.getString("inputPath"));
     auto join_stream = make_shared<FileStreamSource>("JoinStream", conf.getString("inputPath"));
+    auto dim = 128; // conf.getDim();
     file_stream
         ->filter(std::make_unique<FilterFunction>("filter1",
                                                   [](const std::unique_ptr<VectorRecord> &record) -> bool {
@@ -64,7 +65,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
                                             std::unique_ptr<VectorRecord> &r) { 
                                               return std::make_unique<VectorRecord>(l->uid_, l->timestamp_, l->data_);
                                              // return l->uid_ == r->uid_; 
-                                          })
+                                          }, dim)
 
                    )
         ->writeSink(std::make_unique<SinkFunction>(

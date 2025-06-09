@@ -5,19 +5,19 @@
 #include "function/join_function.h"
 
 namespace candy {
-class BruteForceLazy : public BaseMethod {
+class BruteForceLazy final : public BaseMethod {
  public:
-    ~BruteForceLazy() = default;
+    ~BruteForceLazy() override = default;
     void Excute(std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,
-                std::unique_ptr<candy::JoinFunction> &joinfuc,
-                std::list<std::unique_ptr<VectorRecord>> &left_records_,
-                std::list<std::unique_ptr<VectorRecord>> &right_records_);
+                std::unique_ptr<JoinFunction> &joinfuc,
+                std::list<std::unique_ptr<VectorRecord>> &left_records,
+                std::list<std::unique_ptr<VectorRecord>> &right_records) override;
 
     void Excute(std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,
-                std::unique_ptr<candy::JoinFunction> &joinfuc,
+                std::unique_ptr<JoinFunction> &joinfuc,
                 std::unique_ptr<VectorRecord> &data,
-                std::list<std::unique_ptr<VectorRecord>> &records_,
-                int slot);
+                std::list<std::unique_ptr<VectorRecord>> &records,
+                int slot) override;
  private:
 };
 }  // namespace candy

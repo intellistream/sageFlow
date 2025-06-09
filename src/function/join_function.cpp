@@ -1,15 +1,16 @@
 #include "function/join_function.h"
 
-candy::JoinFunction::JoinFunction(std::string name) : Function(std::move(name), FunctionType::Join) {}
+candy::JoinFunction::JoinFunction(std::string name, int dim) : Function(std::move(name), FunctionType::Join), dim_(dim) {}
 
-candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func) :
-  Function(std::move(name), FunctionType :: Join), join_func_(std::move(join_func)) {}
+candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int dim) :
+  Function(std::move(name), FunctionType::Join), join_func_(std::move(join_func)), dim_(dim) {}
 
 // TODO : 确定这个滑动窗口的步长
 // 目前是 window / 4
-candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t time_window)
+candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t time_window, int dim)
     : Function(std::move(name), FunctionType::Join), 
-    windowL (time_window, time_window / 4), windowR(time_window, time_window / 4), join_func_(std::move(join_func)) {}
+    windowL (time_window, time_window / 4), windowR(time_window, time_window / 4),
+    join_func_(std::move(join_func)), dim_(dim) {}
 
 candy::Response candy::JoinFunction::Execute(Response& left, Response& right){
   if (left.type_ == ResponseType::Record && right.type_ == ResponseType::Record) {
@@ -20,6 +21,8 @@ candy::Response candy::JoinFunction::Execute(Response& left, Response& right){
   }
   return {};
 }
+
+auto candy::JoinFunction::getDim() const -> int { return dim_; }
 
 auto candy::JoinFunction::setJoinFunc(JoinFunc join_func) -> void { join_func_ = std::move(join_func); }
 

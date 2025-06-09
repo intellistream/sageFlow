@@ -1,6 +1,11 @@
 #include "compute_engine/compute_engine.h"
+#include <iostream>
 
-auto candy::ComputeEngine::Similarity(const VectorData& vec1, const VectorData& vec2) -> double { return 0.0; }
+auto candy::ComputeEngine::Similarity(const VectorData& vec1, const VectorData& vec2, const double alpha) -> double {
+  auto distance = EuclideanDistance(vec1, vec2);
+  // Exponential Decay function to convert distance to similarity
+  return std::exp(-alpha * distance);
+}
 
 // 私有模板辅助函数
 template <typename T>
@@ -52,7 +57,7 @@ auto candy::ComputeEngine::EuclideanDistance(const VectorData& vec1, const Vecto
     default:
       throw std::invalid_argument("Unsupported data type");
   }
-  return std::sqrt(distance);
+  return distance;
 }
 
 auto candy::ComputeEngine::normalizeVector(const VectorData& vec) -> VectorData { return vec; }

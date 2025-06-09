@@ -31,6 +31,7 @@ add_subdirectory(
 add_library(
         candy
         INTERFACE
+        ../include/operator/join_operator_methods/lazy/ivf.h
 )
 target_link_libraries(
         candy
