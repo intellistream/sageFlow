@@ -1,5 +1,7 @@
 FROM ubuntu:22.04
 
+RUN sed -i 's|http://archive.ubuntu.com/ubuntu/|https://mirrors.tuna.tsinghua.edu.cn/ubuntu/|g' /etc/apt/sources.list
+
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
