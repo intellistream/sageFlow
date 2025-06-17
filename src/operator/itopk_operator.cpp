@@ -18,10 +18,7 @@ candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& func,
   record_ = itopk_func->getRecord();
 }
 
-static int cnt = 0;
-
 auto candy::ITopkOperator::process(Response& data, const int slot) -> bool {
-  // std::cout << "ITopkOperator: " << ++cnt << '\n';
   if (data.type_ == ResponseType::Record) {
     return false;
   }

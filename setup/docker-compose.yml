@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: my-ubuntu-container
+    container_name: candyflow-runner
     ports:
       - "2222:22"
     stdin_open: true
