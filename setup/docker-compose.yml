@@ -1,10 +1,8 @@
-version: '3.8'
-
 services:
   candyflow:
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ../
+      dockerfile: setup/Dockerfile
     container_name: candyflow-runner
     ports:
       - "2222:22"
