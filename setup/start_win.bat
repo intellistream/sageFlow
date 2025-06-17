@@ -5,7 +5,7 @@ docker-compose up -d --build
 
 REM Display SSH connection information
 echo Docker container is running. You can connect via SSH with:
-echo ssh root@<remote_server_ip> -p 2222
+echo "ssh root@localhost -p 2222"
 
 REM Get the container ID or name dynamically using the service name
 set service_name=candyflow
