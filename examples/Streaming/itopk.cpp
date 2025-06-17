@@ -54,7 +54,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   try {
     auto itopk_record = make_unique<VectorRecord>(
         -1, 128, VectorData{128, DataType::Float32, reinterpret_cast<char *>(new float[128])});
-    auto file_stream = make_shared<SiftStreamSource>("FileStream", "./data/sift/sift_base.fvecs");
+    auto file_stream = make_shared<SiftStreamSource>("FileStream", "./data/siftsmall/siftsmall_base.fvecs");
     int cnt = 0;
     std::unordered_map<uint64_t, int> map;
     file_stream->window(std::make_unique<WindowFunction>("window1", 500, 400, WindowType::Tumbling))
