@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/eager/bruteforce.h"
+#include "compute_engine/compute_engine.h"
 
 namespace candy {
 void BruteForceEager::Excute(
@@ -15,16 +16,32 @@ void BruteForceEager::Excute(
   std::unique_ptr<VectorRecord> &data,
   std::list<std::unique_ptr<VectorRecord>> &records,
   int slot) {
-  for (auto &rec : records) {
+  // Create a new ComputeEngine for similarity calculation
+  ComputeEngine engine;
 
-      auto response_rec = Response{ResponseType::Record, std::make_unique<VectorRecord>(*rec)};
-      auto response_data = Response{ResponseType::Record, std::make_unique<VectorRecord>(*data)};
-      auto ret = joinfuc -> Execute(response_rec, response_data);
-      auto &ret_record = ret.record_;
-      if (ret_record != nullptr) {
-        emit_pool.emplace_back(0, std::move(ret_record));
+  for (auto &rec : records) {
+    if (!rec || !data) {
+      continue;
+    }
+
+    // Calculate similarity using ComputeEngine
+    double similarity = engine.Similarity(data->data_, rec->data_);
+
+    // Only proceed with join if similarity is above threshold
+    if (similarity < join_similarity_threshold_) {
+      // Create copies for the join function
+      auto rec_copy = std::make_unique<VectorRecord>(*rec);
+      auto data_copy = std::make_unique<VectorRecord>(*data);
+
+      auto response_rec = Response{ResponseType::Record, std::move(rec_copy)};
+      auto response_data = Response{ResponseType::Record, std::move(data_copy)};
+
+      auto ret = joinfuc->Execute(response_rec, response_data);
+      if (ret.record_ != nullptr) {
+        emit_pool.emplace_back(0, std::move(ret.record_));
       }
+    }
   }
 }
 
-}
+}  // namespace candy

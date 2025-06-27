@@ -8,10 +8,11 @@ IvfEager::IvfEager(int left_ivf_index_id,
                    int right_ivf_index_id,
                    double join_similarity_threshold,
                    const std::shared_ptr<ConcurrencyManager> &concurrency_manager)
-    : left_ivf_index_id_(left_ivf_index_id),
+    : BaseMethod(join_similarity_threshold),
+      left_ivf_index_id_(left_ivf_index_id),
       right_ivf_index_id_(right_ivf_index_id),
-      join_similarity_threshold_(join_similarity_threshold),
       concurrency_manager_(concurrency_manager) {
+
 }
 
 auto IvfEager::getOtherStreamIvfIndexId(int data_arrival_slot) const -> int {
@@ -25,7 +26,9 @@ void IvfEager::Excute(
     std::list<std::unique_ptr<VectorRecord>> &records,
     int slot) {
 
-    if (!data) return;
+    if (!data) {
+      return;
+    }
 
     if (!concurrency_manager_) {
         return;
@@ -51,13 +54,9 @@ void IvfEager::Excute(
             Response response_candidate{ResponseType::Record, std::move(candidate_copy_for_join)};
 
             Response result_response;
-            if (slot == 0) {
-                result_response = joinfuc->Execute(response_data, response_candidate);
-            } else {
-                result_response = joinfuc->Execute(response_candidate, response_data);
-            }
+            result_response = joinfuc->Execute(response_data, response_candidate);
 
-            if (result_response.type_ == ResponseType::Record && result_response.record_) {
+            if (result_response.record_) {
                 emit_pool.emplace_back(0, std::move(result_response.record_));
             }
         }

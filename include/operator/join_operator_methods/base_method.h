@@ -15,6 +15,9 @@ enum class JoinMethodType {
 
 class BaseMethod {
  public:
+  explicit BaseMethod(double join_similarity_threshold)
+    : join_similarity_threshold_(join_similarity_threshold){}
+
    virtual ~BaseMethod() = default;
    virtual void Excute(std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,
                        std::unique_ptr<JoinFunction> &joinfuc,
@@ -26,6 +29,8 @@ class BaseMethod {
                        std::unique_ptr<VectorRecord> &data,
                        std::list<std::unique_ptr<VectorRecord>> &records,
                        int slot);
+ protected:
+  double join_similarity_threshold_;
  private:
 };
 }  // namespace candy
