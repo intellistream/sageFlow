@@ -54,11 +54,11 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
                                                           join_similarity_threshold, concurrency_manager_);
               using_ivf_ = true;
             } else {
-                join_method_ = std::make_unique<BruteForceEager>();
+                join_method_ = std::make_unique<BruteForceEager>(join_similarity_threshold);
                 using_ivf_ = false;
             }
         } else {
-            join_method_ = std::make_unique<BruteForceEager>();
+            join_method_ = std::make_unique<BruteForceEager>(join_similarity_threshold);
             using_ivf_ = false;
         }
     } else if (join_method_name == "ivf_lazy") {
@@ -69,19 +69,19 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
                                                          join_similarity_threshold, concurrency_manager_);
                 using_ivf_ = true;
             } else {
-                join_method_ = std::make_unique<BruteForceLazy>();
+                join_method_ = std::make_unique<BruteForceLazy>(join_similarity_threshold);
                 using_ivf_ = false;
             }
         } else {
-            join_method_ = std::make_unique<BruteForceLazy>();
+            join_method_ = std::make_unique<BruteForceLazy>(join_similarity_threshold);
             using_ivf_ = false;
         }
     } else if (join_method_name == "bruteforce_eager") {
-        join_method_ = std::make_unique<BruteForceEager>();
+        join_method_ = std::make_unique<BruteForceEager>(join_similarity_threshold);
     } else if (join_method_name == "bruteforce_lazy") {
-        join_method_ = std::make_unique<BruteForceLazy>();
+        join_method_ = std::make_unique<BruteForceLazy>(join_similarity_threshold);
     } else {
-        join_method_ = std::make_unique<BruteForceLazy>();
+        join_method_ = std::make_unique<BruteForceLazy>(join_similarity_threshold);
         using_ivf_ = false;
         is_eager_ = false;
     }
@@ -92,9 +92,13 @@ void JoinOperator::open() {
     return;
   }
   is_open_ = true;
-  if (mother_) mother_->open();
+  if (mother_) {
+    mother_->open();
+  }
   for (const auto& child : children_) {
-    if (child) child->open();
+    if (child) {
+      child->open();
+    }
   }
 }
 

@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <functional>
 #include <assert.h>
 
@@ -28,12 +29,12 @@ namespace candy {
       lastEmitted = -1;
     }
     
-    int windowTimeLimit(int64_t timestamp) {
+    auto windowTimeLimit(int64_t timestamp) const -> int {
       // 返回窗口可以容忍的最靠前时间
       return timestamp - windowSize;
     }
   
-    bool isNeedTrigger(int64_t timestamp) {
+    auto isNeedTrigger(int64_t timestamp) -> bool {
       // 判断是否需要触发窗口， 并移动lastEmitted一个步长的距离
       if(lastEmitted == -1) {
         lastEmitted = timestamp;
@@ -41,14 +42,15 @@ namespace candy {
       bool result = false;
       assert(timestamp >= lastEmitted);
       // TODO : timestamp - lastEmitted >= windowSize
-      if (timestamp - lastEmitted >= 0) {
-        result = true;
-      }
-      else 
-        result = false;
+      result = (timestamp - lastEmitted >= 0);
+      // if (timestamp - lastEmitted >= 0) {
+      //   result = true;
+      // }
+      // else {
+      //   result = false;
+      // }
       lastEmitted += stepSize;
-      if (lastEmitted > timestamp)
-        lastEmitted = timestamp;
+      lastEmitted = std::min(lastEmitted, timestamp);
       return result;
     }
   };
