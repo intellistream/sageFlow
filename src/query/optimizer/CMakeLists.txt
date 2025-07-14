@@ -2,3 +2,8 @@ add_library(
         optimizer
         planner.cpp
 )
+target_link_libraries(
+    optimizer
+    operator
+    function
+)

@@ -36,31 +36,31 @@ struct VectorData {
   auto operator!=(const VectorData &other) const -> bool;
   // Inequality operator
 
-  bool Serialize(std::ostream &out) const;
-  bool Deserialize(std::istream &in);
+  auto Serialize(std::ostream &out) const -> bool;
+  auto Deserialize(std::istream &in) -> bool;
 };
 
 // Wrapper for vector data with metadata (e.g., ID, timestamp)
 
 struct VectorRecord {
-  const uint64_t uid_;       // Unique identifier for the vector
-  const int64_t timestamp_;  // Timestamp for the record
+  uint64_t uid_;             // Unique identifier for the vector
+  int64_t timestamp_;        // Timestamp for the record
   VectorData data_;          // Shared pointer to the vector data
 
   // Constructor with move semantics for efficiency
-  VectorRecord(const uint64_t &uid, const int64_t &timestamp, VectorData &&data);
+  VectorRecord(uint64_t uid, int64_t timestamp, VectorData &&data);
 
   // Constructor with copy semantics
-  VectorRecord(const uint64_t &uid, const int64_t &timestamp, const VectorData &data);
+  VectorRecord(uint64_t uid, int64_t timestamp, const VectorData &data);
 
   // Constructor with a raw data pointer
-  VectorRecord(const uint64_t &uid, const int64_t &timestamp, int32_t dim, DataType type, char *data);
+  VectorRecord(uint64_t uid, int64_t timestamp, int32_t dim, DataType type, char *data);
 
   // Equality operator for comparisons
   auto operator==(const VectorRecord &other) const -> bool;
 
-  bool Serialize(std::ostream &out) const;
-  bool Deserialize(std::istream &in);
+  auto Serialize(std::ostream &out) const -> bool;
+  auto Deserialize(std::istream &in) -> bool;
 };
 enum class ResponseType { None, Record, List };  // NOLINT
 
@@ -90,7 +90,7 @@ struct Response {
     }
   }
 
-  Response &operator=(const Response &other) {
+  auto operator=(const Response &other) -> Response & {
     if (this != &other) {
       type_ = other.type_;
       if (other.record_) {

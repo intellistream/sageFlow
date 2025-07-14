@@ -7,15 +7,21 @@
 #include <string>
 #include <vector>
 
+#include "compute_engine/compute_engine.h"
+#include "concurrency/concurrency_manager.h"
 #include "query/optimizer/planner.h"
+#include "storage/storage_manager.h"
 
 namespace candy {
 class StreamEnvironment {
  public:
   // Constructor to initialize the environment
   explicit StreamEnvironment() {
-    storage_manager_ = std::make_shared<StorageManager>();
-    concurrency_manager_ = std::make_shared<ConcurrencyManager>(storage_manager_);
+    auto compute_engine = std::make_shared<ComputeEngine>();
+    storage_manager_ = std::make_shared<StorageManager>(compute_engine);
+    concurrency_manager_ =
+        std::make_shared<ConcurrencyManager>(storage_manager_);
+    concurrency_manager_->setEngine(compute_engine);
     planner_ = std::make_shared<Planner>(concurrency_manager_);
   }
 

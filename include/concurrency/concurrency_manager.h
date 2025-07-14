@@ -15,6 +15,7 @@ struct IdWithType {
 
 class ConcurrencyManager {
   std::shared_ptr<StorageManager> storage_;
+  std::shared_ptr<ComputeEngine> engine_;
 
  public:
   // Constructor
@@ -22,6 +23,8 @@ class ConcurrencyManager {
 
   // Destructor
   ~ConcurrencyManager();
+
+  void setEngine(std::shared_ptr<ComputeEngine> engine);
 
   auto create_index(const std::string &name, const IndexType &index_type, int dimension) -> int;
   auto create_index(const std::string &name, int dimension) -> int;

@@ -2,7 +2,20 @@
 
 #include <queue>
 
-auto candy::StorageManager::insert(std::unique_ptr<VectorRecord>& record) -> void {
+candy::StorageManager::StorageManager(std::shared_ptr<ComputeEngine> engine) : engine_(std::move(engine)) {}
+
+auto candy::StorageManager::size() const -> size_t { return records_.size(); }
+
+auto candy::StorageManager::getRecordByIndex(int32_t index) -> VectorRecord * {
+  if (index < 0 || static_cast<size_t>(index) >= records_.size()) {
+    return nullptr;
+  }
+  return records_[index].get();
+}
+
+auto candy::StorageManager::getEngine() -> std::shared_ptr<ComputeEngine> { return engine_; }
+
+auto candy::StorageManager::insert(std::unique_ptr<VectorRecord> &record) -> void {
   auto uid = record->uid_;
   auto idx = static_cast<int32_t>(records_.size());
   records_.push_back(std::move(record));
@@ -25,10 +38,10 @@ auto candy::StorageManager::getVectorByUid(const uint64_t vector_id) -> std::uni
   return nullptr;
 }
 
-auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector_ids)
+auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t> &vector_ids)
     -> std::vector<std::unique_ptr<VectorRecord>> {
   std::vector<std::unique_ptr<VectorRecord>> result;
-  for (const auto& id : vector_ids) {
+  for (const auto &id : vector_ids) {
     if (auto record = getVectorByUid(id)) {
       result.push_back(std::move(record));
     }
@@ -36,8 +49,10 @@ auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector
   return result;
 }
 
-auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord>& record, int k) const -> std::vector<uint64_t> {
-  if (engine_ == nullptr) throw std::runtime_error("StorageManager::topk: Compute engine is not set.");
+auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord> &record, int k) const -> std::vector<uint64_t> {
+  if (engine_ == nullptr) {
+    throw std::runtime_error("StorageManager::topk: Compute engine is not set.");
+  }
   const auto rec = record.get();
   std::priority_queue<std::pair<double, int32_t>> pq;
   for (size_t i = 0; i < records_.size(); ++i) {
@@ -49,7 +64,7 @@ auto candy::StorageManager::topk(const std::unique_ptr<VectorRecord>& record, in
     if (pq.size() < static_cast<size_t>(k)) {
       pq.emplace(dist, static_cast<int32_t>(i));
     } else if (dist < pq.top().first) {
-      
+
       pq.emplace(dist, static_cast<int32_t>(i));
       pq.pop();
     }

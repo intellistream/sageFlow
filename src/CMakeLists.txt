@@ -1,3 +1,7 @@
+add_library(candy INTERFACE)
+
+target_include_directories(candy INTERFACE ${PROJECT_SOURCE_DIR}/include)
+
 add_subdirectory(
         utils
 )
@@ -28,17 +32,25 @@ add_subdirectory(
 add_subdirectory(
         stream
 )
-add_library(
-        candy
-        INTERFACE
+
+add_library(candy_lib STATIC
+    candy/candy.cpp
 )
-target_link_libraries(
-        candy
-        INTERFACE
-        externalLibs
-        stream
-        query
-        operator
-        utils
-        concurrency
+
+target_link_libraries(candy_lib PUBLIC
+    common
+    concurrency
+    function
+    index
+    operator
+    query
+    storage
+    stream
+    compute_engine
+    utils
+    fmt::fmt
+)
+
+target_include_directories(candy_lib PUBLIC
+    ${PROJECT_SOURCE_DIR}/include
 )

@@ -1,16 +1,14 @@
 #include "index/ivf.h"
 
 #include <algorithm>
-#include <iostream>
 #include <limits>
 #include <queue>
 #include <random>
-#include <unordered_set>
 
 namespace candy {
 
-Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes)
-    : nlist_(nlist), rebuild_threshold_(rebuild_threshold), vectors_since_last_rebuild_(0), nprobes_(nprobes) {
+Ivf::Ivf(int num_clusters, double rebuild_threshold, int nprobes)
+    : nlist_(num_clusters), rebuild_threshold_(rebuild_threshold), vectors_since_last_rebuild_(0), nprobes_(nprobes) {
   // Initialize empty centroids and inverted lists
   centroids_.clear();
   inverted_lists_.clear();
@@ -27,7 +25,7 @@ auto Ivf::assignToCluster(const VectorData& vec) -> int {
   double min_distance = std::numeric_limits<double>::max();
 
   for (size_t i = 0; i < centroids_.size(); ++i) {
-    double distance = storage_manager_->engine_->EuclideanDistance(vec, centroids_[i]);
+    double distance = storage_manager_->getEngine()->EuclideanDistance(vec, centroids_[i]);
     if (distance < min_distance) {
       min_distance = distance;
       best_cluster = static_cast<int>(i);
@@ -38,14 +36,14 @@ auto Ivf::assignToCluster(const VectorData& vec) -> int {
 }
 
 void Ivf::rebuildClusters() {
-  if (storage_manager_->records_.empty()) {
+  if (storage_manager_->size() == 0) {
     return;
   }
-  int t = sqrt(size_);
+  int t = sqrt(storage_manager_->size());
   if (t > nlist_) {
     nlist_ = t;
   }
-  int actual_clusters = std::min(nlist_, size_);
+  int actual_clusters = std::min(nlist_, static_cast<int>(storage_manager_->size()));
   // Initialize centroids with random vectors from the dataset
   centroids_.clear();
   std::vector<int> selected_indices;
@@ -53,7 +51,7 @@ void Ivf::rebuildClusters() {
   // Random generator
   std::random_device rd;
   std::mt19937 gen(rd());
-  std::uniform_int_distribution<> distrib(0, size_ - 1);
+  std::uniform_int_distribution<> distrib(0, storage_manager_->size() - 1);
 
   // Select random initial centroids
   while (centroids_.size() < actual_clusters) {
@@ -61,7 +59,7 @@ void Ivf::rebuildClusters() {
     if (std::ranges::find(selected_indices, idx) == selected_indices.end()) {
       selected_indices.push_back(idx);
       // Create a deep copy of the vector data for the centroid
-      centroids_.push_back(storage_manager_->records_[idx]->data_);
+      centroids_.push_back(storage_manager_->getRecordByIndex(idx)->data_);
     }
   }
 
@@ -70,18 +68,19 @@ void Ivf::rebuildClusters() {
   bool changed = true;
   int iteration = 0;
 
-  std::vector<int> assignments(size_, -1);
+  std::vector<int> assignments(storage_manager_->size(), -1);
 
   while (changed && iteration < max_iterations) {
     changed = false;
 
     // Assign each vector to the nearest centroid
-    for (int i = 0; i < size_; ++i) {
+    for (size_t i = 0; i < storage_manager_->size(); ++i) {
       double min_dist = std::numeric_limits<double>::max();
       int best_cluster = -1;
 
       for (int j = 0; j < actual_clusters; ++j) {
-        double dist = storage_manager_->engine_->EuclideanDistance(storage_manager_->records_[i]->data_, centroids_[j]);
+        double dist = storage_manager_->getEngine()->EuclideanDistance(storage_manager_->getRecordByIndex(i)->data_,
+                                                                       centroids_[j]);
 
         if (dist < min_dist) {
           min_dist = dist;
@@ -103,8 +102,8 @@ void Ivf::rebuildClusters() {
     // Initialize new centroids with zeros
     for (int j = 0; j < actual_clusters; ++j) {
       // Create new VectorData with the same dimension and type as our data
-      DataType type = storage_manager_->records_[0]->data_.type_;
-      int32_t dim = storage_manager_->records_[0]->data_.dim_;
+      DataType type = storage_manager_->getRecordByIndex(0)->data_.type_;
+      int32_t dim = storage_manager_->getRecordByIndex(0)->data_.dim_;
       VectorData new_centroid(dim, type);
 
       // Initialize with zeros
@@ -124,10 +123,10 @@ void Ivf::rebuildClusters() {
     }
 
     // Sum vectors for each cluster
-    for (int i = 0; i < size_; ++i) {
+    for (size_t i = 0; i < storage_manager_->size(); ++i) {
       int cluster = assignments[i];
       if (cluster >= 0) {
-        const auto& record = storage_manager_->records_[i];
+        const auto& record = storage_manager_->getRecordByIndex(i);
         DataType type = record->data_.type_;
         int32_t dim = record->data_.dim_;
 
@@ -176,10 +175,10 @@ void Ivf::rebuildClusters() {
 
   // Rebuild inverted lists
   inverted_lists_.clear();
-  for (int i = 0; i < size_; ++i) {
+  for (size_t i = 0; i < storage_manager_->size(); ++i) {
     int cluster = assignments[i];
     if (cluster >= 0) {
-      uint64_t id = storage_manager_->records_[i]->uid_;
+      uint64_t id = storage_manager_->getRecordByIndex(i)->uid_;
       inverted_lists_[cluster].push_back(id);
     }
   }
@@ -253,7 +252,7 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
   // Find the closest nprobes_ clusters
   std::vector<std::pair<int, double>> cluster_distances;
   for (size_t i = 0; i < centroids_.size(); ++i) {
-    double distance = storage_manager_->engine_->EuclideanDistance(record->data_, centroids_[i]);
+    double distance = storage_manager_->getEngine()->EuclideanDistance(record->data_, centroids_[i]);
     cluster_distances.emplace_back(static_cast<int>(i), distance);
   }
 
@@ -269,7 +268,7 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
       for (const auto& id : candidate_ids) {
         auto candidate = storage_manager_->getVectorByUid(id);
         if (candidate) {
-          double distance = storage_manager_->engine_->EuclideanDistance(record->data_, candidate->data_);
+          double distance = storage_manager_->getEngine()->EuclideanDistance(record->data_, candidate->data_);
           results.emplace(id, distance);
           if (results.size() > k) {
             results.pop();  // Keep only top-k results
@@ -278,16 +277,16 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
       }
     }
   }
-  // Return top-k IDs
-  std::vector<uint64_t> top_ids;
-  int result_count = std::min(k, static_cast<int>(results.size()));
-  top_ids.reserve(result_count);
-  for (int i = 0; i < result_count; ++i) {
-    top_ids.push_back(results.top().uid_);
+
+  std::vector<uint64_t> result_ids;
+  while (!results.empty()) {
+    result_ids.push_back(results.top().uid_);
     results.pop();
   }
 
-  return top_ids;
+  // The results are in ascending order of distance, but we need them in the original order
+  std::reverse(result_ids.begin(), result_ids.end());
+  return result_ids;
 }
 
 }  // namespace candy

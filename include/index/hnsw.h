@@ -5,29 +5,30 @@
 
 namespace candy {
 class HNSW final : public Index {
+ private:
+  struct Neighbor {
+    uint64_t id_;  // uid（即 storage_engine 中的 id）
+    double dist_;   // 与查询向量的 L2 距离
+
+    auto operator<(Neighbor const& other) const -> bool { return dist_ < other.dist_; }
+    auto operator>(Neighbor const& other) const -> bool { return dist_ > other.dist_; }
+  };
+
  public:
-  HNSW(int m = 20, int ef_construction = 100, int ef_search = 40);
+  explicit HNSW(int m = 20, int ef_construction = 100, int ef_search = 40);
 
   ~HNSW() override = default;
 
   auto insert(uint64_t uid) -> bool override;
   auto erase(uint64_t uid) -> bool override;
   auto query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> override;
-  auto select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& c, int m, int lc,
+  auto select_neighbors_heuristic(const VectorRecord& q, const std::vector<Neighbor>& candidates, int m, int lc,
                                   bool extend_candidates, bool keep_pruned_connections) const -> std::vector<uint64_t>;
 
-  inline auto select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
-                                     int lc) const -> std::vector<uint64_t>;
+  auto select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& candidates, int m) const
+      -> std::vector<uint64_t>;
 
  private:
-  struct Neighbor {
-    uint64_t id_;  // uid（即 storage_engine 中的 id）
-    double dist_;   // 与查询向量的 L2 距离
-
-    auto operator<(Neighbor const& other) const -> bool { return dist_ < other.dist_; } 
-    auto operator>(Neighbor const& other) const -> bool { return dist_ > other.dist_; }  
-  };
-
   struct Node {
     uint64_t id_;                               // uid
     int level_;                                 // 节点的最高层级
@@ -44,9 +45,10 @@ class HNSW final : public Index {
   uint64_t entry_point_ = std::numeric_limits<uint64_t>::max();
   std::unordered_map<uint64_t, Node> nodes_;  // uid -> Node
   std::mt19937 rng_{std::random_device{}()};
+  std::mutex mutex_;
 
   // ---------- 内部工具 ----------
-  auto l2_distance(const VectorRecord& a, const VectorRecord& b) const -> double;
+  auto getDistance(const VectorRecord& a, const VectorRecord& b) const -> double;
   void search_layer(const VectorRecord& q, std::priority_queue<Neighbor>& top_candidates, int layer, int ef) const;
 
   auto random_level() -> int;

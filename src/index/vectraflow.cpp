@@ -24,24 +24,24 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     std :: priority_queue<std::pair<double, uint64_t>> pq;
 
     std::vector<double> selfquare(datas_.size());
-    for (size_t i = 0; i < datas_.size(); i++) {
-        auto rec = storage_manager_->getVectorByUid(datas_[i]).get();
-        auto square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
+    for (auto data : datas_) {
+        auto square = storage_manager_->getEngine()->getVectorSquareLength(storage_manager_->getVectorByUid(data)->data_);
         selfquare.emplace_back(square);
     }
 
-    auto input_vector_square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
+    auto input_vector_square = storage_manager_->getEngine()->getVectorSquareLength(rec->data_);
 
     for (size_t i = 0; i < datas_.size(); ++i) {
         
-        //auto dist = storage_manager_->engine_->EuclideanDistance(rec->data_, local_rec->data_);
+        //auto dist = storage_manager_->getEngine()->EuclideanDistance(rec->data_, local_rec->data_);
 
         // VectraFlow 特有的计算方式
         
-        auto dist = input_vector_square + selfquare[i] - 
-            2 * storage_manager_->engine_->dotmultiply(rec->data_, storage_manager_->getVectorByUid(datas_[i])->data_);
+        auto dist = input_vector_square + selfquare[i] -
+                    2 * storage_manager_->getEngine()->dotmultiply(
+                            rec->data_, storage_manager_->getVectorByUid(datas_[i])->data_);
 
-        //auto dist = storage_manager_->engine_->EuclideanDistance(rec->data_, storage_manager_->getVectorByUid(datas_[i])->data_);
+        //auto dist = storage_manager_->getEngine()->EuclideanDistance(rec->data_, storage_manager_->getVectorByUid(datas_[i])->data_);
 
         if (pq.size() < static_cast<size_t>(k)) {
             pq.emplace(dist, datas_[i]);
@@ -64,11 +64,11 @@ auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> s
     // #endif
     // for (size_t i = 0; i < datas_.size(); ++i) {
     //     const auto local_rec = storage_manager_->getVectorByUid(datas_[i]).get();
-    //     //auto dist = storage_manager_->engine_->EuclideanDistance(rec->data_, local_rec->data_);
+    //     //auto dist = storage_manager_->getEngine()->EuclideanDistance(rec->data_, local_rec->data_);
 
     //     // VectraFlow 特有的计算方式
     //     auto dist = input_vector_square + selfquare[i] - 
-    //         2 * storage_manager_->engine_->dotmultiply(rec->data_, local_rec->data_);
+    //         2 * storage_manager_->getEngine()->dotmultiply(rec->data_, local_rec->data_);
 
     //     int thread_id = omp_get_thread_num(); // 获取当前线程的 ID
     //     // 对每个线程使用本地的优先队列

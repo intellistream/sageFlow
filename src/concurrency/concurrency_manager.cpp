@@ -13,6 +13,10 @@ candy::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> st
 
 candy::ConcurrencyManager::~ConcurrencyManager() = default;
 
+void candy::ConcurrencyManager::setEngine(std::shared_ptr<ComputeEngine> engine) {
+  engine_ = std::move(engine);
+}
+
 auto candy::ConcurrencyManager::create_index(const std::string& name, const IndexType& index_type, int dimension)
     -> int {
   std::shared_ptr<Index> index = nullptr;
@@ -38,7 +42,7 @@ auto candy::ConcurrencyManager::create_index(const std::string& name, const Inde
   index->dimension_ = dimension;
 
   index->storage_manager_ = storage_;
-  storage_->engine_ = std::make_shared<ComputeEngine>();
+  storage_->setEngine(engine_);
 
   const auto blank_controller = std::make_shared<BlankController>(index);
 
