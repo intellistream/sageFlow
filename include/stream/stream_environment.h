@@ -43,7 +43,7 @@ class StreamEnvironment {
   auto getPlanner() -> std::shared_ptr<Planner> { return planner_; }
 
  private:
-  static ConfigMap global_conf_;
+  static ConfigMap global_conf;
   ConfigMap conf_;
   std::vector<std::shared_ptr<Stream>> streams_;
   std::vector<std::shared_ptr<Operator>> operators_;

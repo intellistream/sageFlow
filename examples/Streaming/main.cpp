@@ -18,8 +18,8 @@
 
 using namespace std;    // NOLINT
 
-const std::string CANDY_PATH = PROJECT_DIR;
-#define CONFIG_DIR "/config/"
+// const std::string CANDY_PATH = PROJECT_DIR;
+// #define CONFIG_DIR "/config/"
 
 namespace candy {
 void SetupAndRunPipeline(const std::string &config_file_path) {

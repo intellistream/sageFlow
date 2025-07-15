@@ -5,11 +5,11 @@
 
 namespace candy {
 
-ConfigMap StreamEnvironment::global_conf_;
+ConfigMap StreamEnvironment::global_conf;
 
-void StreamEnvironment::setGlobalConfiguration(const ConfigMap &conf) { global_conf_ = conf; }
+void StreamEnvironment::setGlobalConfiguration(const ConfigMap &conf) { global_conf = conf; }
 
-auto StreamEnvironment::getGlobalConfiguration() -> const ConfigMap & { return global_conf_; }
+auto StreamEnvironment::getGlobalConfiguration() -> const ConfigMap & { return global_conf; }
 
 void StreamEnvironment::setConfiguration(const ConfigMap &conf) { conf_ = conf; }
 
