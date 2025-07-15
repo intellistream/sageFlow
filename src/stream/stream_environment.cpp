@@ -2,17 +2,18 @@
 
 #include <memory>
 #include <stdexcept>
-#include <string>
 
 namespace candy {
 
-auto StreamEnvironment::loadConfiguration(const std::string &file_path) -> ConfigMap {
-  ConfigMap config;
-  if (!config.fromFile(file_path)) {
-    throw std::runtime_error("Failed to load configuration from: " + file_path);
-  }
-  return config;
-}
+ConfigMap StreamEnvironment::global_conf_;
+
+void StreamEnvironment::setGlobalConfiguration(const ConfigMap &conf) { global_conf_ = conf; }
+
+auto StreamEnvironment::getGlobalConfiguration() -> const ConfigMap & { return global_conf_; }
+
+void StreamEnvironment::setConfiguration(const ConfigMap &conf) { conf_ = conf; }
+
+auto StreamEnvironment::getConfiguration() -> const ConfigMap & { return conf_; }
 
 auto StreamEnvironment::execute() -> void {
   if (streams_.empty()) {

@@ -4,7 +4,6 @@
 #include <utils/conf_map.h>
 
 #include <memory>
-#include <string>
 #include <vector>
 
 #include "compute_engine/compute_engine.h"
@@ -25,8 +24,11 @@ class StreamEnvironment {
     planner_ = std::make_shared<Planner>(concurrency_manager_);
   }
 
-  // Load configuration from a file
-  static auto loadConfiguration(const std::string &file_path) -> ConfigMap;
+  static void setGlobalConfiguration(const ConfigMap &conf);
+  static auto getGlobalConfiguration() -> const ConfigMap &;
+
+  void setConfiguration(const ConfigMap &conf);
+  auto getConfiguration() -> const ConfigMap &;
 
   auto execute() -> void;
 
@@ -39,7 +41,10 @@ class StreamEnvironment {
     return concurrency_manager_;
   }
   auto getPlanner() -> std::shared_ptr<Planner> { return planner_; }
+
  private:
+  static ConfigMap global_conf_;
+  ConfigMap conf_;
   std::vector<std::shared_ptr<Stream>> streams_;
   std::vector<std::shared_ptr<Operator>> operators_;
 

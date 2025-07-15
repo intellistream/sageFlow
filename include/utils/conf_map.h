@@ -4,14 +4,12 @@
 
 #ifndef CONF_MAP_H
 #define CONF_MAP_H
-#include <filesystem>
+#include <map>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 #include <variant>
-
-#include "toml++/toml.hpp"
 
 namespace candy {
 enum class ConfigType { STRING, I64, DOUBLE };
@@ -22,6 +20,13 @@ class ConfigMap {
   std::unordered_map<std::string, std::pair<ConfigType, ConfigValue> > config_map_;
 
  public:
+  ConfigMap() = default;
+  explicit ConfigMap(const std::map<std::string, std::string> &config) {
+    for (const auto &pair : config) {
+      config_map_[pair.first] = std::make_pair(ConfigType::STRING, pair.second);
+    }
+  }
+
   auto getValue(const std::string &key) const -> ConfigValue {
     if (!config_map_.contains(key)) {
       throw std::invalid_argument("Key not found in configuration map.");
@@ -59,29 +64,6 @@ class ConfigMap {
   }
 
   auto exist(const std::string &key) const -> bool { return config_map_.contains(key); }
-
-  auto fromFile(const std::string &file_path) -> bool {
-    // we support toml file only
-    if (!file_path.ends_with(".toml")) {
-      return false;
-    }
-    if (!std::filesystem ::exists(file_path)) {
-      return false;
-    }
-    auto config = toml::parse_file(file_path);
-    for (const auto &pair : config) {
-      const auto &key = pair.first.str();
-      const auto &value = pair.second;
-      if (value.is_string()) {
-        setValue(key, ConfigType::STRING, value.as_string()->get());
-      } else if (value.is_integer()) {
-        setValue(key, ConfigType::I64, value.as_integer()->get());
-      } else if (value.is_floating_point()) {
-        setValue(key, ConfigType::DOUBLE, value.as_floating_point()->get());
-      }
-    }
-    return true;
-  }
 };
 }  // namespace candy
 

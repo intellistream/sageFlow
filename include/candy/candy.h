@@ -1,30 +1,26 @@
 #pragma once
 
+#include <map>
 #include <memory>
-#include <vector>
+#include <string>
 
-#include "storage/storage_manager.h"
+#include "stream/stream.h"
+#include "stream/stream_environment.h"
+#include "utils/conf_map.h"
 
 namespace candy {
 
 class Candy {
  public:
   Candy();
-  ~Candy() = default;
-
-  // 禁止拷贝和移动
-  Candy(const Candy &) = delete;
-  auto operator=(const Candy &) -> Candy & = delete;
-  Candy(Candy &&) = delete;
-  auto operator=(Candy &&) -> Candy & = delete;
-
-  auto insert(int64_t uid, const std::vector<float> &vec) -> void;
-  auto erase(int64_t uid) -> bool;
-  auto get(int64_t uid) -> std::vector<float>;
-  auto topk(const std::vector<float> &vec, int k) -> std::vector<int64_t>;
+  void setConfig(const std::map<std::string, std::string> &config);
+  auto createFileStreamSource(const std::string &name, const std::string &path) -> std::shared_ptr<Stream>;
+  void execute();
+  void addStream(std::shared_ptr<Stream> stream);
 
  private:
-  std::unique_ptr<StorageManager> storage_manager_;
+  StreamEnvironment env_;
+  ConfigMap conf_;
 };
 
 }  // namespace candy

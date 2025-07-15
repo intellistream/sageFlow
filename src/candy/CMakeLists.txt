@@ -1,3 +1,7 @@
-add_library(candy INTERFACE)
+add_library(candy_src
+        candy.cpp
+        )
 
-target_include_directories(candy INTERFACE ${PROJECT_SOURCE_DIR}/include)
+target_link_libraries(candy_src PUBLIC
+        stream
+        )
