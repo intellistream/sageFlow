@@ -47,7 +47,6 @@ bool candy::SlidingWindowOperator::process(Response& data, const int slot) {
     records_.push_back(std::move(record));
   }
   if (records_.size() >= window_size_) {
-
     auto records = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>();
     records->reserve(window_size_);
     for (auto& it : records_) {

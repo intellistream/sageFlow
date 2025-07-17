@@ -7,15 +7,9 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
-#include <unordered_set>
 
-#include "function/filter_function.h"
 #include "function/itopk_function.h"
-#include "function/map_function.h"
-#include "function/sink_function.h"
 #include "function/window_function.h"
-#include "stream/data_stream_source/file_stream_source.h"
-#include "stream/data_stream_source/sift_stream_source.h"
 #include "stream/data_stream_source/simple_stream_source.h"
 
 using namespace std;    // NOLINT
@@ -52,34 +46,19 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   monitor.StartProfiling();
 
   try {
+    int dim = 128;
+    int window_size = 500;
     auto itopk_record = make_unique<VectorRecord>(
-        -1, 128, VectorData{128, DataType::Float32, reinterpret_cast<char *>(new float[128])});
-    auto file_stream = make_shared<SiftStreamSource>("FileStream", "./data/siftsmall/siftsmall_base.fvecs");
-    int cnt = 0;
-    std::unordered_map<uint64_t, int> map;
-    file_stream->window(std::make_unique<WindowFunction>("window1", 500, 400, WindowType::Tumbling))
-        ->itopk(std::make_unique<ITopkFunction>("itopk1", 10, 128, std::move(itopk_record)))
-        ->writeSink(std::make_unique<SinkFunction>("sink1", [&cnt, &map](const std::unique_ptr<VectorRecord> &record) {
-          cnt++;
-          if (map.contains(record->uid_)) {
-            map[record->uid_]++;
-          } else {
-            map.emplace(record->uid_, 1);
-          }
-        }));
+        -1, 128, VectorData{dim, DataType::Float32, reinterpret_cast<char *>(new float[128])});
+    auto file_stream = make_shared<SimpleStreamSource>("FileStream", "data/vector_records_128_100000.bin");
+    file_stream->window(std::make_unique<WindowFunction>("window1", window_size, 0, WindowType::Tumbling))
+        ->itopk(std::make_unique<ITopkFunction>("itopk1", 10, dim, std::move(itopk_record)));
     env.addStream(std::move(file_stream));
     auto begin = std::chrono::high_resolution_clock::now();
     env.execute();
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - begin).count();
-    int total = 0;
-    for (const auto &[fst, snd] : map) {
-      if (snd > 1) {
-        total += snd;
-      }
-    }
-    std::cout << "Duplicate records: " << total << " of " << cnt << std::endl;
-    std::cout << cnt / 10 << " Operation " << "Execution time: " << duration << " ms" << std::endl;
+    std::cout << dim << " " << window_size << " " << duration << std::endl;
   } catch (const std::exception &e) {
     throw;
   }

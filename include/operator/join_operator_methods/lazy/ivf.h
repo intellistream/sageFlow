@@ -32,9 +32,7 @@ public:
 private:
   int left_ivf_index_id_;
   int right_ivf_index_id_;
-  double join_similarity_threshold_;
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
-  // Removed direct storage_manager_ and Ivf shared_ptrs as CM is now primary
 };
 
 } // namespace candy

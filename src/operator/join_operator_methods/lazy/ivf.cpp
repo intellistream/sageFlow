@@ -8,10 +8,11 @@ IvfLazy::IvfLazy(int left_ivf_index_id,
                  int right_ivf_index_id,
                  double join_similarity_threshold,
                  const std::shared_ptr<ConcurrencyManager> &concurrency_manager)
-    : left_ivf_index_id_(left_ivf_index_id),
-      right_ivf_index_id_(right_ivf_index_id),
-      join_similarity_threshold_(join_similarity_threshold),
-      concurrency_manager_(concurrency_manager) {
+  : BaseMethod(join_similarity_threshold),
+    left_ivf_index_id_(left_ivf_index_id),
+    right_ivf_index_id_(right_ivf_index_id),
+    concurrency_manager_(concurrency_manager) {
+
 }
 
 void IvfLazy::Excute(
@@ -51,7 +52,7 @@ void IvfLazy::Excute(
 
                     Response result_response = joinfuc->Execute(response_left, response_right);
 
-                    if (result_response.type_ == ResponseType::Record && result_response.record_) {
+                    if (result_response.record_) {
                         emit_pool.emplace_back(0, std::move(result_response.record_));
                     }
                 }

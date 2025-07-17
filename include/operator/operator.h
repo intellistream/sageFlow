@@ -2,6 +2,7 @@
 #pragma once
 
 #include <memory>
+#include <queue>
 #include <thread>
 #include <vector>
 
@@ -35,7 +36,7 @@ class Operator {
 
   virtual auto close() -> void;
 
-  virtual auto process(Response& record, int slot = 0) -> bool;
+  virtual auto process(Response& record, int slot) -> bool;
 
   virtual void emit(int id, Response& record) const;
 
@@ -46,6 +47,8 @@ class Operator {
   std::vector<std::shared_ptr<Operator>> children_;
   OperatorType type_ = OperatorType::NONE;
   bool is_open_ = false;
+
+  bool is_available_ = true;  // Indicates if the operator is available for processing
 };
 
 }  // namespace candy

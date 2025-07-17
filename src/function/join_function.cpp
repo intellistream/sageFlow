@@ -12,7 +12,7 @@ candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t 
     windowL (time_window, time_window / 4), windowR(time_window, time_window / 4),
     join_func_(std::move(join_func)), dim_(dim) {}
 
-candy::Response candy::JoinFunction::Execute(Response& left, Response& right){
+auto candy::JoinFunction::Execute(Response& left, Response& right) -> Response {
   if (left.type_ == ResponseType::Record && right.type_ == ResponseType::Record) {
     if (auto left_record = std::move(left.record_), right_record = std::move(right.record_);
         join_func_(left_record, right_record)) {
