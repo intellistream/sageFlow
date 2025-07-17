@@ -3,7 +3,6 @@
 //
 #include "operator/window_operator.h"
 
-#include <iostream>
 
 #include "function/window_function.h"
 
@@ -20,15 +19,22 @@ candy::TumblingWindowOperator::TumblingWindowOperator(std::unique_ptr<Function>&
 }
 
 auto candy::TumblingWindowOperator::process(Response& data, const int slot) -> bool {
-  if (data.type_ == ResponseType::Record) {
-    auto record = std::move(data.record_);
-    records_->push_back(std::move(record));
+  // Add all records from the input response to our window
+  for (auto &record : data) {
+    if (record) {
+      records_->push_back(std::move(record));
+    }
   }
-  if (records_->size() == window_size_) {
-    auto resp = Response{ResponseType::List, std::move(records_)};
+  
+  if (records_->size() >= window_size_) {
+    // Create response with all records in the window
+    Response resp;
+    for (auto &record : *records_) {
+      resp.push_back(std::move(record));
+    }
     emit(0, resp);
-    records_ = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>();
-    records_->reserve(records_->capacity());
+    records_->clear();
+    records_->reserve(window_size_);
     return true;
   }
   return false;
@@ -41,21 +47,26 @@ candy::SlidingWindowOperator::SlidingWindowOperator(std::unique_ptr<Function>& w
   slide_size_ = window_func_->getSlideSize();
 }
 
-bool candy::SlidingWindowOperator::process(Response& data, const int slot) {
-  if (data.type_ == ResponseType::Record) {
-    auto record = std::move(data.record_);
-    records_.push_back(std::move(record));
-  }
-  if (records_.size() >= window_size_) {
-    auto records = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>();
-    records->reserve(window_size_);
-    for (auto& it : records_) {
-      auto record = std::make_unique<VectorRecord>(*it);
-      records->push_back(std::move(record));
+auto candy::SlidingWindowOperator::process(Response& data, const int slot) -> bool {
+  // Add all records from the input response to our sliding window
+  for (auto &record : data) {
+    if (record) {
+      records_.push_back(std::move(record));
     }
-    auto resp = Response{ResponseType::List, std::move(records)};
+  }
+  
+  if (records_.size() >= window_size_) {
+    // Create response with a copy of records in the window
+    Response resp;
+    auto it = records_.begin();
+    for (size_t i = 0; i < window_size_ && it != records_.end(); ++i, ++it) {
+      auto record = std::make_unique<VectorRecord>(**it);
+      resp.push_back(std::move(record));
+    }
     emit(0, resp);
-    for (auto i = 0; i < slide_size_; ++i) {
+    
+    // Slide the window by removing slide_size_ records from the front
+    for (size_t i = 0; i < slide_size_ && !records_.empty(); ++i) {
       records_.pop_front();
     }
     return true;

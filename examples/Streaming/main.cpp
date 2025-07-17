@@ -1,9 +1,10 @@
 #include <common/data_types.h>
 #include <compute_engine/compute_engine.h>
-#include <candy/candy.h>
+#include <stream/stream_environment.h>
+#include <stream/data_stream_source/file_stream_source.h>
+#include <utils/conf_map.h>
 
 #include <iostream>
-#include <stdexcept>
 #include <string>
 #include <map>
 #include <memory>
@@ -14,7 +15,6 @@
 #include "function/join_function.h"
 #include "function/window_function.h"
 #include "function/aggregate_function.h"
-#include "function/topk_function.h"
 
 using namespace std;    // NOLINT
 
@@ -30,15 +30,16 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   config["topK"] = "10";
   config["similarityThreshold"] = "0.8";
 
-  Candy candy_api;
-  candy_api.setConfig(config);
+  StreamEnvironment env;
+  ConfigMap conf(config);
+  env.setConfiguration(conf);
 
   try {
     // Create primary file stream
-    auto file_stream = candy_api.createFileStreamSource("FileStream", config["inputPath"]);
+    auto file_stream = std::make_shared<FileStreamSource>("FileStream", config["inputPath"]);
     
     // Create secondary stream for join operation
-    auto join_stream = candy_api.createFileStreamSource("JoinStream", config["inputPath"]);
+    auto join_stream = std::make_shared<FileStreamSource>("JoinStream", config["inputPath"]);
     
     // Build a comprehensive streaming pipeline with chained operators
     file_stream
@@ -93,10 +94,10 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
               std::cout << "First element: " << data[0] << std::endl;
             }));
 
-    // Add streams to the candy API and execute
-    candy_api.addStream(file_stream);
-    candy_api.addStream(join_stream);
-    candy_api.execute();
+    // Add streams to the environment and execute
+    env.addStream(file_stream);
+    env.addStream(join_stream);
+    env.execute();
     
     std::cout << "Pipeline execution completed successfully!" << std::endl;
     

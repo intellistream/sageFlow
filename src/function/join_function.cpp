@@ -5,20 +5,28 @@ candy::JoinFunction::JoinFunction(std::string name) : Function(std::move(name), 
 candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func) :
   Function(std::move(name), FunctionType :: Join), join_func_(std::move(join_func)) {}
 
-// TODO : 确定这个滑动窗口的步长
+// TODO(xinyan): 确定这个滑动窗口的步长
 // 目前是 window / 4
 candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t time_window)
     : Function(std::move(name), FunctionType::Join), 
-    windowL (time_window, time_window / 4), windowR(time_window, time_window / 4), join_func_(std::move(join_func)) {}
+    window_l_(time_window, time_window / 4), window_r_(time_window, time_window / 4), join_func_(std::move(join_func)) {}
 
-candy::Response candy::JoinFunction::Execute(Response& left, Response& right){
-  if (left.type_ == ResponseType::Record && right.type_ == ResponseType::Record) {
-    if (auto left_record = std::move(left.record_), right_record = std::move(right.record_);
-        join_func_(left_record, right_record)) {
-      return Response{ResponseType::Record, std::move(left_record)};
+auto candy::JoinFunction::Execute(Response& left, Response& right) -> candy::Response{
+  Response result;
+  
+  // Simple nested loop join - can be optimized later
+  for (auto &left_record : left) {
+    for (auto &right_record : right) {
+      if (left_record && right_record) {
+        auto joined_record = join_func_(left_record, right_record);
+        if (joined_record) {
+          result.push_back(std::move(joined_record));
+        }
+      }
     }
   }
-  return {};
+  
+  return result;
 }
 
 auto candy::JoinFunction::setJoinFunc(JoinFunc join_func) -> void { join_func_ = std::move(join_func); }
@@ -29,7 +37,7 @@ auto candy::JoinFunction::setOtherStream(std::shared_ptr<Stream> other_plan) -> 
   other_stream_ = std::move(other_plan);
 }
 
-auto candy::JoinFunction::setWindow(int64_t windowsize, int64_t stepsize) -> void { 
-  windowL.setWindow(windowsize, stepsize);
-  windowR.setWindow(windowsize, stepsize);
+auto candy::JoinFunction::setWindow(int64_t time_window, int64_t stepsize) -> void {
+  window_l_.setWindow(time_window, stepsize);
+  window_r_.setWindow(time_window, stepsize);
 }

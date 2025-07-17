@@ -10,6 +10,7 @@ add_lib(
         window_operator.cpp
         itopk_operator.cpp
         aggregate_operator.cpp
+        source_operator.cpp
         join_operator_methods/base_method.cpp
         join_operator_methods/eager/bruteforce.cpp
         join_operator_methods/lazy/bruteforce.cpp

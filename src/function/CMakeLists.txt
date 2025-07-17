@@ -9,4 +9,6 @@ add_lib(
         window_function.cpp
         itopk_function.cpp
         aggregate_function.cpp
+        source_function.cpp
+        file_source_function.cpp
 )

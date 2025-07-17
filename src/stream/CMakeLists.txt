@@ -11,5 +11,6 @@ target_link_libraries(
         stream
         query
         function
+        operator
         common
 )

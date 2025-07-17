@@ -6,16 +6,23 @@ candy::TopkOperator::TopkOperator(std::unique_ptr<Function>& topk_func,
 
 auto candy::TopkOperator::process(Response& data, int slot) -> bool {
   auto topk = dynamic_cast<TopkFunction*>(topk_func_.get());
-  if (data.type_ == ResponseType::Record) {
-    auto record = std::move(data.record_);
-    //std::cout << "topk: " << record->uid_ << '\n';
-    auto index_id = topk->getIndexId();
-    auto k = topk->getK();
-    auto res = concurrency_manager_->query(index_id, record, k);
-    auto records = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>(std::move(res));
-    auto resp = Response{ResponseType::List, std::move(records)};
-    emit(0, resp);
-    return true;
+  
+  for (auto& record : data) {
+    if (record) {
+      //std::cout << "topk: " << record->uid_ << '\n';
+      auto index_id = topk->getIndexId();
+      auto k = topk->getK();
+      auto res = concurrency_manager_->query(index_id, record, k);
+      
+      // Create response from query results
+      Response resp;
+      for (auto& result_record : res) {
+        resp.push_back(std::move(result_record));
+      }
+      
+      emit(0, resp);
+    }
   }
-  return false;
+  
+  return !data.empty();
 }

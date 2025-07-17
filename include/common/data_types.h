@@ -62,50 +62,52 @@ struct VectorRecord {
   auto Serialize(std::ostream &out) const -> bool;
   auto Deserialize(std::istream &in) -> bool;
 };
-enum class ResponseType { None, Record, List };  // NOLINT
+// enum class ResponseType { None, Record, List };  // NOLINT
 
-struct Response {
-  ResponseType type_;
-  std::unique_ptr<VectorRecord> record_;
-  std::unique_ptr<std::vector<std::unique_ptr<VectorRecord>>> records_;
+using Response = std::vector<std::unique_ptr<VectorRecord>>;
 
-  Response() : type_(ResponseType::None), record_(nullptr) {}
+// struct Response {
+//   ResponseType type_;
+//   std::unique_ptr<VectorRecord> record_;
+//   std::unique_ptr<std::vector<std::unique_ptr<VectorRecord>>> records_;
 
-  Response(const ResponseType type, std::unique_ptr<VectorRecord> record) : type_(type), record_(std::move(record)) {}
+//   Response() : type_(ResponseType::None), record_(nullptr) {}
 
-  Response(const ResponseType type, std::unique_ptr<std::vector<std::unique_ptr<VectorRecord>>> records)
-      : type_(type), records_(std::move(records)) {}
+//   Response(const ResponseType type, std::unique_ptr<VectorRecord> record) : type_(type), record_(std::move(record)) {}
 
-  Response(const Response &other) {
-    type_ = other.type_;
-    if (other.record_) {
-      record_ = std::make_unique<VectorRecord>(*other.record_);
-    }
-    if (other.records_) {
-      records_ = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>();
-      records_->reserve(other.records_->size());
-      for (const auto &rec : *other.records_) {
-        records_->emplace_back(std::make_unique<VectorRecord>(*rec));
-      }
-    }
-  }
+//   Response(const ResponseType type, std::unique_ptr<std::vector<std::unique_ptr<VectorRecord>>> records)
+//       : type_(type), records_(std::move(records)) {}
 
-  auto operator=(const Response &other) -> Response & {
-    if (this != &other) {
-      type_ = other.type_;
-      if (other.record_) {
-        record_ = std::make_unique<VectorRecord>(*other.record_);
-      }
-      if (other.records_) {
-        records_ = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>();
-        records_->reserve(other.records_->size());
-        for (const auto &rec : *other.records_) {
-          records_->emplace_back(std::make_unique<VectorRecord>(*rec));
-        }
-      }
-    }
-    return *this;
-  }
-};
+//   Response(const Response &other) {
+//     type_ = other.type_;
+//     if (other.record_) {
+//       record_ = std::make_unique<VectorRecord>(*other.record_);
+//     }
+//     if (other.records_) {
+//       records_ = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>();
+//       records_->reserve(other.records_->size());
+//       for (const auto &rec : *other.records_) {
+//         records_->emplace_back(std::make_unique<VectorRecord>(*rec));
+//       }
+//     }
+//   }
+
+//   auto operator=(const Response &other) -> Response & {
+//     if (this != &other) {
+//       type_ = other.type_;
+//       if (other.record_) {
+//         record_ = std::make_unique<VectorRecord>(*other.record_);
+//       }
+//       if (other.records_) {
+//         records_ = std::make_unique<std::vector<std::unique_ptr<VectorRecord>>>();
+//         records_->reserve(other.records_->size());
+//         for (const auto &rec : *other.records_) {
+//           records_->emplace_back(std::make_unique<VectorRecord>(*rec));
+//         }
+//       }
+//     }
+//     return *this;
+//   }
+// };
 
 }  // namespace candy

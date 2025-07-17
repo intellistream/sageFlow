@@ -5,11 +5,13 @@
 
 #include <memory>
 #include <vector>
+#include <string>
 
 #include "compute_engine/compute_engine.h"
 #include "concurrency/concurrency_manager.h"
 #include "query/optimizer/planner.h"
 #include "storage/storage_manager.h"
+#include "function/source_function.h"
 
 namespace candy {
 class StreamEnvironment {
@@ -33,6 +35,12 @@ class StreamEnvironment {
   auto execute() -> void;
 
   auto addStream(std::shared_ptr<Stream> stream) -> void;
+
+  // Factory method to create source streams
+  auto createSourceStream(const std::string& name, std::unique_ptr<SourceFunction> source_func) -> std::shared_ptr<Stream>;
+
+  // Convenience method for file streams
+  auto createFileStream(const std::string& name, const std::string& file_path) -> std::shared_ptr<Stream>;
 
   auto getStorageManager() -> std::shared_ptr<StorageManager> {
     return storage_manager_;

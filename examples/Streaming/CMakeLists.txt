@@ -18,7 +18,17 @@ add_executable(
 
 target_link_libraries(
         Streaming_example
-        candy_lib
+        common
+        concurrency
+        function
+        index
+        operator
+        query
+        storage
+        stream
+        compute_engine
+        utils
+        fmt::fmt
 )
 # target_link_libraries(
 #         topk

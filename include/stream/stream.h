@@ -51,6 +51,7 @@ class Stream {
 
   std::string name_;
   std::unique_ptr<Function> function_ = nullptr;
+  std::shared_ptr<class SourceOperator> source_operator_ = nullptr;
 
   std::vector<std::shared_ptr<Stream>> streams_;
 };

@@ -2,8 +2,6 @@
 #pragma once
 
 #include <memory>
-#include <queue>
-#include <thread>
 #include <vector>
 
 #include "common/data_types.h"  // Include VectorRecord definition
@@ -12,6 +10,7 @@
 namespace candy {
 enum class OperatorType {
   NONE,
+  SOURCE,
   OUTPUT,
   FILTER,
   MAP,

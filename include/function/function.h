@@ -1,13 +1,12 @@
 #pragma once
-#include <memory>
 #include <string>
-#include <vector>
 
 #include "common/data_types.h"
 
 namespace candy {
 enum class FunctionType {  // NOLINT
   None,
+  Source,
   Filter,
   Map,
   Join,

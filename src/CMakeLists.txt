@@ -28,29 +28,3 @@ add_subdirectory(
 add_subdirectory(
         stream
 )
-add_subdirectory(
-        candy
-)
-
-add_library(candy_lib STATIC
-    candy/candy.cpp
-)
-
-target_link_libraries(candy_lib PUBLIC
-    common
-    concurrency
-    function
-    index
-    operator
-    query
-    storage
-    stream
-    compute_engine
-    utils
-    fmt::fmt
-    candy_src
-)
-
-target_include_directories(candy_lib PUBLIC
-    ${PROJECT_SOURCE_DIR}/include
-)

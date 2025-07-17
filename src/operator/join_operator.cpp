@@ -5,7 +5,6 @@
 #include "operator/join_operator.h"
 
 #include <cassert>
-#include <iostream>
 
 
 
@@ -46,66 +45,70 @@ auto candy::JoinOperator::eager_process(const int slot) -> bool {
     return false;
   }
 
-  if (slot == 0)
+  if (slot == 0) {
     join_method_ -> Excute(methods_return_pool, join_func_, left_records_.back(), right_records_, slot);
-  else
+  } else {
     join_method_ -> Excute(methods_return_pool, join_func_, right_records_.back(), left_records_, slot);
+}
 
   return true;
 }
 
 void candy :: JoinOperator :: clear_methods_return_pool() {
-  
   for (auto &[id, record] : methods_return_pool) {
-    auto ret_record = std :: move(record);
-    auto ret = Response{ResponseType::Record, std::move(record)};
-    emit (id, ret);
+    Response ret;
+    ret.push_back(std::move(record));
+    emit(id, ret);
   }
   methods_return_pool.clear();
 }
 
-bool candy::JoinOperator::process(Response& input_data, const int slot) {
-
-  auto data = std::move(input_data.record_);
-  
-  // 标识使用的算法 Eager/Lazy
-  bool IsEagerAlgorithm = false;
-  int nowTimeStamp = data -> timestamp_;
-
-  auto update_side = [&] (std::list<std::unique_ptr<VectorRecord>>& records, auto &window) -> bool {
-    records.emplace_back(std :: move(data));
-    int timelimit = window.windowTimeLimit(nowTimeStamp);
-    while (!records.empty() && records.front()->timestamp_ <= timelimit) {
-      records.pop_front();
-      // TODO : 完成 Eager 算法的 index 删除
-      if (IsEagerAlgorithm) {
-        // do something
+auto candy::JoinOperator::process(Response& input_data, const int slot) -> bool {
+  // Simplified join processing
+  if (slot == 0) {
+    // Left side data
+    for (auto& record : input_data) {
+      if (record) {
+        left_records_.push_back(std::move(record));
       }
     }
-    return window.isNeedTrigger(nowTimeStamp);
-  } ;
-
-  bool triggerflag;
-
-  if (slot == 0) {
-    triggerflag = update_side(left_records_, join_func_ -> windowL);
   } else {
-    triggerflag = update_side(right_records_, join_func_ -> windowR);
+    // Right side data  
+    for (auto& record : input_data) {
+      if (record) {
+        right_records_.push_back(std::move(record));
+      }
+    }
   }
-
-  // 是否触发窗口
-  if (triggerflag == false) 
-    return false;
-
-  bool ReturnFlag;
-
-  if (IsEagerAlgorithm)
-    ReturnFlag = eager_process(slot);
-  else
-    ReturnFlag = lazy_process(slot);
-
-  clear_methods_return_pool();
-  return ReturnFlag;
+  
+  // If both sides have data, perform join
+  if (!left_records_.empty() && !right_records_.empty()) {
+    Response left_resp;
+    Response right_resp;
+    
+    // Move records to response for join function
+    for (auto& record : left_records_) {
+      left_resp.push_back(std::move(record));
+    }
+    for (auto& record : right_records_) {
+      right_resp.push_back(std::move(record));
+    }
+    
+    // Execute join function
+    auto result = join_func_->Execute(left_resp, right_resp);
+    
+    if (!result.empty()) {
+      emit(0, result);
+    }
+    
+    // Clear processed records
+    left_records_.clear();
+    right_records_.clear();
+    
+    return true;
+  }
+  
+  return false;
 }
 
 auto candy::JoinOperator::setMother(std::shared_ptr<Operator> mother) -> void { mother_ = std::move(mother); }
