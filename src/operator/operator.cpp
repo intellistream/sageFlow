@@ -1,7 +1,23 @@
 #include "operator/operator.h"
 candy::Operator::~Operator() = default;
 
-candy::Operator::Operator(const OperatorType type) : type_(type) {}
+candy::Operator::Operator(OperatorType type, size_t parallelism)
+      : type_(type) {
+  set_parallelism(parallelism);
+  // 根据算子类型设置默认名称
+  switch (type) {
+    case OperatorType::FILTER: name = "FilterOperator"; break;
+    case OperatorType::MAP: name = "MapOperator"; break;
+    case OperatorType::JOIN: name = "JoinOperator"; break;
+    case OperatorType::SINK: name = "SinkOperator"; break;
+    case OperatorType::TOPK: name = "TopKOperator"; break;
+    case OperatorType::WINDOW: name = "WindowOperator"; break;
+    case OperatorType::ITOPK: name = "ITopKOperator"; break;
+    case OperatorType::AGGREGATE: name = "AggregateOperator"; break;
+    default: name = "Operator"; break;
+  }
+
+}
 
 auto candy::Operator::getType() const -> OperatorType { return type_; }
 
@@ -35,4 +51,13 @@ auto candy::Operator::addChild(std::shared_ptr<Operator> child, const int slot) 
   const int index = children_.size() - 1;
   child2slot_.push_back(slot);
   return index;
+}
+
+void candy::Operator::set_parallelism(const size_t p) {
+  if (p > 0) {
+    parallelism_ = p;
+  }
+}
+auto candy::Operator::get_parallelism() const -> size_t {
+  return parallelism_;
 }
