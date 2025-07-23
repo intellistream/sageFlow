@@ -16,7 +16,7 @@ candy::Planner::Planner(const std::shared_ptr<ConcurrencyManager>& concurrency_m
 void candy::Planner::planToExecutionGraph(const std::shared_ptr<Stream>& stream,
                                          ExecutionGraph* execution_graph,
                                          size_t default_parallelism) const {
-  if (!execution_graph) {
+  if (execution_graph == nullptr) {
     throw std::runtime_error("ExecutionGraph is null");
   }
 
@@ -26,7 +26,7 @@ void candy::Planner::planToExecutionGraph(const std::shared_ptr<Stream>& stream,
   // 根算子已经在buildOperatorChain中添加到执行图了
 }
 
-std::shared_ptr<Operator> candy::Planner::buildOperatorChain(const std::shared_ptr<Stream>& stream,
+std::shared_ptr<candy::Operator> candy::Planner::buildOperatorChain(const std::shared_ptr<Stream>& stream,
                                                             ExecutionGraph* execution_graph,
                                                             size_t default_parallelism) const {
   std::shared_ptr<Operator> op = nullptr;
@@ -52,7 +52,9 @@ std::shared_ptr<Operator> candy::Planner::buildOperatorChain(const std::shared_p
       // 递归构建另一个输入流
       const auto other_op = buildOperatorChain(other_stream, execution_graph, default_parallelism);
 
-      op = std::make_shared<JoinOperator>(stream->function_, concurrency_manager_);
+      // 修复JoinOperator构造函数调用，使用新的签名
+      op = std::make_shared<JoinOperator>(stream->function_, concurrency_manager_,
+                                        "bruteforce_lazy", 0.8);
       configureOperatorParallelism(op, default_parallelism);
 
       const auto join_op = std::dynamic_pointer_cast<JoinOperator>(op);

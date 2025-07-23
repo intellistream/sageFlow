@@ -26,9 +26,6 @@ auto candy::Operator::open() -> void {
     return;
   }
   is_open_ = true;
-  for (const auto& child : children_) {
-    child->open();
-  }
 }
 
 auto candy::Operator::close() -> void {}

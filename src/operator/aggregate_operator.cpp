@@ -3,6 +3,7 @@
 //
 #include "operator/aggregate_operator.h"
 
+#include <mutex>
 #include "function/aggregate_function.h"
 
 candy::AggregateOperator::AggregateOperator(std::unique_ptr<Function>& aggregate_func)
@@ -29,7 +30,14 @@ void Avg(const std::unique_ptr<candy::VectorRecord>& record, int size) {
   }
 }
 
-bool candy::AggregateOperator::process(Response& data, const int slot) {
+auto candy::AggregateOperator::process(Response& data, int slot) -> bool {
+  // TODO: 多线程改造 - 当前实现为单线程版本
+  // 在多线程环境中，需要考虑以下改造：
+  // 1. 使用线程安全的累加器或状态管理
+  // 2. 考虑分区聚合：每个线程维护局部状态，最后合并
+  // 3. 使用原子操作或锁保护共享状态
+  // 4. 实现分布式聚合模式（Map-Reduce风格）
+
   const auto aggregate_func = dynamic_cast<AggregateFunction*>(aggregate_func_.get());
   if (data.type_ == ResponseType::List) {
     const auto records = std::move(data.records_);

@@ -2,6 +2,7 @@
 #include <functional>
 #include <list>
 #include <memory>
+#include <mutex>
 
 #include "common/data_types.h"
 #include "operator/operator.h"
@@ -13,6 +14,10 @@ class WindowOperator : public Operator {
 
   auto process(Response &data, int slot) -> bool override;
   int window_size_;
+
+ protected:
+  // 多线程改造：添加窗口状态保护的互斥锁
+  mutable std::mutex window_mutex_;
 
  private:
   std::unique_ptr<Function> window_func_;

@@ -4,6 +4,7 @@
 #include "operator/itopk_operator.h"
 
 #include <iostream>
+#include <mutex>
 
 #include "function/itopk_function.h"
 
@@ -18,11 +19,21 @@ candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& func,
   record_ = itopk_func->getRecord();
 }
 
-auto candy::ITopkOperator::process(Response& data, const int slot) -> bool {
+auto candy::ITopkOperator::process(Response& data, int slot) -> bool {
+  // TODO: 多线程改造 - ITopK算子的并发状态管理
+  // 在多线程环境中，需要考虑以下改造：
+  // 1. uid集合(uids_)的并发访问保护，需要使用线程安全的容器或加锁
+  // 2. 索引更新的原子性：insert/erase操作需要保证一致性
+  // 3. 增量更新策略：避免频繁的全量重建
+  // 4. 分区ITopK：每个线程维护局部状态，定期合并
+
   if (data.type_ == ResponseType::Record) {
     return false;
   }
   if (data.type_ == ResponseType::List) {
+    // TODO: 添加互斥锁保护共享状态
+    std::lock_guard<std::mutex> lock(state_mutex_);
+
     const auto records = std::move(data.records_);
     std::unordered_set<uint64_t> uids;
     for (auto& record : *records) {
