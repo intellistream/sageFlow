@@ -35,15 +35,16 @@ std::shared_ptr<candy::Operator> candy::Planner::buildOperatorChain(const std::s
     // 数据源算子
     auto source = std::dynamic_pointer_cast<DataStreamSource>(stream);
     op = std::make_shared<OutputOperator>(source);
-    configureOperatorParallelism(op, 1);  // 源算子通常并行度为1
+    // 数据源使用Stream指定的并行度，如果没有指定则使用1
+    configureOperatorParallelism(op, stream->getParallelism() > 0 ? stream->getParallelism() : 1);
   } else {
     // 根据函数类型创建相应的算子
     if (stream->function_->getType() == FunctionType::Filter) {
       op = std::make_shared<FilterOperator>(stream->function_);
-      configureOperatorParallelism(op, default_parallelism);
+      configureOperatorParallelism(op, stream->getParallelism());
     } else if (stream->function_->getType() == FunctionType::Map) {
       op = std::make_shared<MapOperator>(stream->function_);
-      configureOperatorParallelism(op, default_parallelism);
+      configureOperatorParallelism(op, stream->getParallelism());
     } else if (stream->function_->getType() == FunctionType::Join) {
       const auto func = stream->function_.get();
       const auto join_func = dynamic_cast<JoinFunction*>(func);
@@ -55,7 +56,7 @@ std::shared_ptr<candy::Operator> candy::Planner::buildOperatorChain(const std::s
       // 修复JoinOperator构造函数调用，使用新的签名
       op = std::make_shared<JoinOperator>(stream->function_, concurrency_manager_,
                                         "bruteforce_lazy", 0.8);
-      configureOperatorParallelism(op, default_parallelism);
+      configureOperatorParallelism(op, stream->getParallelism());
 
       const auto join_op = std::dynamic_pointer_cast<JoinOperator>(op);
       join_op->setMother(other_op);
@@ -64,10 +65,10 @@ std::shared_ptr<candy::Operator> candy::Planner::buildOperatorChain(const std::s
       execution_graph->connectOperators(other_op, op, 1);
     } else if (stream->function_->getType() == FunctionType::Sink) {
       op = std::make_shared<SinkOperator>(stream->function_);
-      configureOperatorParallelism(op, 1);  // Sink通常并行度为1
+      configureOperatorParallelism(op, stream->getParallelism());
     } else if (stream->function_->getType() == FunctionType::Topk) {
       op = std::make_shared<TopkOperator>(stream->function_, concurrency_manager_);
-      configureOperatorParallelism(op, default_parallelism);
+      configureOperatorParallelism(op, stream->getParallelism());
     } else if (stream->function_->getType() == FunctionType::Window) {
       auto func = stream->function_.get();
       auto window_func = dynamic_cast<WindowFunction*>(func);
@@ -78,13 +79,13 @@ std::shared_ptr<candy::Operator> candy::Planner::buildOperatorChain(const std::s
       } else {
         throw std::runtime_error("Unsupported window type");
       }
-      configureOperatorParallelism(op, default_parallelism);
+      configureOperatorParallelism(op, stream->getParallelism());
     } else if (stream->function_->getType() == FunctionType::ITopk) {
       op = std::make_shared<ITopkOperator>(stream->function_, concurrency_manager_);
-      configureOperatorParallelism(op, default_parallelism);
+      configureOperatorParallelism(op, stream->getParallelism());
     } else if (stream->function_->getType() == FunctionType::Aggregate) {
       op = std::make_shared<AggregateOperator>(stream->function_);
-      configureOperatorParallelism(op, default_parallelism);
+      configureOperatorParallelism(op, stream->getParallelism());
     } else {
       throw std::runtime_error("Unsupported function type in planner");
     }
@@ -103,23 +104,9 @@ std::shared_ptr<candy::Operator> candy::Planner::buildOperatorChain(const std::s
 }
 
 void candy::Planner::configureOperatorParallelism(std::shared_ptr<Operator>& op,
-                                                  size_t default_parallelism) const {
+                                                  size_t stream_parallelism) const {
   if (op) {
-    // 根据算子类型设置合适的并行度
-    switch (op->getType()) {
-      case OperatorType::OUTPUT:
-        op->set_parallelism(1);  // 源算子通常为1
-        break;
-      case OperatorType::SINK:
-        op->set_parallelism(1);  // Sink算子通常为1
-        break;
-      case OperatorType::JOIN:
-        // Join算子可能需要特殊处理，暂时使用默认并行度
-        op->set_parallelism(default_parallelism);
-        break;
-      default:
-        op->set_parallelism(default_parallelism);
-        break;
-    }
+    // 直接使用Stream指定的并行度
+    op->set_parallelism(stream_parallelism);
   }
 }
