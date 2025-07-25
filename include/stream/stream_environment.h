@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "query/optimizer/planner.h"
+#include "execution/execution_graph.h"
 
 namespace candy {
 class StreamEnvironment {
@@ -17,14 +18,25 @@ class StreamEnvironment {
     storage_manager_ = std::make_shared<StorageManager>();
     concurrency_manager_ = std::make_shared<ConcurrencyManager>(storage_manager_);
     planner_ = std::make_shared<Planner>(concurrency_manager_);
+    execution_graph_ = std::make_unique<ExecutionGraph>();
   }
 
   // Load configuration from a file
   static auto loadConfiguration(const std::string &file_path) -> ConfigMap;
 
+  // 执行流处理任务（支持多线程）
   auto execute() -> void;
 
+  // 停止执行
+  auto stop() -> void;
+
+  // 等待执行完成
+  auto awaitTermination() -> void;
+
   auto addStream(std::shared_ptr<Stream> stream) -> void;
+
+  // 设置全局并行度
+  auto setParallelism(size_t parallelism) -> void;
 
   auto getStorageManager() -> std::shared_ptr<StorageManager> {
     return storage_manager_;
@@ -33,6 +45,7 @@ class StreamEnvironment {
     return concurrency_manager_;
   }
   auto getPlanner() -> std::shared_ptr<Planner> { return planner_; }
+
  private:
   std::vector<std::shared_ptr<Stream>> streams_;
   std::vector<std::shared_ptr<Operator>> operators_;
@@ -40,6 +53,10 @@ class StreamEnvironment {
   std::shared_ptr<StorageManager> storage_manager_;
   std::shared_ptr<Planner> planner_;
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
+  std::unique_ptr<ExecutionGraph> execution_graph_;
+
+  size_t default_parallelism_ = 1;
+  bool is_running_ = false;
 };
 
 }  // namespace candy

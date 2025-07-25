@@ -92,14 +92,6 @@ void JoinOperator::open() {
     return;
   }
   is_open_ = true;
-  if (mother_) {
-    mother_->open();
-  }
-  for (const auto& child : children_) {
-    if (child) {
-      child->open();
-    }
-  }
 }
 
 auto JoinOperator::lazy_process(const int slot) -> bool {

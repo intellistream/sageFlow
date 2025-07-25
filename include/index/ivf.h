@@ -2,6 +2,8 @@
 #include "index/index.h"
 #include <unordered_map>
 
+#include "index/index.h"
+
 namespace candy {
 class Ivf final : public Index {
  private:
