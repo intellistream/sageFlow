@@ -1,201 +1,61 @@
-# CandyFlow 多线程流处理引擎开发指南
+# 指南：为 CandyFlow 项目贡献代码
 
-## 项目概述
+本文档为 GitHub Copilot 提供了与 CandyFlow 项目协作的上下文和指南。
 
-CandyFlow 是一个高性能的多线程流处理引擎，支持复杂的流数据处理操作，包括过滤、映射、连接、窗口、聚合等。本项目采用现代C++17标准，基于无锁队列和多线程架构设计。
+## 1. 项目概述
 
-## 代码规范
+CandyFlow 是一个用 C++17 编写的高性能、多线程流处理引擎。它旨在提供一个可扩展的框架，用于构建复杂的数据处理管道，支持过滤、映射、连接（Join）、窗口（Windowing）和聚合（Aggregation）等操作。引擎的核心设计基于多线程执行模型，其中每个算子（Operator）的实例都在独立的线程（`ExecutionVertex`）中运行，通过高效的队列系统（无锁 `RingBufferQueue` 和有锁 `BlockingQueue`）进行通信。
 
-### 1. 命名规范
+## 2. 技术栈与环境
 
-#### 类和结构体
-- 使用 PascalCase，如 `ExecutionVertex`、`StreamEnvironment`
-- 接口类以 `I` 开头，如 `IPartitioner`
-- 抽象基类通常以 `Base` 开头，如 `BaseMethod`
+*   **主要语言**: C++ (使用 C++17 标准)
+*   **构建系统**: CMake
+*   **操作系统**: 跨平台，但当前主要在 Windows 上开发
+*   **核心依赖**:
+    *   `spdlog` 用于日志记录
+    *   `gtest` 用于单元测试和集成测试
+*   **并发模型**: 基于 `std::thread`、`std::mutex`、`std::atomic` 和自定义队列的线程池/Actor 模型。
 
-#### 变量和函数
-- 使用 snake_case，如 `input_gate_`、`process_data()`
-- 成员变量以下划线结尾，如 `operator_`、`running_`
-- 常量使用全大写，如 `MAX_QUEUE_SIZE`
+## 3. 项目结构
 
-#### 文件命名
-- 头文件：`snake_case.h`
-- 源文件：`snake_case.cpp`
-- 测试文件：`test_snake_case.cpp`
+以下是关键目录的概览：
 
-### 2. 文件结构规范
+*   `src/operator/`: 包含所有流处理算子（Operator）的源文件。
+    *   `join_operator_methods/`: Join 算子内部使用的不同连接策略实现。
+*   `src/execution/`: 包含多线程执行引擎的核心组件，如 `ExecutionVertex`, `InputGate`, `ResultPartition` 和队列实现。
+*   `include/`: 包含所有组件的头文件。
+*   `test/`: 包含所有单元测试、集成测试和性能测试。
+*   `config/`: 存放运行时配置文件（例如 TOML 格式）。
 
-#### 头文件模板
-```cpp
-#pragma once
+## 4. 编码规范
 
-#include <standard_library_headers>
+所有生成的代码必须严格遵守以下规范。
 
-#include "project/headers.h"
+### 4.1 命名约定
 
-namespace candy {
-class ClassName {
- public:
-  // 构造函数和析构函数
-  explicit ClassName(params);
-  ~ClassName();
+*   **类/结构体**: `PascalCase` (例如: `ExecutionGraph`, `JoinOperator`)。
+*   **函数/方法**: `snake_case` (例如: `process_data`, `emit_record`)。
+*   **变量**: `snake_case` (例如: `record_count`)。
+*   **成员变量**: `snake_case` 并以下划线结尾 (例如: `input_gate_`, `is_running_`)。
+*   **常量/枚举**: `ALL_CAPS_SNAKE_CASE` (例如: `MAX_BUFFER_SIZE`)。
+*   **文件**: `snake_case.h` / `snake_case.cpp`。
 
-  // 公共方法
-  auto methodName() -> ReturnType;
+### 4.2 代码风格
 
- private:
-  // 私有成员变量
-  Type member_variable_;
-};
-}  // namespace candy
-```
+*   **智能指针**: 优先使用 `std::unique_ptr` 和 `std::shared_ptr` 管理动态内存。避免使用裸指针和 `new`/`delete`。
+*   **RAII**: 严格遵循 RAII 原则管理所有资源（内存、文件、锁等）。
+*   **Const Correctness**: 尽可能使用 `const` 来确保不变量。
+*   **函数返回类型**: 使用 C++11 的尾置返回类型语法 (`auto function_name() -> ReturnType`)。
+*   **命名空间**: 所有代码都应位于 `candy` 命名空间内。
 
-#### 源文件模板
-```cpp
-#include "header_file.h"
+### 4.3 并发编程
 
-#include <standard_library_headers>
-
-#include "other_project_headers.h"
-
-namespace candy {
-
-ClassName::ClassName(params) : member_variable_(value) {
-  // 构造函数实现
-}
-
-// 方法实现
-auto ClassName::methodName() -> ReturnType {
-  // 实现代码
-}
-
-}  // namespace candy
-```
-
-### 3. 编码规范
-
-#### 内存管理
-- 优先使用智能指针：`std::unique_ptr`、`std::shared_ptr`
-- 避免裸指针，除非绝对必要
-- 使用 RAII 原则管理资源
-
-#### 异常处理
-- 使用标准异常类型：`std::runtime_error`、`std::invalid_argument`
-- 在构造函数中验证参数
-- 提供有意义的错误消息
-
-#### 并发编程
-- 使用 `std::atomic` 进行原子操作
-- 使用 `std::mutex` 和 `std::condition_variable` 进行同步
-- 优先使用无锁数据结构（如 RingBufferQueue）
-- 避免死锁，按固定顺序获取锁
-
-## 架构设计
-
-### 1. 多线程执行模型
-
-```
-StreamEnvironment
-    └── ExecutionGraph
-        ├── ExecutionVertex (Thread 1)
-        │   ├── InputGate
-        │   ├── Operator
-        │   └── ResultPartition
-        ├── ExecutionVertex (Thread 2)
-        └── ...
-```
-
-### 2. 核心组件
-
-#### ExecutionVertex
-- **职责**: Operator的并行实例，在独立线程中运行
-- **生命周期**: 启动 → 运行 → 停止 → 清理
-- **关键方法**: `start()`, `stop()`, `join()`, `run()`
-
-#### InputGate
-- **职责**: 管理来自上游的多个输入队列
-- **策略**: 轮询读取，负载均衡
-- **队列类型**: RingBufferQueue 或 BlockingQueue
-
-#### ResultPartition
-- **职责**: 将数据分发到下游的多个输出队列
-- **分区策略**: RoundRobin、KeyPartitioner 等
-- **接口**: `emit(Response data)`
-
-#### ExecutionGraph
-- **职责**: 管理整个执行图的构建和生命周期
-- **功能**: 算子连接、队列创建、线程管理
-
-### 3. 队列系统
-
-#### RingBufferQueue (无锁)
-- **使用场景**: 点对点高频数据传输
-- **优势**: 高性能，无锁设计
-- **限制**: 单生产者单消费者
-
-#### BlockingQueue (有锁)
-- **使用场景**: 多对一场景（如Join算子）
-- **优势**: 支持多生产者
-- **特性**: 反压机制，优雅关闭
-
-## 开发指导
-
-### 1. 新增算子
-
-#### 步骤
-1. 在 `include/operator/` 创建头文件
-2. 在 `src/operator/` 创建实现文件
-3. 继承 `Operator` 基类
-4. 实现必要的方法：`open()`, `process()`, `close()`
-5. 在 `Planner` 中添加创建逻辑
-
-#### 示例
-```cpp
-class NewOperator final : public Operator {
- public:
-  explicit NewOperator(std::unique_ptr<Function>& func);
-  
-  auto process(Response& data, int slot) -> bool override;
-
- private:
-  std::unique_ptr<Function> function_;
-};
-```
-
-### 2. 新增分区器
-
-#### 步骤
-1. 继承 `IPartitioner` 接口
-2. 实现 `partition()` 方法
-3. 在 `ExecutionGraph` 中注册使用
-
-#### 示例
-```cpp
-class KeyPartitioner : public IPartitioner {
- public:
-  size_t partition(const Response& data, size_t num_channels) override {
-    // 基于key的分区逻辑
-    return hash(data.key) % num_channels;
-  }
-};
-```
-
-### 3. 性能优化
-
-#### 内存优化
-- 使用对象池减少内存分配
-- 避免频繁的内存拷贝
-- 使用 `std::move` 语义
-
-#### 并发优化
-- 减少锁竞争
-- 使用无锁数据结构
-- 合理设置队列容量
-
-#### 算法优化
-- 批处理减少系统调用
-- 缓存友好的数据布局
-- 向量化计算
+*   **线程安全**: 这是项目的核心要求。所有对共享状态的访问都必须是线程安全的。
+*   **同步原语**:
+    *   使用 `std::mutex` 和 `std::lock_guard` 或 `std::scoped_lock` 来保护临界区。
+    *   使用 `std::atomic` 来处理简单的原子计数器或标志。
+    *   使用 `std::condition_variable` 进行线程间的等待和通知。
+*   **避免死锁**: 当需要获取多个锁时，必须按照固定的全局顺序获取。
 
 ## 测试指南
 
