@@ -289,7 +289,7 @@ auto Ivf::erase(uint64_t id) -> bool {
   return true;
 }
 
-auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> {
+auto Ivf::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
     if (k <= 0) {
         return {};
     }
@@ -309,7 +309,7 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
         }
 
         for (size_t i = 0; i < centroids_.size(); ++i) {
-            double distance = storage_manager_->engine_->EuclideanDistance(record->data_, centroids_[i]);
+            double distance = storage_manager_->engine_->EuclideanDistance(record.data_, centroids_[i]);
             closest_probes_pq.emplace(distance, static_cast<int>(i));
             if (closest_probes_pq.size() > nprobes_) {
                 closest_probes_pq.pop();
@@ -334,7 +334,7 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
                 }
 
                 if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
-                    double distance = storage_manager_->engine_->EuclideanDistance(record->data_, candidate->data_);
+                    double distance = storage_manager_->engine_->EuclideanDistance(record.data_, candidate->data_);
 
                     if (top_k_results.size() < k) {
                         top_k_results.emplace(id_val, distance);
@@ -362,7 +362,7 @@ auto Ivf::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uin
     return final_ids;
 }
 
-auto Ivf::query_for_join(std::unique_ptr<VectorRecord>& record, double join_similarity_threshold) -> std::vector<uint64_t> {
+auto Ivf::query_for_join(const VectorRecord &record, double join_similarity_threshold) -> std::vector<uint64_t> {
   std::priority_queue<std::pair<double, int>> probe_indices;
   std::unordered_set<uint64_t> local_deleted_uids;
   {
@@ -373,7 +373,7 @@ auto Ivf::query_for_join(std::unique_ptr<VectorRecord>& record, double join_simi
       return {};
     }
     for (size_t i = 0; i < centroids_.size(); ++i) {
-      double distance = storage_manager_->engine_->EuclideanDistance(record->data_, centroids_[i]);
+      double distance = storage_manager_->engine_->EuclideanDistance(record.data_, centroids_[i]);
       probe_indices.emplace(distance, static_cast<int>(i));
       if (probe_indices.size() > nprobes_) {
         probe_indices.pop();  // 保持前nprobes_个最近的质心
@@ -395,7 +395,7 @@ auto Ivf::query_for_join(std::unique_ptr<VectorRecord>& record, double join_simi
           continue;
         }
         if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
-          double similarity = storage_manager_->engine_->Similarity(record->data_, candidate->data_);
+          double similarity = storage_manager_->engine_->Similarity(record.data_, candidate->data_);
           if (similarity - join_similarity_threshold > epsilon) {
             results.emplace_back(id_val);
           }

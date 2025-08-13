@@ -430,10 +430,9 @@ auto HNSW::erase(uint64_t uid) -> bool {
 }
 
 
-auto HNSW::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> {
+auto HNSW::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
     if (!storage_manager_) throw std::runtime_error("HNSW::query: Storage manager not set.");
-    if (!record) throw std::invalid_argument("HNSW::query: Query record is null.");
-    const VectorRecord& q = *record;
+    const VectorRecord& q = record;
 
     // Use lock for concurrent access
     uint64_t current_ep = entry_point_;

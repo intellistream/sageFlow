@@ -42,7 +42,7 @@ void ExecutionVertex::join() const {
   }
 }
 
-void ExecutionVertex::run() {
+void ExecutionVertex::run() const {
   std::cout << name_ << " started on thread " << std::this_thread::get_id() << std::endl;
 
   auto source_op = dynamic_cast<OutputOperator*>(operator_.get());

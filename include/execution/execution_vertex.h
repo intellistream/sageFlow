@@ -48,6 +48,6 @@ public:
   auto getSubtaskIndex() const -> size_t { return subtask_index_; }
 
 private:
-  void run();
+  void run()const;
 };
 } // namespace candy

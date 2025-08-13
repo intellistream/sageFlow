@@ -14,6 +14,7 @@ namespace candy {
 struct TaggedResponse {
   Response response;
   int slot;
+  TaggedResponse() : slot(0) {}
   TaggedResponse(Response res, int s) : response(std::move(res)), slot(s) {}
 };
 
