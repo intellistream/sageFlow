@@ -18,8 +18,8 @@ private:
 public:
   // 在部署时，由调度器调用
   void setup(const std::vector<QueuePtr>& queues);
-
-  // TODO: 后续改为更高效的轮询 read 方法从上游获取数据
-  std::optional<Response> read();
+  void setup(std::vector<QueuePtr>&& queues);
+  // TODO: 后续优化轮询 read 方法使其更高效
+  std::optional<TaggedResponse> read();
 };
 }

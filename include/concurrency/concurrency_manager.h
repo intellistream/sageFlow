@@ -28,17 +28,17 @@ class ConcurrencyManager {
 
   auto drop_index(const std::string &name) -> bool;
 
-  auto insert(int index_id, std::unique_ptr<VectorRecord> &record) -> bool;
+  auto insert(int index_id, std::unique_ptr<VectorRecord> record) -> bool;
 
-  auto erase(int index_id, std::unique_ptr<VectorRecord> &record) -> bool;  // maybe local index would use this
+  auto erase(int index_id, std::unique_ptr<VectorRecord> record) -> bool;  // maybe local index would use this
 
   auto erase(int index_id, uint64_t uid) -> bool;  // maybe local index would use this
 
-  auto query(int index_id, std::unique_ptr<VectorRecord> &record, int k) -> std::vector<std::unique_ptr<VectorRecord>>;
+  auto query(int index_id, const VectorRecord& record, int k) -> std::vector<std::shared_ptr<const VectorRecord>>;
 
-  // Method for join-specific queries, returning UIDs
-  auto query_for_join(int index_id, std::unique_ptr<VectorRecord>& record,
-                      double join_similarity_threshold) -> std::vector<std::unique_ptr<VectorRecord>>;
+  // Method for join-specific queries, returning shared_ptr records
+  auto query_for_join(int index_id, const VectorRecord& record,
+                      double join_similarity_threshold) -> std::vector<std::shared_ptr<const VectorRecord>>;
 
  private:
   std::unordered_map<std::string, IdWithType> index_map_;

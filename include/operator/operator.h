@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <queue>
 #include <thread>
 #include <vector>
@@ -8,6 +9,7 @@
 
 #include "common/data_types.h"  // Include VectorRecord definition
 #include "function/function_api.h"
+#include "execution/collector.h"
 
 namespace candy {
 enum class OperatorType {
@@ -36,19 +38,15 @@ class Operator {
 
   virtual auto close() -> void;
 
-  virtual auto process(Response& record, int slot) -> bool;
+  virtual auto process(Response&record, int slot) -> std::optional<Response>;
 
-  virtual void emit(int id, Response& record) const;
-
-  auto addChild(std::shared_ptr<Operator> child, int slot = 0) -> int;
+  virtual auto apply(Response&& record, int slot, Collector& collector) -> void;
 
   void set_parallelism(size_t p);
 
   auto get_parallelism() const -> size_t;
 
-  std::vector<int> child2slot_;
   std::unique_ptr<Function> function_ = nullptr;
-  std::vector<std::shared_ptr<Operator>> children_;
   OperatorType type_ = OperatorType::NONE;
   bool is_open_ = false;
   size_t parallelism_ = 1; // 默认并行度为 1

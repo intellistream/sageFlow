@@ -8,25 +8,26 @@
 #include <condition_variable>
 #include <optional>
 #include "common/data_types.h"
+#include "execution/iqueue.h"
 
 namespace candy {
-class RingBufferQueue {
+// 适用于单生产者单消费者场景，使用环形缓冲区实现
+class RingBufferQueue final : public IQueue {
 public:
-  explicit RingBufferQueue(size_t capacity)
-        : size_(capacity + 1), buffer_(size_), head_(0), tail_(0) {}
+  explicit RingBufferQueue(const size_t capacity)
+        : IQueue(capacity + 1), buffer_(size_), head_(0), tail_(0) {}
 
-  bool push(Response&& value);
+  bool push(TaggedResponse&& value) override;
 
-  std::optional<Response> pop();
+  bool push(const TaggedResponse& value) override;
+
+  std::optional<TaggedResponse> pop() override;
 
 private:
-  const size_t size_;
-  std::vector<Response> buffer_;
+  std::vector<TaggedResponse> buffer_;
 
   // head 和 tail 由不同的线程访问，放在不同的缓存行以避免伪共享
   alignas(64) std::atomic<size_t> head_;
   alignas(64) std::atomic<size_t> tail_;
 };
-
-using QueuePtr = std::shared_ptr<RingBufferQueue>;
 }

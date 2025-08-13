@@ -5,7 +5,7 @@
 #include "execution/ring_buffer_queue.h"
 
 namespace candy {
-bool RingBufferQueue::push(Response&& value) {
+bool RingBufferQueue::push(TaggedResponse&& value) {
   const auto current_tail = tail_.load(std::memory_order_relaxed);
   const auto next_tail = (current_tail + 1) % size_;
 
@@ -19,7 +19,12 @@ bool RingBufferQueue::push(Response&& value) {
   return true;
 }
 
-std::optional<Response> RingBufferQueue::pop() {
+bool RingBufferQueue::push(const TaggedResponse& value) {
+  return push(TaggedResponse(value));
+}
+
+
+std::optional<TaggedResponse> RingBufferQueue::pop() {
   const auto current_head = head_.load(std::memory_order_relaxed);
 
   // 检查队列是否为空

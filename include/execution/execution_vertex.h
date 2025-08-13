@@ -34,18 +34,18 @@ public:
   void stop();
 
   // 等待执行完成
-  void join();
+  void join()const;
 
   // 检查是否正在运行
-  bool isRunning() const { return running_; }
+  auto isRunning() const -> bool { return running_; }
 
   // 获取输入门和输出分区的引用，用于连接上下游
-  InputGate *getInputGate() { return input_gate_.get(); }
-  ResultPartition *getResultPartition() { return result_partition_.get(); }
+  auto getInputGate() const -> InputGate * { return input_gate_.get(); }
+  auto getResultPartition() const -> ResultPartition * { return result_partition_.get(); }
 
   // 获取算子和子任务索引
-  std::shared_ptr<Operator> getOperator() const { return operator_; }
-  size_t getSubtaskIndex() const { return subtask_index_; }
+  auto getOperator() const -> std::shared_ptr<Operator> { return operator_; }
+  auto getSubtaskIndex() const -> size_t { return subtask_index_; }
 
 private:
   void run();

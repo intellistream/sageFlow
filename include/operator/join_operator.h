@@ -20,13 +20,15 @@ namespace candy {
 
     auto open() -> void override;
 
-    auto process(Response &data, int slot) -> bool override;
+    auto process(Response&data, int slot) -> std::optional<Response> override;
+
+    auto apply(Response&& record, int slot, Collector& collector) -> void override;
 
     auto setMother(std::shared_ptr<Operator> mother) -> void;
 
-    auto lazy_process(int slot) -> bool;
+    auto lazy_process(int slot) -> std::optional<Response>;
 
-    auto eager_process(int slot) -> bool;
+    auto eager_process(int slot) -> std::optional<Response>;
 
    private:
     auto clear_methods_return_pool() -> void;

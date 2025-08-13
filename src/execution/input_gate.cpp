@@ -10,7 +10,11 @@ void InputGate::setup(const std::vector<QueuePtr>& queues) {
   input_queues_ = queues;
 }
 
-std::optional<Response> InputGate::read() {
+void InputGate::setup(std::vector<QueuePtr>&& queues) {
+  input_queues_ = std::move(queues);
+}
+
+std::optional<TaggedResponse> InputGate::read() {
   if (input_queues_.empty()) {
     return std::nullopt;
   }

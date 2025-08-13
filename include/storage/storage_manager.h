@@ -6,6 +6,8 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <shared_mutex>
+#include <mutex>
 
 #include "common/data_types.h"
 #include "compute_engine/compute_engine.h"
@@ -19,24 +21,27 @@ class StorageManager {
   std::shared_ptr<ComputeEngine> engine_ = nullptr;
   // data
   std::unordered_map<uint64_t, int32_t> map_;
-  std::vector<std::unique_ptr<VectorRecord>> records_;
+  std::vector<std::shared_ptr<VectorRecord>> records_;
   // Constructor
   StorageManager() = default;
 
   // Destructor
   ~StorageManager() = default;
 
-  auto insert(std::unique_ptr<VectorRecord> &record) -> void;
+  auto insert(std::unique_ptr<VectorRecord> record) -> void;
+
+  auto insert(std::shared_ptr<VectorRecord> record) -> void;
 
   auto erase(uint64_t vector_id) -> bool;
 
-  auto getVectorByUid(uint64_t vector_id) -> std::unique_ptr<VectorRecord>;
+  auto getVectorByUid(uint64_t vector_id) -> std::shared_ptr<const VectorRecord>;
 
-  auto getVectorsByUids(const std::vector<uint64_t> &vector_ids) -> std::vector<std::unique_ptr<VectorRecord>>;
+  auto getVectorsByUids(const std::vector<uint64_t> &vector_ids) -> std::vector<std::shared_ptr<const VectorRecord>>;
 
-  auto topk(const std::unique_ptr<VectorRecord> &record, int k) const -> std::vector<uint64_t>;
+  auto topk(const VectorRecord &record, int k) const -> std::vector<uint64_t>;
 
  private:
+  mutable std::shared_mutex map_mutex_;
   int begin_ = 0;
 };
 }  // namespace candy

@@ -110,4 +110,16 @@ struct Response {
   }
 };
 
+struct UidAndDist {
+  uint64_t uid_;
+  double distance_;
+
+  UidAndDist(uint64_t uid, double distance) : uid_(uid), distance_(distance) {}
+
+  // 重载小于号，以构建一个按 distance 比较的最大堆
+  auto operator<(const UidAndDist& other) const -> bool {
+    return distance_ < other.distance_;
+  }
+};
+
 }  // namespace candy

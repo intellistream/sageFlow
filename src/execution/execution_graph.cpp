@@ -32,8 +32,6 @@ void ExecutionGraph::connectOperators(std::shared_ptr<Operator> upstream,
     // 存储连接关系
     connections_.emplace_back(upstream, downstream, slot);
 
-    // 同时在原有的Operator结构中维护连接关系
-    upstream->addChild(downstream, slot);
 }
 
 void ExecutionGraph::buildGraph() {
@@ -60,9 +58,10 @@ void ExecutionGraph::createVerticesForOperator(std::shared_ptr<Operator> op) {
     }
 }
 
-std::vector<QueuePtr> ExecutionGraph::createQueues(size_t upstream_parallelism,
-                                                   size_t downstream_parallelism,
-                                                   bool is_join_operator) {
+auto ExecutionGraph::createQueues(
+  size_t upstream_parallelism,
+  size_t downstream_parallelism,
+  bool is_join_operator) -> std::vector<QueuePtr> {
     std::vector<QueuePtr> queues;
 
     // 计算需要创建的队列数量
@@ -75,18 +74,15 @@ std::vector<QueuePtr> ExecutionGraph::createQueues(size_t upstream_parallelism,
     for (size_t i = 0; i < queue_count; ++i) {
         QueuePtr queue;
 
-        if (is_join_operator && upstream_parallelism > 1) {
-            // Join算子需要接受多个上游，使用阻塞队列
-            queue = std::make_shared<RingBufferQueue>(blocking_queue_capacity);
-        } else if (upstream_parallelism == 1 && downstream_parallelism == 1) {
-            // 点对点连接，使用无锁环形队列
-            queue = std::make_shared<RingBufferQueue>(ring_buffer_capacity);
+        if (is_join_operator) {
+            // Join算子需要接受多个上游，使用阻塞队列 (若有其他接受多个上游的算子则需要在此添加）
+            queue = std::make_shared<BlockingQueue>(blocking_queue_capacity);
         } else {
             // 其他情况使用环形缓冲队列
             queue = std::make_shared<RingBufferQueue>(ring_buffer_capacity);
         }
 
-        queues.push_back(queue);
+        queues.emplace_back(std::move(queue));
     }
 
     return queues;
@@ -109,8 +105,8 @@ void ExecutionGraph::createConnections() {
 
         // 创建队列
         auto queues = createQueues(upstream_info.parallelism,
-                                  downstream_info.parallelism,
-                                  is_join_operator);
+                               downstream_info.parallelism,
+                                                   is_join_operator);
 
         // 为上游的每个ExecutionVertex配置ResultPartition
         for (size_t i = 0; i < upstream_info.vertices.size(); ++i) {
@@ -132,7 +128,7 @@ void ExecutionGraph::createConnections() {
                 }
             }
 
-            result_partition->setup(std::move(partitioner), output_channels);
+            result_partition->setup(std::move(partitioner), output_channels, slot);
         }
 
         // 为下游的每个ExecutionVertex配置InputGate
@@ -152,7 +148,7 @@ void ExecutionGraph::createConnections() {
                 }
             }
 
-            input_gate->setup(input_queues);
+            input_gate->setup(std::move(input_queues));
         }
     }
 }

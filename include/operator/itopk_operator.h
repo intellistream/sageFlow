@@ -13,7 +13,9 @@ class ITopkOperator final : public Operator {
   explicit ITopkOperator(std::unique_ptr<Function> &func,
                          const std::shared_ptr<ConcurrencyManager> &concurrency_manager);
 
-  auto process(Response &data, int slot) -> bool override;
+  auto process(Response &data, int slot) -> std::optional<Response> override;
+
+  auto apply(Response&& record, int slot, Collector& collector) -> void override;
 
  private:
   auto getRecord() const -> std::unique_ptr<VectorRecord>;

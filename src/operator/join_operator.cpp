@@ -94,51 +94,62 @@ void JoinOperator::open() {
   is_open_ = true;
 }
 
-auto JoinOperator::lazy_process(const int slot) -> bool {
+auto JoinOperator::lazy_process(const int slot) -> std::optional<Response> {
   if (left_records_.empty() || right_records_.empty()) {
-    return false;
+    return std::nullopt;
   }
 
   join_method_->Excute(methods_return_pool_, join_func_, left_records_, right_records_);
   left_records_.clear();
   right_records_.clear();
 
-  return true;
+  // Return the first result if any, or handle multiple results differently
+  if (!methods_return_pool_.empty()) {
+    auto [id, record] = std::move(methods_return_pool_.front());
+    methods_return_pool_.erase(methods_return_pool_.begin());
+    return Response{ResponseType::Record, std::move(record)};
+  }
+  return std::nullopt;
 }
 
-auto JoinOperator::eager_process(const int slot) -> bool {
+auto JoinOperator::eager_process(const int slot) -> std::optional<Response> {
   if (left_records_.empty() && slot == 1) { // Need at least one left record if data comes from right
-    return false;
+    return std::nullopt;
   }
   if (right_records_.empty() && slot == 0) { // Need at least one right record if data comes from left
-      return false;
+      return std::nullopt;
   }
   // Ensure there's a newest record in the arrival slot's list before accessing .back()
-  if (slot == 0 && left_records_.empty()) { return false; }
-  if (slot == 1 && right_records_.empty()) { return false; }
+  if (slot == 0 && left_records_.empty()) { return std::nullopt; }
+  if (slot == 1 && right_records_.empty()) { return std::nullopt; }
   if (slot == 0) {
     join_method_->Excute(methods_return_pool_, join_func_, left_records_.back(), right_records_, slot);
   } else {
     join_method_->Excute(methods_return_pool_, join_func_, right_records_.back(), left_records_, slot);
   }
-  return true;
+
+  // Return the first result if any
+  if (!methods_return_pool_.empty()) {
+    auto [id, record] = std::move(methods_return_pool_.front());
+    methods_return_pool_.erase(methods_return_pool_.begin());
+    return Response{ResponseType::Record, std::move(record)};
+  }
+  return std::nullopt;
 }
 
 void JoinOperator::clear_methods_return_pool() {
-  for (auto &[id, record] : methods_return_pool_) {
-    auto ret = Response{ResponseType::Record, std::move(record)};
-    emit (id, ret);
-  }
+  // Note: This method might need to be redesigned for the new API
+  // For now, we'll clear the pool without emitting
   methods_return_pool_.clear();
 }
 
-auto JoinOperator::process(Response& input_data, int slot) -> bool {
+auto JoinOperator::process(Response& input_data, int slot) -> std::optional<Response> {
     if (!input_data.record_) {
-        return false;
+        return std::nullopt;
     }
-    std::unique_ptr<VectorRecord> data_ptr = std::move(input_data.record_); // Renamed to avoid conflict with lambda capture
+    std::unique_ptr<VectorRecord> data_ptr = std::make_unique<VectorRecord>(*input_data.record_); // Create copy
     uint64_t current_uid = data_ptr->uid_;
-    int64_t nowTimeStamp = data_ptr->timestamp_;
+    int64_t now_time_stamp = data_ptr->timestamp_;
 
     auto update_side = [&](std::list<std::unique_ptr<VectorRecord>>& records, SlidingWindow& window, int index_id_for_cc) -> bool {
         std::unique_ptr<VectorRecord> data_for_cc_insert = nullptr;
@@ -149,12 +160,12 @@ auto JoinOperator::process(Response& input_data, int slot) -> bool {
         records.emplace_back(std::move(data_ptr)); // data_ptr is moved here.
 
         if (using_ivf_ && concurrency_manager_ && data_for_cc_insert && index_id_for_cc != -1) {
-            concurrency_manager_->insert(index_id_for_cc, data_for_cc_insert);
+            concurrency_manager_->insert(index_id_for_cc, std::move(data_for_cc_insert));
         } else if (using_ivf_ && (index_id_for_cc == -1 || !concurrency_manager_)) {
             // Potentially fall back to a non-indexed operation or log an error that data won't be indexed.
         }
 
-        int timelimit = window.windowTimeLimit(nowTimeStamp);
+        int timelimit = window.windowTimeLimit(now_time_stamp);
         while (!records.empty() && records.front()->timestamp_ <= timelimit) {
             uint64_t expired_uid = records.front()->uid_;
             records.pop_front();
@@ -164,7 +175,7 @@ auto JoinOperator::process(Response& input_data, int slot) -> bool {
                 //TODO
             }
         }
-        return window.isNeedTrigger(nowTimeStamp);
+        return window.isNeedTrigger(now_time_stamp);
     };
 
     bool trigger_flag;
@@ -175,10 +186,10 @@ auto JoinOperator::process(Response& input_data, int slot) -> bool {
     }
 
     if (!trigger_flag) {
-        return false;
+        return std::nullopt;
     }
 
-    bool return_flag;
+    std::optional<Response> return_flag;
     if (is_eager_) {
         return_flag = eager_process(slot);
     } else {
@@ -190,5 +201,79 @@ auto JoinOperator::process(Response& input_data, int slot) -> bool {
 }
 
 auto JoinOperator::setMother(std::shared_ptr<Operator> mother) -> void { mother_ = std::move(mother); }
+
+auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+    if (!record.record_) {
+        return;
+    }
+    std::unique_ptr<VectorRecord> data_ptr = std::make_unique<VectorRecord>(*record.record_);
+    uint64_t current_uid = data_ptr->uid_;
+    int64_t now_time_stamp = data_ptr->timestamp_;
+
+    auto update_side = [&](std::list<std::unique_ptr<VectorRecord>>& records, SlidingWindow& window, int index_id_for_cc) -> bool {
+        std::unique_ptr<VectorRecord> data_for_cc_insert = nullptr;
+        if (using_ivf_ && concurrency_manager_ && index_id_for_cc != -1) {
+             data_for_cc_insert = std::make_unique<VectorRecord>(*data_ptr);
+        }
+
+        records.emplace_back(std::move(data_ptr));
+
+        if (using_ivf_ && concurrency_manager_ && data_for_cc_insert && index_id_for_cc != -1) {
+            concurrency_manager_->insert(index_id_for_cc, std::move(data_for_cc_insert));
+        }
+
+        int timelimit = window.windowTimeLimit(now_time_stamp);
+        while (!records.empty() && records.front()->timestamp_ <= timelimit) {
+            uint64_t expired_uid = records.front()->uid_;
+            records.pop_front();
+            if (using_ivf_ && concurrency_manager_ && index_id_for_cc != -1) {
+                concurrency_manager_->erase(index_id_for_cc, expired_uid);
+            }
+        }
+        return window.isNeedTrigger(now_time_stamp);
+    };
+
+    bool trigger_flag;
+    if (slot == 0) {
+        trigger_flag = update_side(left_records_, join_func_->windowL, left_ivf_index_id_);
+    } else {
+        trigger_flag = update_side(right_records_, join_func_->windowR, right_ivf_index_id_);
+    }
+
+    if (!trigger_flag) {
+        return;
+    }
+
+    if (is_eager_) {
+        if (left_records_.empty() && slot == 1) {
+            return;
+        }
+        if (right_records_.empty() && slot == 0) {
+            return;
+        }
+        if (slot == 0 && left_records_.empty()) { return; }
+        if (slot == 1 && right_records_.empty()) { return; }
+
+        if (slot == 0) {
+            join_method_->Excute(methods_return_pool_, join_func_, left_records_.back(), right_records_, slot);
+        } else {
+            join_method_->Excute(methods_return_pool_, join_func_, right_records_.back(), left_records_, slot);
+        }
+    } else {
+        join_method_->Excute(methods_return_pool_, join_func_, left_records_, right_records_);
+        left_records_.clear();
+        right_records_.clear();
+    }
+
+    // 发射所有join结果
+    while (!methods_return_pool_.empty()) {
+        auto [id, now_record] = std::move(methods_return_pool_.front());
+        methods_return_pool_.erase(methods_return_pool_.begin());
+        Response result{ResponseType::Record, std::move(now_record)};
+        collector.collect(std::make_unique<Response>(std::move(result)), slot);
+    }
+
+    clear_methods_return_pool();
+}
 
 } // namespace candy

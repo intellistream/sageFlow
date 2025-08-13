@@ -42,10 +42,10 @@ void IvfEager::Excute(
 
     std::unique_ptr<VectorRecord> query_record_copy = std::make_unique<VectorRecord>(*data);
 
-    std::vector<std::unique_ptr<VectorRecord>> candidates =
-      concurrency_manager_->query_for_join(query_index_id, query_record_copy, join_similarity_threshold_);
+    std::vector<std::shared_ptr<const VectorRecord>> candidates =
+      concurrency_manager_->query_for_join(query_index_id, *query_record_copy, join_similarity_threshold_);
 
-    for (auto &candidate : candidates) {
+    for (const auto &candidate : candidates) {
         if (candidate) {
             auto data_copy_for_join = std::make_unique<VectorRecord>(*data);
             auto candidate_copy_for_join = std::make_unique<VectorRecord>(*candidate);
@@ -75,4 +75,3 @@ void IvfEager::Excute(
 }
 
 } // namespace candy
-

@@ -31,9 +31,9 @@ void IvfLazy::Excute(
 
         auto query_record_copy = std::make_unique<VectorRecord>(*left_record_ptr_ref);
         auto candidates =
-          concurrency_manager_->query_for_join(query_index_id, query_record_copy, join_similarity_threshold_);
+          concurrency_manager_->query_for_join(query_index_id, *query_record_copy, join_similarity_threshold_);
 
-        for (auto &candidate : candidates) {
+        for (const auto &candidate : candidates) {
             if (candidate) {
                 bool found_in_window = true;
                 // for (const auto& right_record_in_window : right_records) {
@@ -73,4 +73,3 @@ void IvfLazy::Excute(
 }
 
 } // namespace candy
-

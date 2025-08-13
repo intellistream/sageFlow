@@ -3,6 +3,10 @@
 //
 
 #include "execution/execution_vertex.h"
+#include "execution/collector.h"
+#include "operator/operator_api.h"
+#include "spdlog/spdlog.h"
+#include <spdlog/fmt/fmt.h>
 
 namespace candy {
 
@@ -32,7 +36,7 @@ void ExecutionVertex::stop() {
   running_ = false;
 }
 
-void ExecutionVertex::join() {
+void ExecutionVertex::join() const {
   if (thread_ && thread_->joinable()) {
     thread_->join();
   }
@@ -41,26 +45,34 @@ void ExecutionVertex::join() {
 void ExecutionVertex::run() {
   std::cout << name_ << " started on thread " << std::this_thread::get_id() << std::endl;
 
+  auto source_op = dynamic_cast<OutputOperator*>(operator_.get());
   try {
     // 打开算子
     operator_->open();
-
-    while (running_) {
-      // 从输入门读取上游数据
-      std::optional<Response> data_opt = input_gate_->read();
-      if (!data_opt) {
-        // 队列停止且为空，或者没有可用数据
-        std::this_thread::sleep_for(std::chrono::microseconds(100));
-        continue;
+    // 创建collector，将emit操作注册到collector中
+    Collector collector([this](std::unique_ptr<Response> response, int slot) {
+      if (response) {
+        result_partition_->emit(std::move(*response), slot);
       }
+    });
+    collector.set_slot_size(result_partition_->get_slot_size());
 
-      // 调用算子处理逻辑
-      Response data = std::move(*data_opt);
-      bool processed = operator_->process(data, 0); // slot默认为0
+    if (source_op != nullptr) [[unlikely]] {
+      // 如果是OutputOperator，直接从数据源读取数据
+      source_op->run(collector);
+    } else {
+      while (running_) {
+        // 从输入门读取上游数据
+        std::optional<TaggedResponse> data_opt = input_gate_->read();
+        if (!data_opt) {
+          // 队列停止且为空，或者没有可用数据
+          std::this_thread::sleep_for(std::chrono::microseconds(100));
+          continue;
+        }
 
-      if (processed) {
-        // 通过输出分区将结果发射给下游
-        result_partition_->emit(std::move(data));
+        // 调用算子的apply方法处理逻辑
+        Response data = std::move(data_opt->response);
+        operator_->apply(std::move(data), data_opt->slot, collector);
       }
     }
   } catch (const std::exception& e) {
