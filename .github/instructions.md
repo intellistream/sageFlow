@@ -12,7 +12,6 @@ CandyFlow 是一个用 C++17 编写的高性能、多线程流处理引擎。它
 *   **构建系统**: CMake
 *   **操作系统**: 跨平台，但当前主要在 Windows 上开发
 *   **核心依赖**:
-    *   `spdlog` 用于日志记录
     *   `gtest` 用于单元测试和集成测试
 *   **并发模型**: 基于 `std::thread`、`std::mutex`、`std::atomic` 和自定义队列的线程池/Actor 模型。
 

@@ -11,10 +11,8 @@ add_lib(
         itopk_operator.cpp
         aggregate_operator.cpp
         join_operator_methods/base_method.cpp
-        join_operator_methods/eager/ivf.cpp
-        join_operator_methods/eager/bruteforce.cpp
-        join_operator_methods/lazy/bruteforce.cpp
-        join_operator_methods/lazy/ivf.cpp
+        join_operator_methods/bruteforce.cpp
+        join_operator_methods/ivf.cpp
 )
 target_link_libraries(
         operator

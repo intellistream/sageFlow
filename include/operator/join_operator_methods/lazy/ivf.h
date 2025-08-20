@@ -29,6 +29,15 @@ public:
               std::list<std::unique_ptr<VectorRecord>> &records,
               int slot) override;
 
+  // 新的优化接口
+  std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+      const VectorRecord& query_record,
+      int slot) override;
+
+  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
+      const std::list<std::unique_ptr<VectorRecord>>& query_records,
+      int query_slot) override;
+
 private:
   int left_ivf_index_id_;
   int right_ivf_index_id_;
@@ -36,4 +45,3 @@ private:
 };
 
 } // namespace candy
-

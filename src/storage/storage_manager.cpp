@@ -17,19 +17,19 @@ auto candy::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> void
   map_.emplace(uid, idx);
 }
 
-auto candy::StorageManager::insert(std::shared_ptr<VectorRecord> record) -> void {
-  if (record == nullptr) {
-    throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
-  }
-  std::unique_lock<std::shared_mutex> lock(map_mutex_);
-  const auto uid = record->uid_;
-  if (map_.contains(uid)) {
-    return; // UID 已存在
-  }
-  const auto idx = static_cast<int32_t>(records_.size());
-  records_.push_back(std::move(record));
-  map_.emplace(uid, idx);
-}
+// auto candy::StorageManager::insert(std::shared_ptr<VectorRecord> record) -> void {
+//   if (record == nullptr) {
+//     throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
+//   }
+//   std::unique_lock<std::shared_mutex> lock(map_mutex_);
+//   const auto uid = record->uid_;
+//   if (map_.contains(uid)) {
+//     return; // UID 已存在
+//   }
+//   const auto idx = static_cast<int32_t>(records_.size());
+//   records_.push_back(std::move(record));
+//   map_.emplace(uid, idx);
+// }
 
 auto candy::StorageManager::erase(const uint64_t vector_id) -> bool {
   std::unique_lock<std::shared_mutex> lock(map_mutex_);
@@ -138,5 +138,32 @@ auto candy::StorageManager::topk(const VectorRecord& record, int k) const -> std
   // 优先队列得到的是从远到近的顺序，我们需要将其反转
   std::ranges::reverse(final_ids);
 
+  return final_ids;
+}
+
+auto candy::StorageManager::similarityJoinQuery(const VectorRecord &record, double join_similarity_threshold) const -> std::vector<uint64_t> {
+  if (engine_ == nullptr) {
+    throw std::runtime_error("StorageManager::similarityJoinQuery: Compute engine is not set.");
+  }
+  std::vector<uint64_t> final_ids;
+  {
+    // 步骤 1: 加共享锁，允许多个线程并发执行 similarityJoinQuery
+    std::shared_lock<std::shared_mutex> lock(map_mutex_);
+
+    // 步骤 2: 遍历存储中的所有向量
+    for (const auto& stored_record_sptr : records_) {
+      if (!stored_record_sptr) {
+        continue;
+      }
+
+      // 计算相似度
+      double similarity = engine_->Similarity(record.data_, stored_record_sptr->data_);
+
+      // 步骤 3: 如果相似度满足条件，则添加到结果中
+      if (similarity >= join_similarity_threshold) {
+        final_ids.push_back(stored_record_sptr->uid_);
+      }
+    }
+  }
   return final_ids;
 }

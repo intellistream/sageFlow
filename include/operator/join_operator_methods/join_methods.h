@@ -1,5 +1,3 @@
-#include "operator/join_operator_methods/eager/bruteforce.h"
-#include "operator/join_operator_methods/lazy/bruteforce.h"
-#include "operator/join_operator_methods/lazy/ivf.h"
-#include "operator/join_operator_methods/eager/ivf.h"
+#include "operator/join_operator_methods/bruteforce.h"
+#include "operator/join_operator_methods/ivf.h"
 #include "operator/join_operator_methods/base_method.h"

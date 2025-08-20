@@ -10,6 +10,7 @@ candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int dim)
 candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t time_window, int dim)
     : Function(std::move(name), FunctionType::Join), 
     windowL (time_window, time_window / 4), windowR(time_window, time_window / 4),
+    threadSafeWindowL(time_window, time_window / 4), threadSafeWindowR(time_window, time_window / 4),
     join_func_(std::move(join_func)), dim_(dim) {}
 
 auto candy::JoinFunction::Execute(Response& left, Response& right) -> Response {
@@ -35,4 +36,6 @@ auto candy::JoinFunction::setOtherStream(std::shared_ptr<Stream> other_plan) -> 
 auto candy::JoinFunction::setWindow(int64_t windowsize, int64_t stepsize) -> void { 
   windowL.setWindow(windowsize, stepsize);
   windowR.setWindow(windowsize, stepsize);
+  threadSafeWindowL.setWindow(windowsize, stepsize);
+  threadSafeWindowR.setWindow(windowsize, stepsize);
 }

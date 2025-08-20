@@ -30,7 +30,7 @@ class StorageManager {
 
   auto insert(std::unique_ptr<VectorRecord> record) -> void;
 
-  auto insert(std::shared_ptr<VectorRecord> record) -> void;
+  // auto insert(std::shared_ptr<VectorRecord> record) -> void;
 
   auto erase(uint64_t vector_id) -> bool;
 
@@ -39,6 +39,8 @@ class StorageManager {
   auto getVectorsByUids(const std::vector<uint64_t> &vector_ids) -> std::vector<std::shared_ptr<const VectorRecord>>;
 
   auto topk(const VectorRecord &record, int k) const -> std::vector<uint64_t>;
+
+  auto similarityJoinQuery(const VectorRecord &record, double join_similarity_threshold) const -> std::vector<uint64_t>;
 
  private:
   mutable std::shared_mutex map_mutex_;
