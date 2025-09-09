@@ -43,7 +43,7 @@ public:
      * 这会唤醒所有正在等待的生产者和消费者线程，
      * 并使后续的 push 调用立即返回，pop 调用在队列为空后返回 std::nullopt。
      */
-    void stop() ;
+    void stop() override;
 
 private:
     std::queue<TaggedResponse> queue_;

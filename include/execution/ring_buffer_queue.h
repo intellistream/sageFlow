@@ -23,6 +23,8 @@ public:
 
   std::optional<TaggedResponse> pop() override;
 
+  void stop() override {}
+
 private:
   std::vector<TaggedResponse> buffer_;
 

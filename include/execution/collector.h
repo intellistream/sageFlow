@@ -19,8 +19,15 @@ public:
   void collect(std::unique_ptr<Response> record, int slot) const {
     if (emitter_) {
       if (slot == -1) [[unlikely]] { // 如果 slot 为 -1，表示需要广播到所有槽
-        for (int i = 0; i < slot_size_; ++i) {
-          emitter_(std::make_unique<Response>(*record), i);
+        if (!slots_.empty()) {
+          for (int s : slots_) {
+            emitter_(std::make_unique<Response>(*record), s);
+          }
+        } else {
+          // 兼容旧逻辑：以 [0, slot_size_) 广播
+          for (int i = 0; i < slot_size_; ++i) {
+            emitter_(std::make_unique<Response>(*record), i);
+          }
         }
       } else {
         emitter_(std::move(record), slot);
@@ -34,9 +41,15 @@ public:
     }
   }
 
+  // 注入该顶点真实可用的 slot 键（非必须从 0 开始）
+  void set_slots(std::vector<int> slots) {
+    slots_ = std::move(slots);
+  }
+
 private:
   std::function<void(std::unique_ptr<Response>, int)> emitter_;
   int slot_size_ = 1;
+  std::vector<int> slots_;
 };
 
 } // namespace candy

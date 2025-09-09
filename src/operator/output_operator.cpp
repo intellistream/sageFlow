@@ -62,7 +62,8 @@ auto candy::OutputOperator::run(Collector& collector) -> void {
   std::unique_ptr<VectorRecord> record = nullptr;
   while (stream_ && (record = stream_->Next())) {
     auto resp = Response{ResponseType::Record, std::move(record)};
-    apply(std::move(resp), 0, collector);
+  // 使用广播到当前顶点配置的所有 slot，避免硬编码 slot=0
+  apply(std::move(resp), -1, collector);
   }
 }
 

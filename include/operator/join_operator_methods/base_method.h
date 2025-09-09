@@ -1,5 +1,6 @@
 #pragma once
 #include <list>
+#include <deque>
 #include <vector>
 #include <unordered_set>
 
@@ -32,9 +33,9 @@ class BaseMethod {
        const VectorRecord& query_record,
        int query_slot) = 0;
 
-   // 新的优化接口：Lazy模式 - 传递一批查询记录，返回所有候选结果
+   // 新的优化接口：Lazy模式 - 传递一批查询记录，返回所有候选结果 (容器改为 deque)
    virtual std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-       const std::list<std::unique_ptr<VectorRecord>>& query_records,
+       const std::deque<std::unique_ptr<VectorRecord>>& query_records,
        int query_slot) = 0;
 
    virtual void Excute(std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,

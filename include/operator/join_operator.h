@@ -1,7 +1,7 @@
 #pragma once
 
 #include <functional>
-#include <list>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -32,15 +32,21 @@ namespace candy {
 
     auto eager_process(int slot) -> std::optional<Response>;
 
+        // 设置左右两侧的 slot id（由 Planner 动态分配并注入）
+        void setSlots(int left_slot_id, int right_slot_id) {
+            left_slot_id_ = left_slot_id;
+            right_slot_id_ = right_slot_id;
+        }
+
    private:
     enum class InternalIndexKind { NONE, IVF, BRUTEFORCE, VAMANA };  // 可扩展
 
     void initializeIVFIndexes(int nlist, double rebuild_threshold, int nprobes); // 保留现有接口（暂未用到额外参数）
     bool createIndexPair(IndexType type, const std::string& prefix);
 
-    // 线程安全的窗口更新方法
+    // 线程安全的窗口更新方法（容器改为 deque）
     auto updateSideThreadSafe(
-        std::list<std::unique_ptr<VectorRecord>>& records,
+        std::deque<std::unique_ptr<VectorRecord>>& records,
         std::shared_mutex& records_mutex,
         int index_id_for_cc,
         std::unique_ptr<VectorRecord>& data_ptr,
@@ -51,10 +57,10 @@ namespace candy {
     std::vector<std::unique_ptr<VectorRecord>> getCandidates(
         const std::unique_ptr<VectorRecord>& data_ptr, int slot);
 
-    // 验证候选项是否在指定窗口中的辅助方法
+    // 验证候选项是否在指定窗口中的辅助方法（容器改为 deque）
     bool validateCandidateInWindow(
         const std::unique_ptr<VectorRecord>& candidate,
-        const std::list<std::unique_ptr<VectorRecord>>& window_records);
+        const std::deque<std::unique_ptr<VectorRecord>>& window_records);
 
     // 执行join操作的辅助方法
     void executeJoinForCandidates(
@@ -73,9 +79,9 @@ namespace candy {
     std::shared_ptr<Operator> mother_;
     std::unique_ptr<BaseMethod> join_method_;
 
-    // 窗口记录
-    std::list<std::unique_ptr<VectorRecord>> left_records_;
-    std::list<std::unique_ptr<VectorRecord>> right_records_;
+    // 窗口记录（容器由 list 改为 deque）
+    std::deque<std::unique_ptr<VectorRecord>> left_records_;
+    std::deque<std::unique_ptr<VectorRecord>> right_records_;
     mutable std::shared_mutex left_records_mutex_;
     mutable std::shared_mutex right_records_mutex_;
 
@@ -88,5 +94,9 @@ namespace candy {
     bool use_index_ = false;          // 是否使用底层索引（IVF / BruteForce / 未来扩展）
     bool is_eager_ = false;           // eager / lazy 模式
     double join_similarity_threshold_ = 0.8;
+
+    // 由 Planner 注入的左右侧 slot id，用于区分左右输入与默认下游 slot
+    int left_slot_id_ = 0;
+    int right_slot_id_ = 1;
   };
   }  // namespace candy

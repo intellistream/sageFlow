@@ -1,5 +1,6 @@
 #include "operator/join_operator_methods/lazy/ivf.h"
 #include <vector> // Required for std::vector
+#include <deque>
 
 namespace candy {
 
@@ -112,7 +113,7 @@ std::vector<std::unique_ptr<VectorRecord>> IvfLazy::ExecuteEager(
 }
 
 std::vector<std::unique_ptr<VectorRecord>> IvfLazy::ExecuteLazy(
-    const std::list<std::unique_ptr<VectorRecord>>& query_records,
+    const std::deque<std::unique_ptr<VectorRecord>>& query_records,
     int query_slot) {
     if (!concurrency_manager_) {
         return std::vector<std::unique_ptr<VectorRecord>>();
@@ -132,7 +133,6 @@ std::vector<std::unique_ptr<VectorRecord>> IvfLazy::ExecuteLazy(
         std::vector<std::shared_ptr<const VectorRecord>> candidates =
             concurrency_manager_->query_for_join(query_index_id, *query_record, join_similarity_threshold_);
 
-        // 将候选项添加到结果中
         for (const auto& candidate : candidates) {
             if (candidate) {
                 all_results.emplace_back(std::make_unique<VectorRecord>(*candidate));

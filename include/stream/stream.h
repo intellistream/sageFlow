@@ -32,6 +32,17 @@ class Stream {
   // Join with another stream with parallelism
   auto join(std::shared_ptr<Stream>& other_plan, std::unique_ptr<JoinFunction>& join_func, size_t parallelism = 1) -> std::shared_ptr<Stream>;
   auto join(std::shared_ptr<Stream> other_stream, std::unique_ptr<JoinFunction> join_func, size_t parallelism = 1) -> std::shared_ptr<Stream>;
+  // Join overloads with method and similarity threshold configured at definition time
+  auto join(std::shared_ptr<Stream>& other_plan,
+            std::unique_ptr<JoinFunction>& join_func,
+            const std::string& join_method,
+            double similarity_threshold,
+            size_t parallelism = 1) -> std::shared_ptr<Stream>;
+  auto join(std::shared_ptr<Stream> other_stream,
+            std::unique_ptr<JoinFunction> join_func,
+            const std::string& join_method,
+            double similarity_threshold,
+            size_t parallelism = 1) -> std::shared_ptr<Stream>;
 
   // Window operations with parallelism
   auto window(std::unique_ptr<Function>& window_func, size_t parallelism = 1) -> std::shared_ptr<Stream>;
@@ -62,7 +73,21 @@ class Stream {
   std::unique_ptr<Function> function_ = nullptr;
   std::vector<std::shared_ptr<Stream>> streams_;
 
+  // 由 StreamEnvironment 预先分配的 slotId（同一源支路内保持一致）
+  void setSlotId(int slot) { slot_id_ = slot; }
+  int getSlotId() const { return slot_id_; }
+
+  // Join 配置（仅当 function_ 为 Join 时有效）；提供默认值并允许在链式 API 中覆盖
+  void setJoinMethod(const std::string& method) { join_method_ = method; }
+  void setJoinSimilarityThreshold(double threshold) { join_similarity_threshold_ = threshold; }
+  const std::string& getJoinMethod() const { return join_method_; }
+  double getJoinSimilarityThreshold() const { return join_similarity_threshold_; }
+
  private:
   size_t parallelism_;
+  int slot_id_ = -1;
+  // 默认 Join 参数（当该 Stream 表示 Join 节点时使用）
+  std::string join_method_ = "bruteforce_lazy";
+  double join_similarity_threshold_ = 0.8;
 };
 }  // namespace candy

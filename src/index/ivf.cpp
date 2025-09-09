@@ -8,8 +8,32 @@
 #include <unordered_set>
 #include <mutex>
 #include <shared_mutex>
+#include <numeric>
+#include <chrono>
+
+#include "utils/logger.h"
 
 namespace candy {
+
+void Ivf::debugDumpStateUnlocked() {
+  // 调用方需已持有 global_mutex_ 锁
+  size_t total_in_lists = 0;
+  for (auto &kv : inverted_lists_) total_in_lists += kv.second.size();
+  CANDY_LOG_WARN("INDEX", "DEBUG_DUMP size_={} total_in_lists={} deleted_uids={} nlists={} attempts={} success={} missing={} miss_in_storage={} miss_not_in_storage={} underflow={} ",
+                 size_.load(), total_in_lists, deleted_uids_.size(), inverted_lists_.size(),
+                 erase_attempts_.load(), erase_success_.load(), erase_missing_.load(),
+                 erase_missing_in_storage_.load(), erase_missing_not_in_storage_.load(), erase_underflow_.load());
+  // 采样输出前几个非空列表的部分内容
+  int printed = 0;
+  for (auto &kv : inverted_lists_) {
+    if (kv.second.empty()) continue;
+    std::string sample;
+    size_t limit = std::min<size_t>(kv.second.size(), 5);
+    for (size_t i = 0; i < limit; ++i) { sample += std::to_string(kv.second[i]); sample.push_back(','); }
+    CANDY_LOG_INFO("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
+    if (++printed >= 5) break;
+  }
+}
 
 Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes)
     : nlist_(nlist),
@@ -18,7 +42,12 @@ Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes)
       list_mutexes_(nlist) {
     // Initialize empty centroids and inverted lists
     centroids_.clear();
-    inverted_lists_.reserve(nlist);
+    try {
+      inverted_lists_.reserve(nlist);
+    } catch (const std::exception& e) {
+      CANDY_LOG_ERROR("INDEX", "Ivf ctor reserve inverted_lists nlist={} error={} ", nlist, e.what());
+      throw; // 继续抛出维持原有语义
+    }
 }
 
 Ivf::~Ivf() = default;
@@ -94,8 +123,20 @@ void Ivf::rebuildClustersInternal() {
   // =======================================================================
   std::vector<uint64_t> all_uids_in_index;
   // 预估一个大小以减少内存重分配
-  all_uids_in_index.reserve(size_.load(std::memory_order_relaxed) + deleted_uids_.size());
-
+  try {
+    int logical_size = size_.load(std::memory_order_relaxed);
+    if (logical_size < 0) {
+      CANDY_LOG_ERROR("INDEX", "size_ negative={} forcing to 0 before reserve (possible erase of non-existent id)", logical_size);
+      logical_size = 0; // 防止转换为 size_t 后变成巨大值
+    }
+    size_t target = static_cast<size_t>(logical_size) + deleted_uids_.size();
+    all_uids_in_index.reserve(target);
+  } catch (const std::exception& e) {
+    CANDY_LOG_ERROR("INDEX", "reserve all_uids_in_index target_size={} error={} ",
+                    size_.load(std::memory_order_relaxed) + deleted_uids_.size(), e.what());
+    throw;
+  }
+ 
   for (const auto& pair : inverted_lists_) {
     const auto& uids_in_list = pair.second;
     all_uids_in_index.insert(all_uids_in_index.end(), uids_in_list.begin(), uids_in_list.end());
@@ -104,11 +145,16 @@ void Ivf::rebuildClustersInternal() {
   // 步骤 2: 过滤软删除的向量，并从全局存储中获取“存活”的向量数据
   // =======================================================================
   std::vector<std::shared_ptr<const VectorRecord>> live_records;
-  live_records.reserve(all_uids_in_index.size());
+  try {
+    live_records.reserve(all_uids_in_index.size());
+  } catch (const std::exception& e) {
+    CANDY_LOG_ERROR("INDEX", "reserve live_records target_size={} error={} ", all_uids_in_index.size(), e.what());
+    throw;
+  }
 
   for (const uint64_t uid : all_uids_in_index) {
     // 关键：检查该向量是否在软删除集合中
-    if (deleted_uids_.contains(uid)) {
+  if (deleted_uids_.find(uid) != deleted_uids_.end()) {
       continue;
     }
 
@@ -135,7 +181,12 @@ void Ivf::rebuildClustersInternal() {
   // 步骤 3: K-Means++ 初始化质心
   // =======================================================================
   centroids_.clear();
-  centroids_.reserve(actual_clusters);
+  try {
+    centroids_.reserve(actual_clusters);
+  } catch (const std::exception& e) {
+    CANDY_LOG_ERROR("INDEX", "reserve centroids actual_clusters={} error={} ", actual_clusters, e.what());
+    throw;
+  }
 
   std::random_device rd;
   std::mt19937 gen(rd());
@@ -198,7 +249,12 @@ void Ivf::rebuildClustersInternal() {
     // --- 更新步骤 (Update Step) ---
     // 1. 准备新的质心存储和簇大小计数器
     std::vector<VectorData> new_centroids;
-    new_centroids.reserve(actual_clusters);
+    try {
+      new_centroids.reserve(actual_clusters);
+    } catch (const std::exception& e) {
+      CANDY_LOG_ERROR("INDEX", "reserve new_centroids actual_clusters={} error={} ", actual_clusters, e.what());
+      throw;
+    }
     for(int i = 0; i < actual_clusters; ++i) {
       new_centroids.emplace_back(dim, type); // 创建并用0初始化
     }
@@ -244,6 +300,14 @@ void Ivf::rebuildClustersInternal() {
   }
 
   vectors_since_last_rebuild_.store(0);
+  // 诊断：重建后验证 size_ 与实际元素数量是否一致
+  size_t actual_total = 0;
+  for (auto &kv : inverted_lists_) actual_total += kv.second.size();
+  int logical_size = size_.load(std::memory_order_relaxed);
+  if (logical_size < 0 || static_cast<size_t>(logical_size) != actual_total) {
+    CANDY_LOG_WARN("INDEX", "post-rebuild size mismatch logical={} actual={} deleted_uids={} vectors_since_last_rebuild={} ",
+                   logical_size, actual_total, deleted_uids_.size(), vectors_since_last_rebuild_.load());
+  }
 }
 
 auto Ivf::insert(uint64_t id) -> bool {
@@ -281,11 +345,51 @@ auto Ivf::erase(uint64_t id) -> bool {
   std::unique_lock<std::shared_mutex> lock(global_mutex_);
   rebuild_cv_.wait(lock, [this]{ return !is_rebuilding_.load(); });
 
-  if (deleted_uids_.contains(id)) {
+  erase_attempts_.fetch_add(1, std::memory_order_relaxed);
+
+  if (deleted_uids_.find(id) != deleted_uids_.end()) {
+    erase_missing_.fetch_add(1, std::memory_order_relaxed); // 已标记删除再来一次
+    return false; // 已经软删除
+  }
+
+  // 确认此向量确实存在：检查 inverted_lists_ 中是否出现
+  bool found_in_lists = false;
+  for (auto &kv : inverted_lists_) {
+    auto &vec = kv.second;
+    if (std::find(vec.begin(), vec.end(), id) != vec.end()) { found_in_lists = true; break; }
+  }
+  if (!found_in_lists) {
+    // 判断是否仍在 storage 中存在
+    bool in_storage = storage_manager_ && storage_manager_->getVectorByUid(id) != nullptr;
+    erase_missing_.fetch_add(1, std::memory_order_relaxed);
+    if (in_storage) {
+      erase_missing_in_storage_.fetch_add(1, std::memory_order_relaxed);
+    } else {
+      erase_missing_not_in_storage_.fetch_add(1, std::memory_order_relaxed);
+    }
+    long long detail_seq = erase_detailed_logs_.fetch_add(1) + 1;
+    if (detail_seq <= 50 || detail_seq % 1000 == 0) {
+      CANDY_LOG_WARN("INDEX", "erase id={} not found lists size_={} in_storage={} attempts={} missing={} miss_in_storage={} miss_not_storage={} success={} underflow={} ",
+                     id, size_.load(), in_storage, erase_attempts_.load(), erase_missing_.load(),
+                     erase_missing_in_storage_.load(), erase_missing_not_in_storage_.load(),
+                     erase_success_.load(), erase_underflow_.load());
+      if (detail_seq <= 10 || detail_seq % 5000 == 0) {
+        debugDumpStateUnlocked();
+      }
+    }
     return false;
   }
+
   deleted_uids_.insert(id);
-  size_.fetch_sub(1, std::memory_order_relaxed);
+  int before = size_.fetch_sub(1, std::memory_order_relaxed);
+  if (before <= 0) {
+    size_.store(0, std::memory_order_relaxed);
+    erase_underflow_.fetch_add(1, std::memory_order_relaxed);
+    CANDY_LOG_ERROR("INDEX", "size_ underflow detected (before={}) while erasing id={} -> corrected=0 attempts={} missing={} success={} underflow={} ",
+                    before, id, erase_attempts_.load(), erase_missing_.load(), erase_success_.load(), erase_underflow_.load());
+    return false;
+  }
+  erase_success_.fetch_add(1, std::memory_order_relaxed);
   return true;
 }
 
@@ -326,10 +430,10 @@ auto Ivf::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
         closest_probes_pq.pop();
         std::shared_lock<std::shared_mutex> list_lock(list_mutexes_[cluster_idx]);
 
-        if (inverted_lists_.contains(cluster_idx)) {
+  if (inverted_lists_.find(cluster_idx) != inverted_lists_.end()) {
             const auto& candidate_ids = inverted_lists_.at(cluster_idx);
             for (const auto& id_val : candidate_ids) {
-                if (local_deleted_uids.contains(id_val)) {
+                if (local_deleted_uids.find(id_val) != local_deleted_uids.end()) {
                     continue; // 跳过被软删除的向量
                 }
 
@@ -350,14 +454,19 @@ auto Ivf::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
 
     // 步骤 3: 从优先队列中提取结果并返回
     std::vector<uint64_t> final_ids;
-    final_ids.reserve(top_k_results.size());
+      try {
+        final_ids.reserve(top_k_results.size());
+      } catch (const std::exception& e) {
+        CANDY_LOG_ERROR("INDEX", "reserve final_ids size_hint={} error={} ", top_k_results.size(), e.what());
+        throw;
+      }
     while (!top_k_results.empty()) {
         final_ids.push_back(top_k_results.top().uid_);
         top_k_results.pop();
     }
 
     // 优先队列得到的是从远到近的顺序，通常我们需要从近到远返回
-    std::ranges::reverse(final_ids);
+  std::reverse(final_ids.begin(), final_ids.end());
 
     return final_ids;
 }
@@ -388,10 +497,10 @@ auto Ivf::query_for_join(const VectorRecord &record, double join_similarity_thre
     auto cluster_idx = probe_indices.top().second;
     probe_indices.pop();
     std::shared_lock<std::shared_mutex> list_lock(list_mutexes_[cluster_idx]);
-    if (inverted_lists_.contains(cluster_idx)) {
+  if (inverted_lists_.find(cluster_idx) != inverted_lists_.end()) {
       const auto& candidate_ids = inverted_lists_.at(cluster_idx);
       for (const auto& id_val : candidate_ids) {
-        if (local_deleted_uids.contains(id_val)) {
+  if (local_deleted_uids.find(id_val) != local_deleted_uids.end()) {
           continue;
         }
         if (auto candidate = storage_manager_->getVectorByUid(id_val)) {

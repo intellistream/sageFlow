@@ -64,7 +64,8 @@ struct VectorRecord {
   bool Serialize(std::ostream &out) const;
   bool Deserialize(std::istream &in);
 };
-enum class ResponseType { None, Record, List };  // NOLINT
+// 扩展 ResponseType：增加 Exit 与 EOFMarker 用于流水线优雅关闭
+enum class ResponseType { None, Record, List, Exit, EOFMarker };  // NOLINT
 
 struct Response {
   ResponseType type_;

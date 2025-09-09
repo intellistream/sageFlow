@@ -37,6 +37,17 @@ public:
   std::atomic<int> size_{0};
   std::atomic<bool> is_rebuilding_{false};
 
+  // Debug / diagnostics counters for erase issues
+  std::atomic<long long> erase_attempts_{0};
+  std::atomic<long long> erase_success_{0};
+  std::atomic<long long> erase_missing_{0};
+  std::atomic<long long> erase_underflow_{0};
+  std::atomic<long long> erase_missing_not_in_storage_{0};
+  std::atomic<long long> erase_missing_in_storage_{0};
+  std::atomic<long long> erase_detailed_logs_{0};
+
+  void debugDumpStateUnlocked();
+
   // === 并发控制与数据结构 ===
   mutable std::shared_mutex global_mutex_;          // 全局锁
   std::vector<std::shared_mutex> list_mutexes_;     // 每个倒排列表一把锁

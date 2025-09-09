@@ -14,6 +14,11 @@
 #include <unordered_map>
 #include <iostream>
 #include <fstream>
+#include "utils/logger.h"
+
+#ifdef CANDY_ENABLE_METRICS
+#include "operator/join_metrics.h"
+#endif
 
 using namespace candy;
 using namespace std;
@@ -24,7 +29,7 @@ TEST(WindowTest, TumblingWindowPipeline) {
 
     // Create a simple stream source
     auto input_path = "./data/siftsmall/siftsmall_query.fvecs";
-    cout << "Using SimpleStream (as workaround for Simple) reading from: " << input_path << endl;
+    CANDY_LOG_INFO("TEST", "Using SimpleStream path={} ", input_path);
 
     auto source_stream = make_shared<SiftStreamSource>("FilePerfSource", input_path);
     // Atomic counter for processed records
@@ -44,7 +49,7 @@ TEST(WindowTest, TumblingWindowPipeline) {
             auto end_time = high_resolution_clock::now();
             processed_count.fetch_add(1, memory_order_relaxed);
             lock_guard<mutex> lock(data_mutex);
-            std::cout<<"GET:"<<record->uid_<<std::endl;
+            CANDY_LOG_INFO("TEST", "GET uid={} ", record->uid_);
             auto it = start_times.find(record->uid_);
             if (it != start_times.end()) {
                 auto start_time = it->second;
@@ -80,7 +85,7 @@ TEST(WindowTest, SlidingWindowPipeline) {
 
     // Create a simple stream source    
     auto input_path = "./data/siftsmall/siftsmall_query.fvecs";
-    cout << "Using SimpleStream (as workaround for Simple) reading from: " << input_path << endl;
+    CANDY_LOG_INFO("TEST", "Using SimpleStream path={} ", input_path);
 
     auto source_stream = make_shared<SiftStreamSource>("FilePerfSource", input_path);
     // Atomic counter for processed records
@@ -101,7 +106,7 @@ TEST(WindowTest, SlidingWindowPipeline) {
             processed_count.fetch_add(1, memory_order_relaxed);
 
             lock_guard<mutex> lock(data_mutex);
-            std::cout<<"GET:"<<record->uid_<<std::endl;
+            CANDY_LOG_INFO("TEST", "GET uid={} ", record->uid_);
 
             auto it = start_times.find(record->uid_);
             if (it != start_times.end()) {

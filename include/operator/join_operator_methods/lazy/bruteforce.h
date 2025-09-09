@@ -1,3 +1,4 @@
+#include <deque>
 #include <list>
 #include <vector>
 
@@ -34,7 +35,7 @@ class BruteForceLazy final : public BaseMethod {
         int slot) override;
 
     std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-        const std::list<std::unique_ptr<VectorRecord>>& query_records,
+        const std::deque<std::unique_ptr<VectorRecord>>& query_records,
         int query_slot) override;
 
  private:

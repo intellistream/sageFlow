@@ -1,0 +1,80 @@
+# Join方法测试用例配置
+
+# 基础测试用例
+[[test_case]]
+name = "basic_small_dataset"
+method = "bruteforce_lazy"
+similarity_threshold = 0.8
+vector_dim = 64
+records_count = 100
+window_time_ms = 30000
+positive_pairs = 20
+negative_pairs = 60
+seed = 42
+
+[[test_case]]
+name = "threshold_boundary_exact"
+method = "ivf_eager"
+similarity_threshold = 0.85
+vector_dim = 128
+records_count = 200
+window_time_ms = 45000
+positive_pairs = 30
+near_threshold_pairs = 20
+negative_pairs = 100
+seed = 123
+
+[[test_case]]
+name = "large_scale_test"
+method = "bruteforce_eager"
+similarity_threshold = 0.75
+vector_dim = 256
+records_count = 10000
+window_time_ms = 120000
+positive_pairs = 2000
+negative_pairs = 6000
+random_tail = 2000
+seed = 456
+
+[[test_case]]
+name = "ivf_vs_bruteforce_consistency"
+method = "ivf_lazy"
+similarity_threshold = 0.9
+vector_dim = 128
+records_count = 1000
+window_time_ms = 60000
+positive_pairs = 200
+negative_pairs = 600
+random_tail = 200
+seed = 789
+
+# 性能测试用例
+[[performance_test]]
+name = "scaling_test_1k"
+methods = ["bruteforce_eager", "bruteforce_lazy", "ivf_eager", "ivf_lazy"]
+similarity_threshold = 0.8
+vector_dim = 128
+records_count = 1000
+parallelism = [1, 2, 4]
+window_time_ms = 60000
+seed = 100
+
+[[performance_test]]
+name = "scaling_test_10k"
+methods = ["bruteforce_eager", "bruteforce_lazy", "ivf_eager", "ivf_lazy"]
+similarity_threshold = 0.8
+vector_dim = 128
+records_count = 10000
+parallelism = [1, 2, 4, 8]
+window_time_ms = 120000
+seed = 200
+
+[[performance_test]]
+name = "scaling_test_100k"
+methods = ["ivf_eager", "ivf_lazy"]  # 只测试IVF，避免BruteForce过慢
+similarity_threshold = 0.8
+vector_dim = 256
+records_count = 100000
+parallelism = [2, 4, 8]
+window_time_ms = 300000
+seed = 300

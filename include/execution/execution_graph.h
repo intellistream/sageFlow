@@ -49,6 +49,9 @@ private:
     // 存储算子之间的连接关系
     std::vector<std::tuple<std::shared_ptr<Operator>, std::shared_ptr<Operator>, int>> connections_;
 
+    // 执行期持有的所有队列，用于统一 stop()
+    std::vector<QueuePtr> all_queues_;
+
     // 创建队列连接上下游
     void createConnections();
 

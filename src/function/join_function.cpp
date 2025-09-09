@@ -1,4 +1,5 @@
 #include "function/join_function.h"
+#include "utils/logger.h"
 
 candy::JoinFunction::JoinFunction(std::string name, int dim) : Function(std::move(name), FunctionType::Join), dim_(dim) {}
 
@@ -15,9 +16,21 @@ candy::JoinFunction::JoinFunction(std::string name, JoinFunc join_func, int64_t 
 
 auto candy::JoinFunction::Execute(Response& left, Response& right) -> Response {
   if (left.type_ == ResponseType::Record && right.type_ == ResponseType::Record) {
-    if (auto left_record = std::move(left.record_), right_record = std::move(right.record_);
-        join_func_(left_record, right_record)) {
-      return Response{ResponseType::Record, std::move(left_record)};
+    auto left_record = std::move(left.record_);
+    auto right_record = std::move(right.record_);
+    try {
+      if (join_func_(left_record, right_record)) {
+        // 注意：保持现有行为，仅返回 left_record（即使 join_func_ 产生了新结果）
+        return Response{ResponseType::Record, std::move(left_record)};
+      }
+    } catch (const std::exception& e) {
+            CANDY_LOG_ERROR("JOIN_FUNC", "left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
+                            (left_record ? left_record->data_.dim_ : -1),
+                            (right_record ? right_record->data_.dim_ : -1),
+                            (left_record ? left_record->uid_ : 0),
+                            (right_record ? right_record->uid_ : 0),
+                            e.what());
+      throw;
     }
   }
   return {};

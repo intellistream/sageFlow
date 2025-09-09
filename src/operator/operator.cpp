@@ -6,6 +6,7 @@ candy::Operator::Operator(OperatorType type, size_t parallelism)
   set_parallelism(parallelism);
   // 根据算子类型设置默认名称
   switch (type) {
+    case OperatorType::OUTPUT: name = "OutputOperator"; break;
     case OperatorType::FILTER: name = "FilterOperator"; break;
     case OperatorType::MAP: name = "MapOperator"; break;
     case OperatorType::JOIN: name = "JoinOperator"; break;

@@ -2,6 +2,7 @@
 // Created by ZeroJustMe on 25-5-19.
 //
 #pragma once
+#include <deque>
 #include "operator/join_operator_methods/base_method.h"
 #include "index/ivf.h"
 #include "concurrency/concurrency_manager.h"
@@ -35,7 +36,7 @@ public:
       int slot) override;
 
   std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-      const std::list<std::unique_ptr<VectorRecord>>& query_records,
+      const std::deque<std::unique_ptr<VectorRecord>>& query_records,
       int query_slot) override;
 
 private:

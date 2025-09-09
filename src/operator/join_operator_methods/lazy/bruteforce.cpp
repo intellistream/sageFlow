@@ -1,5 +1,6 @@
 #include "operator/join_operator_methods/lazy/bruteforce.h"
 #include "compute_engine/compute_engine.h"
+#include <deque>
 
 namespace candy {
 
@@ -125,7 +126,7 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceLazy::ExecuteEager(
 }
 
 std::vector<std::unique_ptr<VectorRecord>> BruteForceLazy::ExecuteLazy(
-    const std::list<std::unique_ptr<VectorRecord>>& query_records,
+    const std::deque<std::unique_ptr<VectorRecord>>& query_records,
     int query_slot) {
 
   if (!using_knn_ || !concurrency_manager_) {

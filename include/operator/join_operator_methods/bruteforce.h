@@ -1,5 +1,5 @@
 #pragma once
-#include <list>
+#include <deque>
 #include <memory>
 #include <vector>
 #include "operator/join_operator_methods/base_method.h"
@@ -22,7 +22,7 @@ class BruteForceJoinMethod final : public BaseMethod {
 
   // 统一接口
   std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(const VectorRecord& query_record, int query_slot) override;
-  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(const std::list<std::unique_ptr<VectorRecord>>& query_records, int query_slot) override;
+  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(const std::deque<std::unique_ptr<VectorRecord>>& query_records, int query_slot) override;
 
  private:
   int otherIndexId(int slot) const { return (slot == 0) ? right_index_id_ : left_index_id_; }

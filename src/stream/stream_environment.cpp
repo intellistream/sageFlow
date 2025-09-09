@@ -1,6 +1,7 @@
 #include <stream/stream_environment.h>
 
 #include <iostream>
+#include "utils/logger.h"
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -22,13 +23,20 @@ auto StreamEnvironment::execute() -> void {
   }
 
   if (is_running_) {
-    std::cout << "StreamEnvironment is already running." << std::endl;
+  CANDY_LOG_WARN("ENV", "StreamEnvironment already running");
     return;
   }
 
-  std::cout << "Building execution graph from " << streams_.size() << " streams..." << std::endl;
+  CANDY_LOG_INFO("ENV", "Building execution graph streams={} ", streams_.size());
 
-  // 使用Planner构建执行图而不是单独的算子
+  // 先为每个根源流按顺序分配 slotId，并写入 Stream 上
+  int next_slot = 0;
+  for (auto &stream : streams_) {
+    if (stream->function_ == nullptr) { // 源流
+      stream->setSlotId(next_slot++);
+    }
+  }
+  // 使用Planner构建执行图而不是单独的算子（Planner 将读取各 Stream 的 slotId）
   for (auto &stream : streams_) {
     planner_->planToExecutionGraph(stream, execution_graph_.get(), default_parallelism_);
   }
@@ -40,7 +48,7 @@ auto StreamEnvironment::execute() -> void {
   execution_graph_->start();
   is_running_ = true;
 
-  std::cout << "StreamEnvironment started successfully." << std::endl;
+  CANDY_LOG_INFO("ENV", "StreamEnvironment started");
 }
 
 auto StreamEnvironment::stop() -> void {
@@ -48,19 +56,16 @@ auto StreamEnvironment::stop() -> void {
     return;
   }
 
-  std::cout << "Stopping StreamEnvironment..." << std::endl;
+  CANDY_LOG_INFO("ENV", "Stopping StreamEnvironment...");
   execution_graph_->stop();
   is_running_ = false;
 }
 
 auto StreamEnvironment::awaitTermination() -> void {
-  if (!is_running_) {
-    return;
-  }
-
+  // 即使 is_running_ 已变为 false（stop 后），也需要 join，确保线程收敛
   execution_graph_->join();
   is_running_ = false;
-  std::cout << "StreamEnvironment terminated." << std::endl;
+  CANDY_LOG_INFO("ENV", "StreamEnvironment terminated");
 }
 
 auto StreamEnvironment::setParallelism(size_t parallelism) -> void {
@@ -71,6 +76,24 @@ auto StreamEnvironment::setParallelism(size_t parallelism) -> void {
 
 auto StreamEnvironment::addStream(std::shared_ptr<Stream> stream) -> void {
   streams_.push_back(std::move(stream));
+}
+
+void StreamEnvironment::reset() {
+  // 若在运行中，先尝试停止并等待
+  if (is_running_) {
+    try { stop(); } catch (...) {}
+    try { awaitTermination(); } catch (...) {}
+  }
+  // 清空已注册流与算子
+  streams_.clear();
+  operators_.clear();
+  // 重新构建核心组件（存储/并发管理/执行图/Planner）
+  storage_manager_ = std::make_shared<StorageManager>();
+  concurrency_manager_ = std::make_shared<ConcurrencyManager>(storage_manager_);
+  planner_ = std::make_shared<Planner>(concurrency_manager_);
+  execution_graph_ = std::make_unique<ExecutionGraph>();
+  is_running_ = false;
+  CANDY_LOG_INFO("ENV", "StreamEnvironment reset completed");
 }
 
 }  // namespace candy
