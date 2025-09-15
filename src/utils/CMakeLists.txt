@@ -1,6 +1,7 @@
 add_library(
         utils
         monitoring.cpp
+        log_config.cpp
 )
 target_link_libraries(
         utils

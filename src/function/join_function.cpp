@@ -19,10 +19,10 @@ auto candy::JoinFunction::Execute(Response& left, Response& right) -> Response {
     auto left_record = std::move(left.record_);
     auto right_record = std::move(right.record_);
     try {
-      if (join_func_(left_record, right_record)) {
-        // 注意：保持现有行为，仅返回 left_record（即使 join_func_ 产生了新结果）
-        return Response{ResponseType::Record, std::move(left_record)};
-      }
+      if (!join_func_) return {};
+      // 正确调用 join_func_，由其产出新的结果
+      auto out = join_func_(left_record, right_record);
+      if (out) return Response{ResponseType::Record, std::move(out)};
     } catch (const std::exception& e) {
             CANDY_LOG_ERROR("JOIN_FUNC", "left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
                             (left_record ? left_record->data_.dim_ : -1),

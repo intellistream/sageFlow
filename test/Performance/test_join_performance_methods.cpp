@@ -17,7 +17,7 @@
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"
 #include "compute_engine/compute_engine.h"
-#include "test_data_adapter.h"
+#include "test_utils/test_data_adapter.h"
 #include "execution/collector.h"
 
 #ifdef CANDY_ENABLE_METRICS

@@ -31,6 +31,9 @@ inline std::shared_ptr<spdlog::logger> get_logger() {
 
 // 基础宏：带相位着色 + 递增序号
 // 统一格式：[PHASE] seq=N message
+// 新增 DEBUG 级别，便于将高频诊断从 INFO 下沉
+#define CANDY_LOG_DEBUG(phase, fmt, ...) \
+    get_logger()->debug("[{}] seq={} " fmt, phase, candy::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 #define CANDY_LOG_INFO(phase, fmt, ...) \
     get_logger()->info("[{}] seq={} " fmt, phase, candy::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 

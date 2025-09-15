@@ -2,6 +2,7 @@
 
 #include <iostream>
 #include "utils/logger.h"
+#include "utils/log_config.h"
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -49,6 +50,18 @@ auto StreamEnvironment::execute() -> void {
   is_running_ = true;
 
   CANDY_LOG_INFO("ENV", "StreamEnvironment started");
+  
+  // 若配置中存在扁平 key "log.level" 则应用；否则环境变量 CANDY_LOG_LEVEL 覆盖
+  try {
+    if (config_.exist("log.level")) {
+      std::string lvl = std::get<std::string>(config_.getValue("log.level"));
+      init_log_level(lvl);
+    } else {
+      init_log_level("");
+    }
+  } catch(const std::exception &e) {
+    CANDY_LOG_WARN("ENV", "log_level_config_failed what={} ", e.what());
+  }
 }
 
 auto StreamEnvironment::stop() -> void {

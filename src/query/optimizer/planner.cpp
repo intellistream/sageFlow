@@ -75,7 +75,7 @@ std::shared_ptr<Operator> Planner::buildOperatorChain(const std::shared_ptr<Stre
 
   // 设置母节点（右侧输入）与左右 slot
   const auto join_op = std::dynamic_pointer_cast<JoinOperator>(op);
-  join_op->setMother(right_op);
+
   // 左支承袭当前 stream 的 slot；右支使用 other_stream 的 slot
   join_op->setSlots(/*left*/ (stream->getSlotId() != -1 ? stream->getSlotId() : inherited_slot_id),
         /*right*/ other_stream->getSlotId());

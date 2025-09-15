@@ -26,8 +26,6 @@ namespace candy {
 
     auto apply(Response&& record, int slot, Collector& collector) -> void override;
 
-    auto setMother(std::shared_ptr<Operator> mother) -> void;
-
     auto lazy_process(int slot) -> std::optional<Response>;
 
     auto eager_process(int slot) -> std::optional<Response>;

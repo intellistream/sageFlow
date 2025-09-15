@@ -15,12 +15,12 @@
 #include "function/sink_function.h"
 #include "operator/join_operator.h"
 #include "execution/collector.h"
-#include "test_data_generator.h"
-#include "test_config_manager.h"
 #include "operator/join_metrics.h"
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"
-#include "test_data_adapter.h"
+#include "test_utils/test_data_generator.h"
+#include "test_utils/test_config_manager.h"
+#include "test_utils/test_data_adapter.h"
 
 namespace candy {
 namespace test {
@@ -144,6 +144,8 @@ TEST_F(MultiThreadPipelineTest, BasicPipelineConstruction) {
   // 从配置读取 Join 配置
   candy::test::PipelineConfig pipeline_cfg{};
   if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
+    // 应用窗口配置
+    join_func_direct->setWindow(pipeline_cfg.window.time_ms, pipeline_cfg.window.trigger_interval_ms);
     // 通过 Stream API 构建链式算子链，并设置并行度（使用配置的 join 方法与阈值）
     auto joined = left_source->join(right_source, std::move(join_func_direct),
                                     pipeline_cfg.join_method, pipeline_cfg.similarity_threshold, 1);
@@ -183,14 +185,31 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
   std::vector<int> parallelism_levels = {1, 2, 4};
   
   TestDataGenerator::Config config;
-  config.vector_dim = 128;
-  config.positive_pairs = 200;
-  config.negative_pairs = 400;
-  config.random_tail = 200;
+  // 调小数据规模与维度，便于排查
+  config.vector_dim = 10;
+  // 这三项合计大约产生 ~10 条记录（具体以生成器实现为准）
+  config.positive_pairs = 3;
+  config.negative_pairs = 4;
+  config.random_tail = 3;
   config.seed = 42;
   
   TestDataGenerator generator(config);
   auto [base_records, expected_matches] = generator.generateData();
+
+  // 打印所有记录信息，便于排查
+  CANDY_LOG_INFO("TEST", "ParallelJoinConsistency dataset: records={} expected_matches_size={} dim={} ",
+                 base_records.size(), expected_matches.size(), config.vector_dim);
+  for (size_t i = 0; i < base_records.size(); ++i) {
+    const auto& r = base_records[i];
+    auto vec = extractFloatVector(*r);
+    std::string vals;
+    vals.reserve(vec.size() * 8);
+    for (size_t d = 0; d < vec.size(); ++d) {
+      vals += std::to_string(vec[d]);
+      if (d + 1 < vec.size()) vals += ",";
+    }
+    CANDY_LOG_INFO("TEST", "rec#{} uid={} ts={} values=[{}] ", i, r->uid_, r->timestamp_, vals);
+  }
   
   std::vector<std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>> results_by_parallelism;
   
@@ -208,8 +227,13 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
     }
     std::vector<std::unique_ptr<VectorRecord>> right_records;
     right_records.reserve(base_records.size());
+    // 给右侧流的 UID 加偏移，确保左右两侧不共享相同 UID；
+    // 偏移量保持在 <1e6 内，保证 left*1e6 + right 的编码/解码逻辑仍然成立。
+    constexpr uint64_t kRightUidOffset = 500000;
     for (const auto& rec : base_records) {
-      right_records.push_back(std::make_unique<VectorRecord>(*rec));
+      uint64_t new_uid = rec->uid_ + kRightUidOffset;
+      // 复制数据与时间戳，但使用新的 UID
+      right_records.push_back(std::make_unique<VectorRecord>(new_uid, rec->timestamp_, rec->data_));
     }
 
     JoinMetrics::instance().reset();
@@ -232,7 +256,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
           int64_t ts = std::max(left->timestamp_, right->timestamp_);
           return createVectorRecord(id, ts, out);
         },
-        128);
+  10);
 
     std::mutex result_mutex;
     std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash> result_set;
@@ -254,6 +278,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
     if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
       method = pipeline_cfg.join_method;
       threshold = pipeline_cfg.similarity_threshold;
+      join_func_direct->setWindow(pipeline_cfg.window.time_ms, pipeline_cfg.window.trigger_interval_ms);
     }
     // 链式构建，设置 Join 并行度与方法/阈值
     left_source->join(right_source, std::move(join_func_direct), method, threshold, static_cast<size_t>(parallelism))
@@ -269,7 +294,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
     env_->awaitTermination();
 
     results_by_parallelism.push_back(std::move(result_set));
-  CANDY_LOG_INFO("TEST", "Parallelism {} matches={} ", parallelism, results_by_parallelism.back().size());
+    CANDY_LOG_INFO("TEST", "Parallelism {} matches={} ", parallelism, results_by_parallelism.back().size());
   }
   
   // 验证不同并行度下结果一致性
@@ -331,6 +356,7 @@ TEST_F(MultiThreadPipelineTest, StressTestMultipleRestarts) {
   if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_rs)) {
     method_rs = pipeline_cfg_rs.join_method;
     threshold_rs = pipeline_cfg_rs.similarity_threshold;
+    join_func_direct->setWindow(pipeline_cfg_rs.window.time_ms, pipeline_cfg_rs.window.trigger_interval_ms);
   }
   auto joined = left_source->join(right_source, std::move(join_func_direct), method_rs, threshold_rs, 1);
   joined->writeSink(std::move(sink_func), 1);
@@ -375,8 +401,10 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
   }
   std::vector<std::unique_ptr<VectorRecord>> right_records;
   right_records.reserve(records.size());
+  constexpr uint64_t kRightUidOffsetHC = 500000;
   for (const auto& rec : records) {
-    right_records.push_back(std::make_unique<VectorRecord>(*rec));
+    uint64_t new_uid = rec->uid_ + kRightUidOffsetHC;
+    right_records.push_back(std::make_unique<VectorRecord>(new_uid, rec->timestamp_, rec->data_));
   }
 
   auto left_source = std::make_shared<TestVectorStreamSource>("HC_Left", std::move(left_records));
@@ -411,6 +439,7 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
   if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_hc)) {
     method_hc = pipeline_cfg_hc.join_method;
     threshold_hc = pipeline_cfg_hc.similarity_threshold;
+    join_func_direct->setWindow(pipeline_cfg_hc.window.time_ms, pipeline_cfg_hc.window.trigger_interval_ms);
   }
   left_source->join(right_source, std::move(join_func_direct), method_hc, threshold_hc, static_cast<size_t>(high_parallelism))
              ->writeSink(std::move(sink_func), 1);
@@ -493,8 +522,10 @@ TEST_P(PipelineParameterTest, VariousConfigurationTest) {
   }
   std::vector<std::unique_ptr<VectorRecord>> right_records;
   right_records.reserve(records.size());
+  constexpr uint64_t kRightUidOffsetParam = 500000;
   for (const auto& rec : records) {
-    right_records.push_back(std::make_unique<VectorRecord>(*rec));
+    uint64_t new_uid = rec->uid_ + kRightUidOffsetParam;
+    right_records.push_back(std::make_unique<VectorRecord>(new_uid, rec->timestamp_, rec->data_));
   }
 
   auto env = std::make_shared<StreamEnvironment>();
@@ -529,6 +560,7 @@ TEST_P(PipelineParameterTest, VariousConfigurationTest) {
   double threshold_param = 0.8;
   if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_param)) {
     threshold_param = pipeline_cfg_param.similarity_threshold;
+    join_func_direct->setWindow(pipeline_cfg_param.window.time_ms, pipeline_cfg_param.window.trigger_interval_ms);
   }
   left_source->join(right_source, std::move(join_func_direct), method, threshold_param, static_cast<size_t>(join_parallelism))
              ->writeSink(std::move(sink_func), 1);

@@ -130,42 +130,60 @@ auto JoinOperator::updateSideThreadSafe(
 #ifdef CANDY_ENABLE_METRICS
         {
             ScopedTimerAtomic t_idx(JoinMetrics::instance().index_insert_ns);
-            lock.unlock();
+            // lock.unlock();
             concurrency_manager_->insert(index_id_for_cc, std::move(data_for_index_insert));
-            lock.lock();
+            // lock.lock();
         }
 #else
-        lock.unlock();
+        // 解锁可能会导致竞态，索引内部的插入和删除顺序可能和窗口不一致
+        // lock.unlock();
+        CANDY_LOG_DEBUG("JOIN", "Inserting to index id={} uid={} ", index_id_for_cc, data_for_index_insert->uid_);
         concurrency_manager_->insert(index_id_for_cc, std::move(data_for_index_insert));
-        lock.lock();
+        // lock.lock();
 #endif
     }
 
     auto& window = (slot == 0) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
 
-    int64_t timelimit = window.windowTimeLimit(now_time_stamp);
+        int64_t timelimit = window.windowTimeLimit(now_time_stamp);
 #ifdef CANDY_ENABLE_METRICS
     {
         ScopedTimerAtomic t_expire(JoinMetrics::instance().expire_ns);
 #endif
-    while (!records.empty() && records.front()->timestamp_ <= timelimit) {
-        uint64_t expired_uid = records.front()->uid_;
-        records.pop_front();
-        if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
+    CANDY_LOG_DEBUG("JOIN", "Expiring records before timestamp {} now={} current_size={} ", timelimit, now_time_stamp, records.size());
+      try {
+        while (!records.empty() && records.front()->timestamp_ <= timelimit) {
+          uint64_t expired_uid = records.front()->uid_;
+          records.pop_front();
+          if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
 #ifdef CANDY_ENABLE_METRICS
             ScopedTimerAtomic t_idx(JoinMetrics::instance().index_insert_ns);
 #endif
-            lock.unlock();
+            // lock.unlock();
             concurrency_manager_->erase(index_id_for_cc, expired_uid);
-            lock.lock();
+            // lock.lock();
+          }
         }
-    }
+                CANDY_LOG_DEBUG("JOIN", "Expiration loop finished. current_size={} ", records.size());
+      } catch (const std::exception& e) {
+        CANDY_LOG_ERROR("JOIN", "Exception during expiration: what={} ", e.what());
+      }
 #ifdef CANDY_ENABLE_METRICS
     }
 #endif
 
-    lock.unlock();
-    return window.isNeedTrigger(now_time_stamp);
+    CANDY_LOG_DEBUG("JOIN", "Before unlocking records mutex. size={} ", records.size());
+        lock.unlock();
+    CANDY_LOG_DEBUG("JOIN", "After unlocking records mutex; computing trigger.");
+        bool needTrigger = false;
+        try {
+                needTrigger = window.isNeedTrigger(now_time_stamp);
+        } catch (const std::exception& e) {
+                CANDY_LOG_ERROR("JOIN", "Exception during isNeedTrigger: what={} ", e.what());
+                throw;
+        }
+    CANDY_LOG_DEBUG("JOIN", "isNeedTrigger={} ", needTrigger ? 1 : 0);
+        return needTrigger;
 }
 
 // ================== 旧 fallback 接口（仍保留） ==================
@@ -201,8 +219,6 @@ auto JoinOperator::process(Response& input_data, int slot) -> std::optional<Resp
     return std::nullopt;
 }
 
-auto JoinOperator::setMother(std::shared_ptr<Operator> mother) -> void { mother_ = std::move(mother); }
-
 std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidates(
     const std::unique_ptr<VectorRecord>& data_ptr, int slot) {
 #ifdef CANDY_ENABLE_METRICS
@@ -217,10 +233,16 @@ std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidates(
 #ifdef CANDY_ENABLE_METRICS
         uint64_t before_wait = ScopedAccumulateAtomic::now_ns();
 #endif
-        for (auto &p : left_records_) if (p) query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+        for (auto &p : left_records_)
+          if (p) {
+            query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+          }
     } else {
         std::shared_lock<std::shared_mutex> lk(right_records_mutex_);
-        for (auto &p : right_records_) if (p) query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+        for (auto &p : right_records_)
+          if (p) {
+            query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+          }
     }
     return join_method_->ExecuteLazy(query_records_copy, slot);
 }
@@ -250,6 +272,8 @@ void JoinOperator::executeJoinForCandidates(
             if (validateCandidateInWindow(cand, right_records_)) {
                 auto left_copy = std::make_unique<VectorRecord>(*data_ptr);
                 auto right_copy = std::make_unique<VectorRecord>(*cand);
+                uint64_t log_left_uid = left_copy->uid_;
+                uint64_t log_right_uid = right_copy->uid_;
                 Response lhs{ResponseType::Record, std::move(left_copy)};
                 Response rhs{ResponseType::Record, std::move(right_copy)};
 #ifdef CANDY_ENABLE_METRICS
@@ -258,7 +282,12 @@ void JoinOperator::executeJoinForCandidates(
 #endif
                 try {
                     auto res = join_func_->Execute(lhs, rhs);
-                    if (res.record_) local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
+                    uint64_t result_uid = res.record_ ? res.record_->uid_ : 0;
+                    if (res.record_) {
+                        local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
+                    }
+                    CANDY_LOG_DEBUG("JOIN_EXEC", "slot={} result_uid={} left_uid={} right_uid={} ",
+                                   slot, result_uid, log_left_uid, log_right_uid);
                 } catch (const std::exception& e) {
                     CANDY_LOG_ERROR("JOIN_EXEC", "slot={} left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
                                      slot,
@@ -280,6 +309,8 @@ void JoinOperator::executeJoinForCandidates(
             if (validateCandidateInWindow(cand, left_records_)) {
                 auto left_copy = std::make_unique<VectorRecord>(*cand);
                 auto right_copy = std::make_unique<VectorRecord>(*data_ptr);
+                uint64_t log_left_uid = left_copy->uid_;
+                uint64_t log_right_uid = right_copy->uid_;
                 Response lhs{ResponseType::Record, std::move(left_copy)};
                 Response rhs{ResponseType::Record, std::move(right_copy)};
 #ifdef CANDY_ENABLE_METRICS
@@ -288,7 +319,12 @@ void JoinOperator::executeJoinForCandidates(
 #endif
                 try {
                     auto res = join_func_->Execute(lhs, rhs);
-                    if (res.record_) local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
+                    uint64_t result_uid = res.record_ ? res.record_->uid_ : 0;
+                    if (res.record_) {
+                        local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
+                    }
+                    CANDY_LOG_DEBUG("JOIN_EXEC", "slot={} result_uid={} left_uid={} right_uid={} ",
+                                   slot, result_uid, log_left_uid, log_right_uid);
                 } catch (const std::exception& e) {
                     CANDY_LOG_ERROR("JOIN_EXEC", "slot={} left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
                                      slot,
@@ -372,28 +408,30 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
     if (!record.record_) return;
     std::unique_ptr<VectorRecord> data_ptr = std::make_unique<VectorRecord>(*record.record_);
     int64_t now_time_stamp = data_ptr->timestamp_;
-
+    CANDY_LOG_DEBUG("JOIN_APPLY", "Apply called slot={} uid={} ts={} dim={} ", slot, data_ptr->uid_, now_time_stamp, data_ptr->data_.dim_);
+    // 重要：为窗口存储拷贝一份，避免 data_ptr 在 updateSideThreadSafe 中被移动导致后续 eager 路径解引用空指针
+    auto store_ptr = std::make_unique<VectorRecord>(*data_ptr);
     bool trigger_flag = (slot == left_slot_id_)
-        ? updateSideThreadSafe(left_records_, left_records_mutex_, left_index_id_, data_ptr, now_time_stamp, slot)
-        : updateSideThreadSafe(right_records_, right_records_mutex_, right_index_id_, data_ptr, now_time_stamp, slot);
-    if (!trigger_flag) return;
+        ? updateSideThreadSafe(left_records_, left_records_mutex_, left_index_id_, store_ptr, now_time_stamp, slot)
+        : updateSideThreadSafe(right_records_, right_records_mutex_, right_index_id_, store_ptr, now_time_stamp, slot);
+    if (!trigger_flag) {
+      return;
+    }
 
     auto candidates = getCandidates(data_ptr, slot);
-    // 诊断日志：候选数量与窗口大小
-    try {
-        size_t left_sz = 0, right_sz = 0;
-        {
-            std::shared_lock<std::shared_mutex> lkL(left_records_mutex_);
-            left_sz = left_records_.size();
-        }
-        {
-            std::shared_lock<std::shared_mutex> lkR(right_records_mutex_);
-            right_sz = right_records_.size();
-        }
-        CANDY_LOG_INFO("JOIN_APPLY", "slot={} cand={} left_win={} right_win={} eager={} use_index={} ",
-               slot, candidates.size(), left_sz, right_sz, (is_eager_?1:0), (use_index_?1:0));
-    } catch(...) { /* 忽略诊断异常 */ }
+    size_t left_sz = 0, right_sz = 0;
+    {
+        std::shared_lock<std::shared_mutex> lkL(left_records_mutex_);
+        left_sz = left_records_.size();
+    }
+    {
+        std::shared_lock<std::shared_mutex> lkR(right_records_mutex_);
+        right_sz = right_records_.size();
+    }
+    CANDY_LOG_DEBUG("JOIN_APPLY", "slot={} cand={} left_win={} right_win={} eager={} use_index={} ",
+           slot, candidates.size(), left_sz, right_sz, (is_eager_?1:0), (use_index_?1:0));
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
+
     if (is_eager_) {
         executeJoinForCandidates(candidates, data_ptr, slot, local_return_pool);
     } else {

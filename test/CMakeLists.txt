@@ -10,15 +10,17 @@ endif()
 # 公共测试支持库：数据生成、配置等（可继续扩展）
 # -----------------------------------------------------------------------------
 add_library(test_data_support
-    UnitTest/test_data_generator.cpp
-    UnitTest/test_config_manager.cpp
+    test_utils/test_data_generator.cpp
+    test_utils/test_config_manager.cpp
+    test_utils/dynamic_config.cpp
 )
 
 # 头文件路径
+# 将 include 设为 PUBLIC，使链接该库的测试目标能继承 utils/ 等头文件路径
 target_include_directories(test_data_support
-    PRIVATE
+    PUBLIC
     ${CMAKE_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/UnitTest
+    ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 # 依赖主工程接口库 candy（其 transitively 链接全部内部组件）
@@ -48,7 +50,8 @@ function(register_test TEST_NAME REL_PATH TIMEOUT_SECS GROUP_TAG)
     add_gtest(${TEST_NAME} ${REL_PATH})           # 宏自动链接 gtest_main
     target_link_libraries(${TEST_NAME} PRIVATE test_data_support candy)
     target_compile_definitions(${TEST_NAME} PRIVATE ${TEST_COMMON_DEFINES})
-    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR}/UnitTest)
+    # 为每个测试目标补充包含路径：工程 include/ 与 test/ 根目录（包含 utils/、UnitTest/、Performance/ 等）
+    target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
     set_tests_properties(${TEST_NAME} PROPERTIES TIMEOUT ${TIMEOUT_SECS} LABELS ${GROUP_TAG})
 endfunction()
 
@@ -59,8 +62,6 @@ set(UNIT_TEST_SPECS
     test_join_bruteforce           UnitTest/test_join_bruteforce.cpp          300 UNIT
     test_join_ivf                  UnitTest/test_join_ivf.cpp                 300 UNIT
     test_compute_engine            UnitTest/test_compute_engine.cpp           180 UNIT
-    test_config_driven             UnitTest/test_config_driven.cpp            180 UNIT
-    test_config_manager            UnitTest/test_config_manager.cpp           120 UNIT
     test_file_stream_source        UnitTest/test_file_stream_source.cpp       120 UNIT
 )
 

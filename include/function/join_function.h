@@ -19,7 +19,7 @@ namespace candy {
     int64_t stepSize;
     std::atomic<int64_t> lastEmitted;
   public:
-    ThreadSafeSlidingWindow() : windowSize(10), stepSize(5), lastEmitted(-1) {}
+    ThreadSafeSlidingWindow() : windowSize(1000), stepSize(5), lastEmitted(-1) {}
 
     ThreadSafeSlidingWindow(int64_t windowsize, int64_t stepsize)
       : windowSize(windowsize), stepSize(stepsize), lastEmitted(-1) {}

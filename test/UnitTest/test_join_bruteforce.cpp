@@ -4,8 +4,8 @@
 #include <unordered_set>
 #include "operator/join_operator.h"
 #include "function/join_function.h"
-#include "test_data_generator.h"
-#include "test_data_adapter.h"
+#include "test_utils/test_data_generator.h"
+#include "test_utils/test_data_adapter.h"
 #include "operator/join_metrics.h"
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"

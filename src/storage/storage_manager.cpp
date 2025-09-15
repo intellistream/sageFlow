@@ -2,13 +2,16 @@
 
 #include <queue>
 
+#include "utils/logger.h"
+
 auto candy::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> void {
   if (record == nullptr) {
     throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
   }
   std::unique_lock<std::shared_mutex> lock(map_mutex_);
   const auto uid = record->uid_;
-  if (map_.contains(uid)) {
+  CANDY_LOG_DEBUG("STORAGE", "Inserting record uid={} current_size={} ", uid, records_.size());
+  if (map_.find(uid) != map_.end()) {
     return; // UID 已存在
   }
   std::shared_ptr<VectorRecord> shared_record = std::move(record);
@@ -136,7 +139,7 @@ auto candy::StorageManager::topk(const VectorRecord& record, int k) const -> std
   }
 
   // 优先队列得到的是从远到近的顺序，我们需要将其反转
-  std::ranges::reverse(final_ids);
+  std::reverse(final_ids.begin(), final_ids.end());
 
   return final_ids;
 }

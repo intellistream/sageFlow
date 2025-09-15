@@ -12,7 +12,14 @@ std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteEager(const Vec
     return results;
   }
   auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_);
-  CANDY_LOG_INFO("JOIN_IVF", "eager_query slot={} candidates={} ", query_slot, candidates.size());
+  CANDY_LOG_DEBUG("JOIN_IVF", "eager_query slot={} candidates={} ", query_slot, candidates.size());
+  // LOG输出匹配上的向量和到达向量具体是什么
+  CANDY_LOG_DEBUG("JOIN_IVF", "eager_query input uid={} ", query_record.uid_);
+  for (auto &c : candidates) {
+    if (c) {
+  CANDY_LOG_DEBUG("JOIN_IVF", "eager_query matched candidate uid={} ", c->uid_);
+    }
+  }
   results.reserve(candidates.size());
   for (auto &c : candidates) {
     if (c) results.emplace_back(std::make_unique<VectorRecord>(*c));

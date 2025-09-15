@@ -30,7 +30,7 @@ void Ivf::debugDumpStateUnlocked() {
     std::string sample;
     size_t limit = std::min<size_t>(kv.second.size(), 5);
     for (size_t i = 0; i < limit; ++i) { sample += std::to_string(kv.second[i]); sample.push_back(','); }
-    CANDY_LOG_INFO("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
+  CANDY_LOG_DEBUG("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
     if (++printed >= 5) break;
   }
 }
@@ -56,12 +56,14 @@ void Ivf::rebuildIfNeeded(){
   // 关键：获取全局写锁，此期间所有其他读写操作都会被阻塞
   std::unique_lock<std::shared_mutex> lock(global_mutex_);
 
-  // 调用内部的重建逻辑
-  rebuildClustersInternal();
+  if (needs_rebuild()) {
+    // 调用内部的重建逻辑
+    rebuildClustersInternal();
 
-  // 重建成功后，清空软删除集合和计数器
-  deleted_uids_.clear();
-  vectors_since_last_rebuild_.store(0);
+    // 重建成功后，清空软删除集合和计数器
+    deleted_uids_.clear();
+    vectors_since_last_rebuild_.store(0);
+  }
 }
 
 auto Ivf::needs_rebuild() const -> bool {
@@ -299,10 +301,11 @@ void Ivf::rebuildClustersInternal() {
     }
   }
 
-  vectors_since_last_rebuild_.store(0);
   // 诊断：重建后验证 size_ 与实际元素数量是否一致
   size_t actual_total = 0;
-  for (auto &kv : inverted_lists_) actual_total += kv.second.size();
+  for (auto &kv : inverted_lists_) {
+    actual_total += kv.second.size();
+  }
   int logical_size = size_.load(std::memory_order_relaxed);
   if (logical_size < 0 || static_cast<size_t>(logical_size) != actual_total) {
     CANDY_LOG_WARN("INDEX", "post-rebuild size mismatch logical={} actual={} deleted_uids={} vectors_since_last_rebuild={} ",
@@ -312,19 +315,45 @@ void Ivf::rebuildClustersInternal() {
 
 auto Ivf::insert(uint64_t id) -> bool {
   rebuildIfNeeded();
+  CANDY_LOG_DEBUG("INDEX", "start inserting id={} size_before={} ", id, size_.load(std::memory_order_relaxed));
+  // 先从存储取出记录
+  auto record = storage_manager_ ? storage_manager_->getVectorByUid(id) : nullptr;
+  if (!record) {
+    CANDY_LOG_ERROR("INDEX", "insert id={} failed to fetch from storage ", id);
+    return false;
+  }
+
+  // 优先检查是否需要进行首次初始化（centroids_ 为空）
+  {
+    std::shared_lock<std::shared_mutex> rlock(global_mutex_);
+    rebuild_cv_.wait(rlock, [this]{ return !is_rebuilding_.load(); });
+    if (centroids_.empty()) {
+      // 升级为写锁进行初始化（双检）
+      rlock.unlock();
+      std::unique_lock<std::shared_mutex> wlock(global_mutex_);
+      rebuild_cv_.wait(wlock, [this]{ return !is_rebuilding_.load(); });
+      if (centroids_.empty()) {
+        centroids_.clear();
+        centroids_.push_back(record->data_);
+        inverted_lists_.clear();
+        inverted_lists_[0].push_back(id);
+        size_.fetch_add(1, std::memory_order_relaxed);
+        vectors_since_last_rebuild_.fetch_add(1, std::memory_order_relaxed);
+        CANDY_LOG_DEBUG("INDEX", "initialized centroids with first id={} dim={} lists=1 size_now={} ",
+                             id, record->data_.dim_, size_.load(std::memory_order_relaxed));
+        return true;
+      }
+      // 写锁作用域结束后，继续走常规路径
+    }
+  }
+
+  // 常规路径：已存在质心，计算归属簇
   int cluster_idx = -1;
   {
-    // 步骤1：获取全局读锁，安全地读取质心(centroids_)
-    std::shared_lock<std::shared_mutex> lock(global_mutex_);
-    rebuild_cv_.wait(lock, [this]{ return !is_rebuilding_.load(); });
-    if (centroids_.empty()) {
-      return false; // 索引尚未初始化，插入失败
-    }
-    auto record = storage_manager_->getVectorByUid(id);
-    if (!record) {
-      return false;
-    }
+    std::shared_lock<std::shared_mutex> rlock(global_mutex_);
+    rebuild_cv_.wait(rlock, [this]{ return !is_rebuilding_.load(); });
     cluster_idx = assignToCluster(record->data_);
+  CANDY_LOG_DEBUG("INDEX", "inserting id={} assigned_cluster={} size_before={} ", id, cluster_idx, size_.load(std::memory_order_relaxed));
   }
 
   if (cluster_idx < 0) {
@@ -341,55 +370,21 @@ auto Ivf::insert(uint64_t id) -> bool {
 }
 
 auto Ivf::erase(uint64_t id) -> bool {
-  // erase 也需要等待重建完成
+  // 健壮版：标记删除并宽松递减 size_，依靠重建过程收敛到一致
   std::unique_lock<std::shared_mutex> lock(global_mutex_);
   rebuild_cv_.wait(lock, [this]{ return !is_rebuilding_.load(); });
 
-  erase_attempts_.fetch_add(1, std::memory_order_relaxed);
-
+  // 已经删除过则视为成功
   if (deleted_uids_.find(id) != deleted_uids_.end()) {
-    erase_missing_.fetch_add(1, std::memory_order_relaxed); // 已标记删除再来一次
-    return false; // 已经软删除
+    return true;
   }
-
-  // 确认此向量确实存在：检查 inverted_lists_ 中是否出现
-  bool found_in_lists = false;
-  for (auto &kv : inverted_lists_) {
-    auto &vec = kv.second;
-    if (std::find(vec.begin(), vec.end(), id) != vec.end()) { found_in_lists = true; break; }
-  }
-  if (!found_in_lists) {
-    // 判断是否仍在 storage 中存在
-    bool in_storage = storage_manager_ && storage_manager_->getVectorByUid(id) != nullptr;
-    erase_missing_.fetch_add(1, std::memory_order_relaxed);
-    if (in_storage) {
-      erase_missing_in_storage_.fetch_add(1, std::memory_order_relaxed);
-    } else {
-      erase_missing_not_in_storage_.fetch_add(1, std::memory_order_relaxed);
-    }
-    long long detail_seq = erase_detailed_logs_.fetch_add(1) + 1;
-    if (detail_seq <= 50 || detail_seq % 1000 == 0) {
-      CANDY_LOG_WARN("INDEX", "erase id={} not found lists size_={} in_storage={} attempts={} missing={} miss_in_storage={} miss_not_storage={} success={} underflow={} ",
-                     id, size_.load(), in_storage, erase_attempts_.load(), erase_missing_.load(),
-                     erase_missing_in_storage_.load(), erase_missing_not_in_storage_.load(),
-                     erase_success_.load(), erase_underflow_.load());
-      if (detail_seq <= 10 || detail_seq % 5000 == 0) {
-        debugDumpStateUnlocked();
-      }
-    }
-    return false;
-  }
-
+  CANDY_LOG_DEBUG("INDEX", "erasing id={} size_before={} ", id, size_.load(std::memory_order_relaxed));
+  // 无条件记录删除
   deleted_uids_.insert(id);
-  int before = size_.fetch_sub(1, std::memory_order_relaxed);
-  if (before <= 0) {
-    size_.store(0, std::memory_order_relaxed);
-    erase_underflow_.fetch_add(1, std::memory_order_relaxed);
-    CANDY_LOG_ERROR("INDEX", "size_ underflow detected (before={}) while erasing id={} -> corrected=0 attempts={} missing={} success={} underflow={} ",
-                    before, id, erase_attempts_.load(), erase_missing_.load(), erase_success_.load(), erase_underflow_.load());
-    return false;
-  }
-  erase_success_.fetch_add(1, std::memory_order_relaxed);
+
+  // 宽松扣减，允许暂时不准确；rebuild 时会按 live_records 纠偏
+  size_.fetch_sub(1, std::memory_order_relaxed);
+
   return true;
 }
 

@@ -44,7 +44,7 @@ void ExecutionVertex::join() const {
 }
 
 void ExecutionVertex::run() const {
-  CANDY_LOG_INFO("VERTEX", "{} started thread={} ", name_, (size_t)std::hash<std::thread::id>{}(std::this_thread::get_id()));
+  CANDY_LOG_DEBUG("VERTEX", "{} started thread={} ", name_, (size_t)std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
   auto source_op = dynamic_cast<OutputOperator*>(operator_.get());
   try {
