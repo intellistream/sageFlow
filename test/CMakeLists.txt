@@ -29,14 +29,16 @@ target_link_libraries(test_data_support
     candy
 )
 
-# 让公共库也拥有相同的编译宏（例如 PROJECT_DIR、CANDY_ENABLE_METRICS）
-target_compile_definitions(test_data_support PRIVATE ${TEST_COMMON_DEFINES})
-
-# 向所有测试目标注入的公共宏定义，包括CANDY_ENABLE_METRICS以支持性能测试
+# 向所有测试目标注入的公共宏定义（基线：PROJECT_DIR；按选项追加 CANDY_ENABLE_METRICS）
 set(TEST_COMMON_DEFINES 
     PROJECT_DIR="${CMAKE_SOURCE_DIR}"
-    CANDY_ENABLE_METRICS=1
 )
+if(CANDY_ENABLE_METRICS)
+    list(APPEND TEST_COMMON_DEFINES CANDY_ENABLE_METRICS=1)
+endif()
+
+# 让公共库也拥有相同的编译宏（例如 PROJECT_DIR、可选的 CANDY_ENABLE_METRICS）
+target_compile_definitions(test_data_support PRIVATE ${TEST_COMMON_DEFINES})
 
 # -----------------------------------------------------------------------------
 # Helper: 注册单个测试源文件
@@ -161,4 +163,8 @@ add_custom_target(run_quick_tests
 
 # 输出说明
 message(STATUS "Test targets registered: UNIT=${ALL_UNIT_TARGETS}; PERF=${ALL_PERF_TARGETS}; INTEGRATION=${ALL_INTEG_TARGETS}")
-message(STATUS "CANDY_ENABLE_METRICS enabled for all tests to collect performance data")
+if(CANDY_ENABLE_METRICS)
+    message(STATUS "CANDY_ENABLE_METRICS enabled for tests to collect performance data")
+else()
+    message(STATUS "CANDY_ENABLE_METRICS disabled for tests (metrics code excluded)")
+endif()

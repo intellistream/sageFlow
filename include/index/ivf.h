@@ -11,7 +11,7 @@ namespace candy {
 class Ivf final : public Index {
 public:
   // Constructor
-  explicit Ivf(int num_clusters = 1000, double rebuild_threshold = 0.5, int nprobes = 10);
+  explicit Ivf(int num_clusters = 1000, double rebuild_threshold = 1.5, int nprobes = 10);
   // Destructor
   ~Ivf() override;
 

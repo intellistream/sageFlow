@@ -49,19 +49,36 @@ std::vector<float> TestDataGenerator::generateRandomVector() {
 }
 
 std::vector<float> TestDataGenerator::perturbVector(const std::vector<float>& base, double target_similarity) {
-  auto result = base; std::normal_distribution<float> noise_dist(0.0f, 0.1f);
-  for (int iter=0; iter<100; ++iter) {
-    for (int i=0;i<config_.vector_dim;++i) result[i] += noise_dist(rng_) * 0.1f;
-    float norm = 0.0f; for (float v:result) norm += v*v; norm = std::sqrt(norm);
-    if (norm>1e-6f) for(float &v:result) v/=norm;
-    double current_sim = calculateSimilarity(base, result);
-    if (std::abs(current_sim - target_similarity) < 0.01) break;
-    if (current_sim < target_similarity) { float alpha=0.9f; for(int i=0;i<config_.vector_dim;++i) result[i]=alpha*base[i]+(1-alpha)*result[i]; }
+  // 目标：使 exp(-alpha * ||result - base||_2) ≈ target_similarity
+  // 推出所需欧氏距离 d = -ln(target_similarity) / alpha
+  double eps = 1e-6;
+  double alpha = (config_.alpha > eps ? config_.alpha : 0.1);
+  double clipped = std::min(std::max(target_similarity, eps), 1.0 - 1e-9);
+  double d = -std::log(clipped) / alpha;
+
+  // 生成一个随机方向向量 u，归一化后沿该方向偏移长度 d
+  std::vector<float> dir(config_.vector_dim);
+  std::normal_distribution<float> noise(0.0f, 1.0f);
+  for (int i = 0; i < config_.vector_dim; ++i) dir[i] = noise(rng_);
+  // 轻微去除与 base 的相关性，避免极端重合；不过 ComputeEngine::Similarity 使用绝对坐标的 L2，和方向无关
+  // 因为我们在原坐标系中工作，不做单位化 base；仅确保 dir 为单位方向
+  double norm = 0.0; for (float v : dir) norm += v * v; norm = std::sqrt(std::max(norm, 1e-12));
+  for (float &v : dir) v = static_cast<float>(v / norm);
+
+  std::vector<float> result(base);
+  for (int i = 0; i < config_.vector_dim; ++i) {
+    result[i] = static_cast<float>(base[i] + d * dir[i]);
   }
   return result;
 }
 
-double TestDataGenerator::calculateSimilarity(const std::vector<float>& a, const std::vector<float>& b) { double dot=0.0; for (size_t i=0;i<a.size();++i) dot += a[i]*b[i]; return dot; }
+double TestDataGenerator::calculateSimilarity(const std::vector<float>& a, const std::vector<float>& b) {
+  // 与项目内 ComputeEngine::Similarity 等价：exp(-alpha * L2)
+  double sum = 0.0; for (size_t i = 0; i < a.size(); ++i) { double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]); sum += diff * diff; }
+  double dist = std::sqrt(sum);
+  double alpha = (config_.alpha > 1e-6 ? config_.alpha : 0.1);
+  return std::exp(-alpha * dist);
+}
 
 std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>
 BaselineJoinChecker::computeExpectedMatches(const std::vector<std::unique_ptr<VectorRecord>>& records, double threshold, int64_t window_size_ms) {

@@ -4,6 +4,10 @@ project(CANDY CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 
+# 是否启用运行时指标采集代码（通过编译宏控制）。默认开启以保持现有行为。
+option(CANDY_ENABLE_METRICS "Enable metrics instrumentation in join/operator and tests" ON)
+message(STATUS "CANDY_ENABLE_METRICS: ${CANDY_ENABLE_METRICS}")
+
 # 启用测试选项（CLion 识别 gtest 必需）
 option(BUILD_TESTING "Build tests" ON)
 if(BUILD_TESTING)

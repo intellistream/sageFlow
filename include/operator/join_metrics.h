@@ -21,12 +21,19 @@ struct JoinMetrics {
   std::atomic<uint64_t> total_records_right{0};
   std::atomic<uint64_t> total_emits{0};
 
+  // 新增：apply 处理耗时与端到端延迟（单位：纳秒，均为累加值；另附计数）
+  std::atomic<uint64_t> apply_processing_ns{0};
+  std::atomic<uint64_t> apply_processing_count{0};
+  std::atomic<uint64_t> e2e_latency_ns{0};
+  std::atomic<uint64_t> e2e_latency_count{0};
+
   static JoinMetrics& instance() {
     static JoinMetrics inst; return inst;
   }
   void reset() {
     window_insert_ns = index_insert_ns = expire_ns = candidate_fetch_ns = similarity_ns = join_function_ns = emit_ns = lock_wait_ns = 0;
     total_records_left = total_records_right = total_emits = 0;
+    apply_processing_ns = apply_processing_count = e2e_latency_ns = e2e_latency_count = 0;
   }
   void dump_tsv(const std::string& path) {
     std::error_code ec; std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
@@ -36,6 +43,7 @@ struct JoinMetrics {
 #define EMIT(m) ofs<<#m"\t"<<m.load()<<"\n";
     EMIT(window_insert_ns) EMIT(index_insert_ns) EMIT(expire_ns) EMIT(candidate_fetch_ns) EMIT(similarity_ns)
     EMIT(join_function_ns) EMIT(emit_ns) EMIT(lock_wait_ns) EMIT(total_records_left) EMIT(total_records_right) EMIT(total_emits)
+    EMIT(apply_processing_ns) EMIT(apply_processing_count) EMIT(e2e_latency_ns) EMIT(e2e_latency_count)
 #undef EMIT
   }
 };

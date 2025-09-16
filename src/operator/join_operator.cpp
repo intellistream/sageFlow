@@ -114,13 +114,11 @@ auto JoinOperator::updateSideThreadSafe(
         data_for_index_insert = std::make_unique<VectorRecord>(*data_ptr);
     }
 #ifdef CANDY_ENABLE_METRICS
-    {
-        uint64_t before_lock = ScopedAccumulateAtomic::now_ns();
+    uint64_t before_lock = ScopedAccumulateAtomic::now_ns();
 #endif
     std::unique_lock<std::shared_mutex> lock(records_mutex);
 #ifdef CANDY_ENABLE_METRICS
-        JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_lock, std::memory_order_relaxed);
-    }
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_lock, std::memory_order_relaxed);
     ScopedTimerAtomic t_window(JoinMetrics::instance().window_insert_ns);
     if (slot==0) JoinMetrics::instance().total_records_left.fetch_add(1,std::memory_order_relaxed); else JoinMetrics::instance().total_records_right.fetch_add(1,std::memory_order_relaxed);
 #endif
@@ -145,12 +143,12 @@ auto JoinOperator::updateSideThreadSafe(
 
     auto& window = (slot == 0) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
 
-        int64_t timelimit = window.windowTimeLimit(now_time_stamp);
+    int64_t timelimit = window.windowTimeLimit(now_time_stamp);
 #ifdef CANDY_ENABLE_METRICS
     {
         ScopedTimerAtomic t_expire(JoinMetrics::instance().expire_ns);
 #endif
-    CANDY_LOG_DEBUG("JOIN", "Expiring records before timestamp {} now={} current_size={} ", timelimit, now_time_stamp, records.size());
+      CANDY_LOG_DEBUG("JOIN", "Expiring records before timestamp {} now={} current_size={} ", timelimit, now_time_stamp, records.size());
       try {
         while (!records.empty() && records.front()->timestamp_ <= timelimit) {
           uint64_t expired_uid = records.front()->uid_;
@@ -164,7 +162,7 @@ auto JoinOperator::updateSideThreadSafe(
             // lock.lock();
           }
         }
-                CANDY_LOG_DEBUG("JOIN", "Expiration loop finished. current_size={} ", records.size());
+        CANDY_LOG_DEBUG("JOIN", "Expiration loop finished. current_size={} ", records.size());
       } catch (const std::exception& e) {
         CANDY_LOG_ERROR("JOIN", "Exception during expiration: what={} ", e.what());
       }
@@ -173,17 +171,17 @@ auto JoinOperator::updateSideThreadSafe(
 #endif
 
     CANDY_LOG_DEBUG("JOIN", "Before unlocking records mutex. size={} ", records.size());
-        lock.unlock();
+    lock.unlock();
     CANDY_LOG_DEBUG("JOIN", "After unlocking records mutex; computing trigger.");
-        bool needTrigger = false;
-        try {
-                needTrigger = window.isNeedTrigger(now_time_stamp);
-        } catch (const std::exception& e) {
-                CANDY_LOG_ERROR("JOIN", "Exception during isNeedTrigger: what={} ", e.what());
-                throw;
-        }
+    bool needTrigger = false;
+    try {
+        needTrigger = window.isNeedTrigger(now_time_stamp);
+    } catch (const std::exception& e) {
+        CANDY_LOG_ERROR("JOIN", "Exception during isNeedTrigger: what={} ", e.what());
+        throw;
+    }
     CANDY_LOG_DEBUG("JOIN", "isNeedTrigger={} ", needTrigger ? 1 : 0);
-        return needTrigger;
+    return needTrigger;
 }
 
 // ================== 旧 fallback 接口（仍保留） ==================
@@ -280,24 +278,24 @@ void JoinOperator::executeJoinForCandidates(
                 {
                     ScopedTimerAtomic t_joinF(JoinMetrics::instance().join_function_ns);
 #endif
-                try {
-                    auto res = join_func_->Execute(lhs, rhs);
-                    uint64_t result_uid = res.record_ ? res.record_->uid_ : 0;
-                    if (res.record_) {
-                        local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
+                    try {
+                        auto res = join_func_->Execute(lhs, rhs);
+                        uint64_t result_uid = res.record_ ? res.record_->uid_ : 0;
+                        if (res.record_) {
+                            local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
+                        }
+                        CANDY_LOG_DEBUG("JOIN_EXEC", "slot={} result_uid={} left_uid={} right_uid={} ",
+                                       slot, result_uid, log_left_uid, log_right_uid);
+                    } catch (const std::exception& e) {
+                        CANDY_LOG_ERROR("JOIN_EXEC", "slot={} left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
+                                         slot,
+                                         (lhs.record_ ? lhs.record_->data_.dim_ : -1),
+                                         (rhs.record_ ? rhs.record_->data_.dim_ : -1),
+                                         (lhs.record_ ? lhs.record_->uid_ : 0),
+                                         (rhs.record_ ? rhs.record_->uid_ : 0),
+                                         e.what());
+                        throw; // 继续向上抛出以保持现有行为
                     }
-                    CANDY_LOG_DEBUG("JOIN_EXEC", "slot={} result_uid={} left_uid={} right_uid={} ",
-                                   slot, result_uid, log_left_uid, log_right_uid);
-                } catch (const std::exception& e) {
-                    CANDY_LOG_ERROR("JOIN_EXEC", "slot={} left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
-                                     slot,
-                                     (lhs.record_ ? lhs.record_->data_.dim_ : -1),
-                                     (rhs.record_ ? rhs.record_->data_.dim_ : -1),
-                                     (lhs.record_ ? lhs.record_->uid_ : 0),
-                                     (rhs.record_ ? rhs.record_->uid_ : 0),
-                                     e.what());
-                    throw; // 继续向上抛出以保持现有行为
-                }
 #ifdef CANDY_ENABLE_METRICS
                 }
 #endif
@@ -405,6 +403,13 @@ void JoinOperator::executeLazyJoin(
 }
 
 auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+#ifdef CANDY_ENABLE_METRICS
+    // 统计 apply 处理总耗时（一次调用一次计数）
+    JoinMetrics::instance().apply_processing_count.fetch_add(1, std::memory_order_relaxed);
+    ScopedTimerAtomic t_apply(JoinMetrics::instance().apply_processing_ns);
+    // 记录进入算子的实时时刻，用于端到端延迟统计
+    const uint64_t apply_enter_ns = ScopedAccumulateAtomic::now_ns();
+#endif
     if (!record.record_) return;
     std::unique_ptr<VectorRecord> data_ptr = std::make_unique<VectorRecord>(*record.record_);
     int64_t now_time_stamp = data_ptr->timestamp_;
@@ -450,6 +455,10 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
         collector.collect(std::make_unique<Response>(std::move(out)), p.first);
 #ifdef CANDY_ENABLE_METRICS
         JoinMetrics::instance().total_emits.fetch_add(1,std::memory_order_relaxed);
+        // 端到端延迟：从 apply 进入到对应结果发射的时长（按每条结果计）
+        const uint64_t now_ns = ScopedAccumulateAtomic::now_ns();
+        JoinMetrics::instance().e2e_latency_ns.fetch_add(now_ns - apply_enter_ns, std::memory_order_relaxed);
+        JoinMetrics::instance().e2e_latency_count.fetch_add(1, std::memory_order_relaxed);
 #endif
     }
 #ifdef CANDY_ENABLE_METRICS

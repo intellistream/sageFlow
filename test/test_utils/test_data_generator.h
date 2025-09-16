@@ -21,9 +21,11 @@ public:
     int negative_pairs = 500;
     int random_tail = 2000;
     double similarity_threshold = 0.8;
+    // 与项目内 ComputeEngine::Similarity 保持一致的 alpha（默认 0.1）
+    double alpha = 0.1;
     uint32_t seed = 42;
     int64_t base_timestamp = 1000000;
-    int64_t time_interval = 1000;
+    int64_t time_interval = 100;
   };
   explicit TestDataGenerator(const Config& config);
   std::pair<std::vector<std::unique_ptr<VectorRecord>>, std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>> generateData();

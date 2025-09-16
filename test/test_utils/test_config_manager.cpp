@@ -75,6 +75,7 @@ void TestConfigManager::extractPerfTest(const toml::node& perf_node, Performance
   else { throw std::runtime_error("performance_test.methods missing or not array"); }
   config.similarity_threshold = require_value<double>(*tbl, "similarity_threshold");
   config.vector_dim = require_value<int>(*tbl, "vector_dim");
+  // Note: time_interval is handled in dynamic perf config elsewhere; no field here.
   try { config.records_count = require_value<int>(*tbl, "records_count"); } catch(...) { config.records_count = 0; }
   if (auto* arr = tbl->get_as<toml::array>("sizes")) { config.sizes.clear(); for (auto &n : *arr) if (auto v = n.value<int>()) config.sizes.push_back(*v); }
   if (config.sizes.empty() && config.records_count <= 0) throw std::runtime_error("performance_test missing both sizes[] and valid records_count");
