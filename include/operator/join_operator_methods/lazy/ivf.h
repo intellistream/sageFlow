@@ -2,6 +2,7 @@
 // Created by ZeroJustMe on 25-5-19.
 //
 #pragma once
+#include <deque>
 #include "operator/join_operator_methods/base_method.h"
 #include "index/ivf.h"
 #include "concurrency/concurrency_manager.h"
@@ -29,6 +30,15 @@ public:
               std::list<std::unique_ptr<VectorRecord>> &records,
               int slot) override;
 
+  // 新的优化接口
+  std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+      const VectorRecord& query_record,
+      int slot) override;
+
+  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
+      const std::deque<std::unique_ptr<VectorRecord>>& query_records,
+      int query_slot) override;
+
 private:
   int left_ivf_index_id_;
   int right_ivf_index_id_;
@@ -36,4 +46,3 @@ private:
 };
 
 } // namespace candy
-

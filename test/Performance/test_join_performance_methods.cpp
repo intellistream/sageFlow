@@ -17,6 +17,12 @@
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"
 #include "compute_engine/compute_engine.h"
+#include "test_utils/test_data_adapter.h"
+#include "execution/collector.h"
+
+#ifdef CANDY_ENABLE_METRICS
+#include "operator/join_metrics.h"
+#endif
 
 #ifndef PROJECT_DIR
 #define PROJECT_DIR "d:/Share Libary/candyFlow_zero"
@@ -86,7 +92,7 @@ private:
     }    
     // 创建简单的测试JoinFunction（简化逻辑，专注于性能测试）
     auto CreateSimilarityJoinFunction(double threshold = 0.7) -> unique_ptr<JoinFunction> {
-        auto join_func = make_unique<JoinFunction>("test_join", 128);
+    auto join_func = make_unique<JoinFunction>("test_join", 128);
         
         // 极简化的连接逻辑，只进行基本的条件判断，不做复杂计算
         JoinFunc func = [threshold](unique_ptr<VectorRecord>& left, unique_ptr<VectorRecord>& right) -> unique_ptr<VectorRecord> {
@@ -108,8 +114,8 @@ private:
     
     // 创建JoinOperator
     auto CreateJoinOperator(JoinMethodType method_type, double threshold = 0.7) -> unique_ptr<JoinOperator> {
-        auto join_func = CreateSimilarityJoinFunction(threshold);
-        auto join_func_ptr = unique_ptr<Function>(join_func.release());
+    auto join_func = CreateSimilarityJoinFunction(threshold);
+    auto join_func_ptr = unique_ptr<Function>(join_func.release());
         
         string method_name;
         switch (method_type) {
@@ -182,15 +188,21 @@ public:
             join_operator->open();
             
             // 处理左侧数据（slot 0）
+            std::vector<std::unique_ptr<Response>> emitted;
+            Collector collector([&](std::unique_ptr<Response> r, int){ if (r && r->record_) emitted.push_back(std::move(r)); });
             for (auto& record : left_data) {
-                Response left_response(ResponseType::Record, std::move(record));
-                join_operator->process(left_response, 0);
+                Response left_response;
+                left_response.type_ = ResponseType::Record;
+                left_response.record_ = std::move(record);
+                join_operator->apply(std::move(left_response), 0, collector);
             }
             
             // 处理右侧数据（slot 1）
             for (auto& record : right_data) {
-                Response right_response(ResponseType::Record, std::move(record));
-                join_operator->process(right_response, 1);
+                Response right_response;
+                right_response.type_ = ResponseType::Record;
+                right_response.record_ = std::move(record);
+                join_operator->apply(std::move(right_response), 1, collector);
             }
             
             auto join_end = high_resolution_clock::now();

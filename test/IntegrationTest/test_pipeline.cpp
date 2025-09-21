@@ -10,6 +10,7 @@
 #include <atomic>
 #include <functional>
 #include <mutex>
+#include "utils/logger.h"
 #include <iostream>
 
 // 项目核心头文件
@@ -306,8 +307,15 @@ TEST_F(PipelineConstructionTest, JoinPipelineConstruction) {
   );
 
   // 3. 构建Join流水线，指定并行度
+  // 从配置读取 Join 配置
+  candy::test::PipelineConfig pipeline_cfg{};
+  std::string method = "bruteforce_lazy";
+  double threshold = 0.8;
+  candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg);
+  method = pipeline_cfg.join_method;
+  threshold = pipeline_cfg.similarity_threshold;
   EXPECT_NO_THROW(
-    source1->join(source2, std::move(join_func), 2)  // Join算子并行度为2
+    source1->join(source2, std::move(join_func), method, threshold, 2)  // Join算子并行度为2
            ->writeSink(std::make_unique<SinkFunction>(
                "JoinSink",
                createResultCollectorLambda()
@@ -433,7 +441,7 @@ TEST_F(PipelineConstructionTest, BasicPipelineConstruction) {
       "BasicSink",
       [](std::unique_ptr<VectorRecord>& record) {
         // 简单的打印输出
-        std::cout << "Processing record with uid: " << record->uid_ << std::endl;
+  CANDY_LOG_INFO("TEST", "Processing record uid={} ", record->uid_);
       }
     ), 1)  // 明确指定Sink并行度为1
   );
@@ -567,7 +575,10 @@ TEST_F(PipelineConstructionTest, CompleteJoinPipelineExecution) {
   );
 
   // 6. 构建Join流水线，设置Join算子并行度为3
-  auto join_result = filtered_left->join(filtered_right, std::move(join_func), 3);
+  // 从配置读取 Join 配置
+  candy::test::PipelineConfig pipeline_cfg2{};
+  candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg2);
+  auto join_result = filtered_left->join(filtered_right, std::move(join_func), pipeline_cfg2.join_method, pipeline_cfg2.similarity_threshold, 3);
 
   // 7. 对Join结果进行后处理
   auto post_map = std::make_unique<MapFunction>(
@@ -603,7 +614,7 @@ TEST_F(PipelineConstructionTest, CompleteJoinPipelineExecution) {
   // Join结果应该包含满足条件的记录
   EXPECT_GT(test_results_.size(), 0);
 
-  std::cout << "Join pipeline processed " << test_results_.size() << " records" << std::endl;
+  CANDY_LOG_INFO("TEST", "Join pipeline processed records={} ", test_results_.size());
 
   // 验证每个结果都有正确的标记
   for (const auto& record : test_results_) {
@@ -616,8 +627,7 @@ TEST_F(PipelineConstructionTest, CompleteJoinPipelineExecution) {
       EXPECT_GE(float_data[i], 0.0f); // 向量元素应该为正数
     }
 
-    std::cout << "Join result: uid=" << record->uid_
-              << ", vector[0]=" << float_data[0] << std::endl;
+  CANDY_LOG_INFO("TEST", "Join result uid={} v0={} ", record->uid_, float_data[0]);
   }
 }
 
@@ -649,7 +659,10 @@ TEST_F(PipelineConstructionTest, JoinParallelismPerformanceTest) {
   // 测试高并行度Join：并行度为4
   auto start_time = std::chrono::high_resolution_clock::now();
 
-  left_source->join(right_source, std::move(join_func), 4) // Join并行度为4
+  // 从配置读取 Join 配置
+  candy::test::PipelineConfig pipeline_cfg3{};
+  candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg3);
+  left_source->join(right_source, std::move(join_func), pipeline_cfg3.join_method, pipeline_cfg3.similarity_threshold, 4) // Join并行度为4
             ->writeSink(std::make_unique<SinkFunction>(
                 "PerformanceSink",
                 createResultCollectorLambda()
@@ -670,8 +683,7 @@ TEST_F(PipelineConstructionTest, JoinParallelismPerformanceTest) {
 
   std::lock_guard<std::mutex> lock(result_mutex_);
 
-  std::cout << "High parallelism Join test completed in " << duration.count()
-            << "ms, processed " << test_results_.size() << " join results" << std::endl;
+  CANDY_LOG_INFO("TEST", "High parallelism join completed duration_ms={} results={} ", duration.count(), test_results_.size());
 
   // 验证Join效率：应该能找到匹配的记录
   EXPECT_GT(test_results_.size(), 0);

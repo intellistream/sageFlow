@@ -10,7 +10,23 @@ void InputGate::setup(const std::vector<QueuePtr>& queues) {
   input_queues_ = queues;
 }
 
-std::optional<Response> InputGate::read() {
+void InputGate::setup(std::vector<QueuePtr>&& queues) {
+  input_queues_ = std::move(queues);
+}
+
+void InputGate::addQueues(const std::vector<QueuePtr>& queues) {
+  input_queues_.insert(input_queues_.end(), queues.begin(), queues.end());
+}
+
+void InputGate::addQueues(std::vector<QueuePtr>&& queues) {
+  // 尽量避免重复分配
+  input_queues_.reserve(input_queues_.size() + queues.size());
+  for (auto &q : queues) {
+    input_queues_.emplace_back(std::move(q));
+  }
+}
+
+std::optional<TaggedResponse> InputGate::read() {
   if (input_queues_.empty()) {
     return std::nullopt;
   }

@@ -2,12 +2,56 @@
 #include <algorithm>
 #include <functional>
 #include <assert.h>
+#include <mutex>
+#include <atomic>
 
 #include "function/function.h"
 #include "stream/stream.h"
 
 namespace candy {
   using JoinFunc = std::function<std::unique_ptr<VectorRecord>(std::unique_ptr<VectorRecord> &, std::unique_ptr<VectorRecord> &)>;
+
+  // 线程安全的滑动窗口类
+  class ThreadSafeSlidingWindow {
+  private:
+    mutable std::mutex mutex_;
+    int64_t windowSize;
+    int64_t stepSize;
+    std::atomic<int64_t> lastEmitted;
+  public:
+    ThreadSafeSlidingWindow() : windowSize(1000), stepSize(5), lastEmitted(-1) {}
+
+    ThreadSafeSlidingWindow(int64_t windowsize, int64_t stepsize)
+      : windowSize(windowsize), stepSize(stepsize), lastEmitted(-1) {}
+
+    void setWindow(int64_t windowsize, int64_t stepsize) {
+      std::lock_guard<std::mutex> lock(mutex_);
+      windowSize = windowsize;
+      stepSize = stepsize;
+      lastEmitted = -1;
+    }
+
+    auto windowTimeLimit(int64_t timestamp) const -> int64_t {
+      std::lock_guard<std::mutex> lock(mutex_);
+      return timestamp - windowSize;
+    }
+
+    auto isNeedTrigger(int64_t timestamp) -> bool {
+      std::lock_guard<std::mutex> lock(mutex_);
+      int64_t current_last = lastEmitted.load();
+      if (current_last == -1) {
+        lastEmitted = timestamp;
+        current_last = timestamp;
+      }
+
+      bool result = (timestamp - current_last >= 0);
+      int64_t new_last = current_last + stepSize;
+      new_last = std::min(new_last, timestamp);
+      lastEmitted = new_last;
+      return result;
+    }
+  };
+
   // TODO: 没有删掉的草台班子滑动窗口
   class SlidingWindow {
   private :
@@ -76,7 +120,8 @@ namespace candy {
     auto setWindow(int64_t time_window, int64_t stepsize) -> void;
   
     SlidingWindow windowL, windowR;
-  
+    ThreadSafeSlidingWindow threadSafeWindowL, threadSafeWindowR;
+
    private:
     JoinFunc join_func_;
     int dim_ = 0;

@@ -30,8 +30,8 @@ void Avg(const std::unique_ptr<candy::VectorRecord>& record, int size) {
   }
 }
 
-auto candy::AggregateOperator::process(Response& data, int slot) -> bool {
-  // TODO: 多线程改造 - 当前实现为单线程版本
+auto candy::AggregateOperator::process(Response&data, int slot) -> std::optional<Response> {
+  // TODO: 多线程改造 - 聚合算子的并发状态管理
   // 在多线程环境中，需要考虑以下改造：
   // 1. 使用线程安全的累加器或状态管理
   // 2. 考虑分区聚合：每个线程维护局部状态，最后合并
@@ -40,7 +40,7 @@ auto candy::AggregateOperator::process(Response& data, int slot) -> bool {
 
   const auto aggregate_func = dynamic_cast<AggregateFunction*>(aggregate_func_.get());
   if (data.type_ == ResponseType::List) {
-    const auto records = std::move(data.records_);
+    const auto records = data.records_.get();
     const auto aggregate_type = aggregate_func->getAggregateType();
     auto begin = records->begin();
     auto record = std::move(*begin);
@@ -52,9 +52,29 @@ auto candy::AggregateOperator::process(Response& data, int slot) -> bool {
       Avg(record, records_size);
     }
     auto resp = Response{ResponseType::Record, std::move(record)};
-    emit(0, resp);
-    return true;
+    return resp;
   }
 
-  return false;
+  return std::nullopt;
+}
+
+auto candy::AggregateOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+  const auto aggregate_func = dynamic_cast<AggregateFunction*>(aggregate_func_.get());
+  if (record.type_ == ResponseType::List && record.records_) {
+    const auto records = record.records_.get();
+    const auto aggregate_type = aggregate_func->getAggregateType();
+    auto begin = records->begin();
+    auto aggregated_record = std::move(*begin);
+    auto records_size = records->size();
+
+    if (aggregate_type == AggregateType::Avg) {
+      for (auto it = begin + 1; it != records->end(); ++it) {
+        Sum(aggregated_record, *it);
+      }
+      Avg(aggregated_record, records_size);
+    }
+
+    Response result{ResponseType::Record, std::move(aggregated_record)};
+    collector.collect(std::make_unique<Response>(std::move(result)), slot);
+  }
 }

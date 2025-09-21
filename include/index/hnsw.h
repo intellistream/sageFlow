@@ -13,12 +13,12 @@ class HNSW final : public Index {
 
   auto insert(uint64_t uid) -> bool override;
   auto erase(uint64_t uid) -> bool override;
-  auto query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> override;
+  auto query(const VectorRecord &record, int k) -> std::vector<uint64_t> override;
   auto select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& c, int m, int lc,
                                   bool extend_candidates, bool keep_pruned_connections) const -> std::vector<uint64_t>;
   inline auto select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
                                      int lc) const -> std::vector<uint64_t>;
-  auto query_for_join(std::unique_ptr<VectorRecord> &record,
+  auto query_for_join(const VectorRecord &record,
                             double join_similarity_threshold) -> std::vector<uint64_t> override {
     // NOT IMPLEMENTED;
     return {};

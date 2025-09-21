@@ -12,7 +12,10 @@ class WindowOperator : public Operator {
  public:
   explicit WindowOperator(std::unique_ptr<Function> &window_func);
 
-  auto process(Response &data, int slot) -> bool override;
+  auto process(Response &data, int slot) -> std::optional<Response> override;
+
+  auto apply(Response &&record, int slot, Collector &collector) -> void override;
+
   int window_size_;
 
  protected:
@@ -27,19 +30,24 @@ class TumblingWindowOperator final : public WindowOperator {
  public:
   explicit TumblingWindowOperator(std::unique_ptr<Function> &window_func);
 
-  auto process(Response &data, int slot) -> bool override;
+  auto process(Response &data, int slot) -> std::optional<Response> override;
+
+  auto apply(Response &&record, int slot, Collector &collector) -> void override;
 
  private:
-  std::unique_ptr<std::vector<std::unique_ptr<VectorRecord>>> records_;
+  std::list<std::unique_ptr<VectorRecord>> window_buffer_;
 };
 
 class SlidingWindowOperator final : public WindowOperator {
  public:
   explicit SlidingWindowOperator(std::unique_ptr<Function> &window_func);
 
-  auto process(Response &data, int slot) -> bool override;
-  int slide_size_;
+  auto process(Response &data, int slot) -> std::optional<Response> override;
 
-  std::list<std::unique_ptr<VectorRecord>> records_;
+  auto apply(Response &&record, int slot, Collector &collector) -> void override;
+
+ private:
+  std::list<std::unique_ptr<VectorRecord>> window_buffer_;
+  int slide_size_;
 };
 }  // namespace candy

@@ -64,7 +64,8 @@ struct VectorRecord {
   bool Serialize(std::ostream &out) const;
   bool Deserialize(std::istream &in);
 };
-enum class ResponseType { None, Record, List };  // NOLINT
+// 扩展 ResponseType：增加 Exit 与 EOFMarker 用于流水线优雅关闭
+enum class ResponseType { None, Record, List, Exit, EOFMarker };  // NOLINT
 
 struct Response {
   ResponseType type_;
@@ -107,6 +108,18 @@ struct Response {
       }
     }
     return *this;
+  }
+};
+
+struct UidAndDist {
+  uint64_t uid_;
+  double distance_;
+
+  UidAndDist(uint64_t uid, double distance) : uid_(uid), distance_(distance) {}
+
+  // 重载小于号，以构建一个按 distance 比较的最大堆
+  auto operator<(const UidAndDist& other) const -> bool {
+    return distance_ < other.distance_;
   }
 };
 

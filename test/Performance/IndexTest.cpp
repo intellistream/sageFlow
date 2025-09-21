@@ -4,6 +4,10 @@
 #include <utils/conf_map.h>
 #include <utils/monitoring.h>  // Keep for potential detailed monitoring
 
+#ifdef CANDY_ENABLE_METRICS
+#include "operator/join_metrics.h"
+#endif
+
 #include <algorithm>  // For std::min
 #include <atomic>
 #include <chrono>

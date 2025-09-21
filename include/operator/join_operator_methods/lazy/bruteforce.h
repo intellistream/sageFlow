@@ -1,13 +1,22 @@
+#include <deque>
 #include <list>
 #include <vector>
 
 #include "operator/join_operator_methods/base_method.h"
 #include "function/join_function.h"
+#include "concurrency/concurrency_manager.h"
 
 namespace candy {
 class BruteForceLazy final : public BaseMethod {
  public:
     explicit BruteForceLazy(double join_similarity_threshold) : BaseMethod(join_similarity_threshold) {}
+
+    // 新的构造函数，支持KNN索引
+    BruteForceLazy(int left_knn_index_id,
+                   int right_knn_index_id,
+                   double join_similarity_threshold,
+                   const std::shared_ptr<ConcurrencyManager> &concurrency_manager);
+
     ~BruteForceLazy() override = default;
     void Excute(std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,
                 std::unique_ptr<JoinFunction> &joinfuc,
@@ -19,6 +28,21 @@ class BruteForceLazy final : public BaseMethod {
                 std::unique_ptr<VectorRecord> &data,
                 std::list<std::unique_ptr<VectorRecord>> &records,
                 int slot) override;
+
+    // 新的优化接口
+    std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+        const VectorRecord& query_record,
+        int slot) override;
+
+    std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
+        const std::deque<std::unique_ptr<VectorRecord>>& query_records,
+        int query_slot) override;
+
  private:
+    // KNN索引相关成员
+    int left_knn_index_id_ = -1;
+    int right_knn_index_id_ = -1;
+    std::shared_ptr<ConcurrencyManager> concurrency_manager_;
+    bool using_knn_ = false;
 };
 }  // namespace candy

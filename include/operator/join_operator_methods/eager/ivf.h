@@ -1,5 +1,6 @@
 \
 #pragma once
+#include <deque>
 #include "operator/join_operator_methods/base_method.h"
 #include "index/ivf.h"
 #include "storage/storage_manager.h"
@@ -32,6 +33,15 @@ public:
                 std::list<std::unique_ptr<VectorRecord>> &left_records,
                 std::list<std::unique_ptr<VectorRecord>> &right_records) override;
 
+    // 新的优化接口
+    std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+        const VectorRecord& query_record,
+        int slot) override;
+
+    std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
+        const std::deque<std::unique_ptr<VectorRecord>>& query_records,
+        int query_slot) override;
+
 private:
     int left_ivf_index_id_;
     int right_ivf_index_id_;
@@ -39,4 +49,3 @@ private:
 };
 
 } // namespace candy
-

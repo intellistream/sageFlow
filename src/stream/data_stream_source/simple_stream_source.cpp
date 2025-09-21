@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <utility>
+#include "utils/logger.h"
 
 candy::SimpleStreamSource::SimpleStreamSource(std::string name)
     : DataStreamSource(std::move(name), DataStreamSourceType::None) {}
@@ -14,9 +15,14 @@ candy::SimpleStreamSource::SimpleStreamSource(std::string name, std::string file
     : DataStreamSource(std::move(name), DataStreamSourceType::None), file_path_(std::move(file_path)) {}
 
 void candy::SimpleStreamSource::Init() {
+  if (file_path_.empty()) {
+    // 测试环境下可为空：不加载任何记录
+  CANDY_LOG_INFO("SOURCE", "SimpleStreamSource empty path name={} ", name_);
+    return;
+  }
   std::ifstream file(file_path_, std::ios::binary);
   if (!file.is_open()) {
-    std::cerr << "Error opening file: " << file_path_ << std::endl;
+  CANDY_LOG_ERROR("SOURCE", "open_fail path={} ", file_path_);
     return;
   }
   auto record_cnt = 0;
@@ -25,7 +31,7 @@ void candy::SimpleStreamSource::Init() {
   for (int i = 0; i < record_cnt; ++i) {
     auto record = std::make_unique<VectorRecord>(0, 0, 0, DataType::None, nullptr);
     if (!record->Deserialize(file)) {
-      std::cerr << "Error deserializing record " << i << std::endl;
+  CANDY_LOG_ERROR("SOURCE", "deserialize_fail index={} path={} ", i, file_path_);
       break;
     }
     records_.push_back(std::move(record));

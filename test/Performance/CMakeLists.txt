@@ -1,36 +1,7 @@
-add_executable(
-        IndexTest
-        IndexTest.cpp
-)
+# Performance CMakeLists.txt
+# 注意：这个文件主要作为占位符，实际的测试构建配置在上级目录的CMakeLists.txt中
 
+# 由于使用了现代CMake方式，性能测试的构建配置已经在 test/CMakeLists.txt 中统一管理
+# 这样可以避免重复配置和依赖管理问题
 
-add_executable(
-        test_window_pipeline
-        test_window_pipeline.cpp
-)
-
-# 添加join方法性能测试
-add_executable(
-        test_join_performance_methods
-        test_join_performance_methods.cpp
-)
-
-target_link_libraries(
-    IndexTest
-    candy
-)
-
-target_link_libraries(
-    test_window_pipeline
-    candy
-    gtest
-    gtest_main
-)
-
-# join方法性能测试的链接库
-target_link_libraries(
-    test_join_performance_methods
-    candy
-    gtest
-    gtest_main
-)
+# 如果需要添加新的性能测试，请在 test/CMakeLists.txt 的 PERFORMANCE_TESTS 列表中添加

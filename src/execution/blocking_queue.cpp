@@ -5,25 +5,30 @@
 #include "execution/blocking_queue.h"
 
 namespace candy {
-void BlockingQueue::push(Response value) {
+bool BlockingQueue::push(TaggedResponse&& value) {
   std::unique_lock<std::mutex> lock(mutex_);
 
   // 等待直到队列有空间 (不满) 或者队列被停止
   // 使用 lambda 谓词可以完美处理虚假唤醒
-  cond_not_full_.wait(lock, [this] { return queue_.size() < max_size_ || stopped_; });
+  cond_not_full_.wait(lock, [this] { return queue_.size() < size_ || stopped_; });
 
   // 如果队列被停止，则直接返回，不再推入新元素
   if (stopped_) {
-    return;
+    return false;
   }
 
   queue_.push(std::move(value));
 
   // 唤醒一个可能正在等待队列不为空的消费者线程
   cond_not_empty_.notify_one();
+  return true;
 }
 
-std::optional<Response> BlockingQueue::pop() {
+bool BlockingQueue::push(const TaggedResponse& value) {
+  return push(TaggedResponse(value));
+}
+
+std::optional<TaggedResponse> BlockingQueue::pop() {
   std::unique_lock<std::mutex> lock(mutex_);
 
   // 等待直到队列不为空或者队列被停止
@@ -34,7 +39,7 @@ std::optional<Response> BlockingQueue::pop() {
     return std::nullopt;
   }
 
-  Response value = std::move(queue_.front());
+  TaggedResponse value = std::move(queue_.front());
   queue_.pop();
 
   // 唤醒一个可能正在等待队列有空间的生产者线程
