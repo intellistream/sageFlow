@@ -5,16 +5,17 @@ This module provides a Python interface to the candyFlow vector stream processin
 which supports real-time vector operations and semantic state snapshots.
 """
 
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any, Callable, Dict, List, Optional, Union
+
 import numpy as np
 
 try:
     from . import _sage_flow
 except ImportError:
     # 尝试从本组件的本地构建目录加载扩展模块
+    import importlib
     import sys
     from pathlib import Path
-    import importlib
 
     here = Path(__file__).resolve().parent
     build_lib = here / "build" / "lib"
@@ -162,7 +163,7 @@ class SageFlow:
         return {
             "streams_count": len(self.streams),
             "config": self.config,
-            "status": "active"
+            "status": "active",
         }
 
 
