@@ -3,9 +3,20 @@
 //
 #include "common/data_types.h"
 #include <istream>
+#include <cstring>
 
 candy::VectorData::VectorData(const int32_t dim, const DataType type, char* data)
-    : dim_(dim), type_(type), data_(data) {}
+    : dim_(dim), type_(type) {
+  // Deep copy the incoming buffer to avoid taking ownership of external memory
+  const auto bytes = static_cast<size_t>(dim_) * DATA_TYPE_SIZE[type_];
+  data_ = std::make_unique<char[]>(bytes);
+  if (data != nullptr) {
+    std::memcpy(data_.get(), data, bytes);
+  } else {
+    // Initialize to zero if null provided
+    std::memset(data_.get(), 0, bytes);
+  }
+}
 
 candy::VectorData::VectorData(const int32_t dim, const DataType type)
     : dim_(dim), type_(type), data_(new char[dim * DATA_TYPE_SIZE[type]]) {}
@@ -43,7 +54,7 @@ bool candy::VectorData::Deserialize(std::istream &in) {
 }
 
 candy::VectorRecord::VectorRecord(const uint64_t& uid, const int64_t& timestamp, VectorData&& data)
-    : uid_(uid), timestamp_(timestamp), data_(data) {}
+  : uid_(uid), timestamp_(timestamp), data_(std::move(data)) {}
 
 candy::VectorRecord::VectorRecord(const uint64_t& uid, const int64_t& timestamp, const VectorData& data)
     : uid_(uid), timestamp_(timestamp), data_(data) {}

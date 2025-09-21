@@ -14,6 +14,10 @@ candy::SimpleStreamSource::SimpleStreamSource(std::string name, std::string file
     : DataStreamSource(std::move(name), DataStreamSourceType::None), file_path_(std::move(file_path)) {}
 
 void candy::SimpleStreamSource::Init() {
+  if (file_path_.empty()) {
+    // No file provided; use in-memory records only
+    return;
+  }
   std::ifstream file(file_path_, std::ios::binary);
   if (!file.is_open()) {
     std::cerr << "Error opening file: " << file_path_ << std::endl;

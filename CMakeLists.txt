@@ -14,7 +14,7 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
 set(
     CMAKE_CXX_FLAGS
-    "-Wall -Werror=return-type -Wno-error=unused-variable -Wno-error=unused-parameter"
+    "-Wall -Werror=return-type -Wno-error=unused-variable -Wno-error=unused-parameter -fPIC"
 )
 
 set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DNO_RACE_CHECK")
