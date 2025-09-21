@@ -1,6 +1,8 @@
 #include <utils/monitoring.h>
 #include <fstream>
+#ifdef ENABLE_GPERFTOOLS
 #include <gperftools/profiler.h>
+#endif
 #include <utility>
 
 namespace candy {
@@ -15,6 +17,7 @@ PerformanceMonitor::~PerformanceMonitor() {
 }
 
 void PerformanceMonitor::StartProfiling() {
+#ifdef ENABLE_GPERFTOOLS
   if (!profiling_) {
     ProfilerStart(profile_output_file_.c_str());
     profiling_ = true;
@@ -22,9 +25,13 @@ void PerformanceMonitor::StartProfiling() {
   } else {
     std::cerr << "Profiling is already running." << '\n';
   }
+#else
+  std::cerr << "Profiling not available: gperftools not found." << '\n';
+#endif
 }
 
 void PerformanceMonitor::StopProfiling() {
+#ifdef ENABLE_GPERFTOOLS
   if (profiling_) {
     ProfilerStop();
     profiling_ = false;
@@ -32,6 +39,9 @@ void PerformanceMonitor::StopProfiling() {
   } else {
     std::cerr << "Profiling is not running." << '\n';
   }
+#else
+  std::cerr << "Profiling not available: gperftools not found." << '\n';
+#endif
 }
 
 void PerformanceMonitor::StartTimer() {
