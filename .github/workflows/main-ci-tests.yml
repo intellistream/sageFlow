@@ -1,0 +1,60 @@
+name: CMake - Build and Test
+
+on:
+  pull_request:
+    branches: [ main, join_pre_experiment ]
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.os }} | CMake ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest ]
+        build_type: [ Release ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Ninja
+        uses: llvm/actions/setup-ninja@main
+
+      - name: Install dependencies (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} -DBUILD_TESTING=ON -DCANDY_ENABLE_METRICS=ON
+
+      - name: Build
+        run: |
+          cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Run unit tests (ctest -L UNIT)
+        run: |
+          ctest --test-dir build --output-on-failure -L UNIT
+
+      - name: Run selected performance tests (filtered)
+        run: |
+          # 仅运行较快且稳定的性能相关测试，避免 CI 过长
+          ctest --test-dir build --output-on-failure -R "(test_join_perf_scaling)" -L PERF
+
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs
+          path: |
+            build/Testing/**
+            build/*.log
+            build/**/compile_commands.json

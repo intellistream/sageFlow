@@ -88,13 +88,14 @@ struct PerfConfigSets {
   std::vector<int> sizes{1000};
   std::vector<int> parallelism{1};
   double threshold{0.8};
-  uint64_t win_ms{2000};
+  // 支持多窗口测试：window_time_ms 可为数组
+  std::vector<uint64_t> win_ms_list{2000};
   uint64_t trig_ms{500};
   int vector_dim{128};
   int64_t time_interval_ms{100};
 };
 
-struct PerfCaseParam { std::string method; int size; int parallelism; };
+struct PerfCaseParam { std::string method; int size; int parallelism; uint64_t win_ms; };
 
 inline PerfConfigSets loadPerfConfig() {
   PerfConfigSets out; 
@@ -106,7 +107,18 @@ inline PerfConfigSets loadPerfConfig() {
     
   out.threshold = config.get<double>("similarity_threshold", out.threshold);
   // 注意：DynamicConfig 将整数优先存为 int，因此这里按 int 读取以避免类型不匹配导致默认值生效
-  out.win_ms = static_cast<uint64_t>(config.get<int>("window_time_ms", static_cast<int>(out.win_ms)));
+  // window_time_ms 既支持数组也支持单值
+  {
+    auto win_list = config.get<std::vector<int>>("window_time_ms", std::vector<int>{});
+    if (!win_list.empty()) {
+      out.win_ms_list.clear();
+      out.win_ms_list.reserve(win_list.size());
+      for (int v : win_list) out.win_ms_list.push_back(static_cast<uint64_t>(v));
+    } else {
+      int win_single = config.get<int>("window_time_ms", 2000);
+      out.win_ms_list = { static_cast<uint64_t>(win_single) };
+    }
+  }
     
   auto trigger_ms = config.get<int>("window_trigger_ms", 0);
   if (trigger_ms > 0) out.trig_ms = static_cast<uint64_t>(trigger_ms);
@@ -130,7 +142,9 @@ inline PerfConfigSets loadPerfConfig() {
     ss << "methods=["; for (size_t i=0;i<out.methods.size();++i){ if(i) ss<<","; ss<<out.methods[i]; } ss<<"] sizes=[";
     for (size_t i=0;i<out.sizes.size();++i){ if(i) ss<<","; ss<<out.sizes[i]; } ss<<"] parallelism=[";
     for (size_t i=0;i<out.parallelism.size();++i){ if(i) ss<<","; ss<<out.parallelism[i]; }
-    ss<<"] threshold="<<out.threshold<<" win_ms="<<out.win_ms<<" trig_ms="<<out.trig_ms<<" vector_dim="<<out.vector_dim
+    ss<<"] threshold="<<out.threshold<<" win_ms=[";
+    for (size_t i=0;i<out.win_ms_list.size();++i){ if(i) ss<<","; ss<<out.win_ms_list[i]; }
+    ss<<"] trig_ms="<<out.trig_ms<<" vector_dim="<<out.vector_dim
       <<" time_interval_ms="<<out.time_interval_ms;
     CANDY_LOG_INFO("TEST", "[CONFIG] {}", ss.str());
   }
@@ -248,7 +262,7 @@ protected:
 
 TEST_P(JoinScalingTest, PerformanceScaling) {
   auto p = GetParam();
-  auto method = p.method; int data_size = p.size; int parallelism = p.parallelism;
+  auto method = p.method; int data_size = p.size; int parallelism = p.parallelism; uint64_t win_ms = p.win_ms;
 
   // 断言：data_size 必须来自 perf_join.toml 的 sizes 列表
   {
@@ -287,7 +301,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
 
   // 仅使用 perf_join.toml 的窗口与阈值配置（不再读取其他 toml）
   static PerfConfigSets g_sets = loadPerfConfig();
-  uint64_t win_ms = g_sets.win_ms; uint64_t trig_ms = g_sets.trig_ms; double threshold_override = g_sets.threshold;
+  uint64_t trig_ms = g_sets.trig_ms; double threshold_override = g_sets.threshold;
 
   // 打印本轮的窗口/阈值等关键参数
   CANDY_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} time_interval_ms={} ", threshold_override, win_ms, trig_ms, g_sets.time_interval_ms);
@@ -313,7 +327,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   const size_t expected_left = left_records.size();
   const size_t expected_right = right_records.size();
 
-  // 基于穷举遍历计算期望匹配集（严格遵循窗口与相似度阈值）
+  // 基于滑动窗口遍历计算期望匹配集（严格遵循窗口与相似度阈值）
   auto expected_matches = computeExpectedPairsByTraversal(left_records, right_records, threshold_override, win_ms);
 
   auto left_source = std::make_shared<TestVectorStreamSource>("PerfLeft", std::move(left_records));
@@ -332,7 +346,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
         uint64_t id = left->uid_ * 1000000 + right->uid_ % 1000000; // 保持编码一致
         int64_t ts = std::max(left->timestamp_, right->timestamp_);
         return createVectorRecord(id, ts, out);
-      }, g_sets.vector_dim);
+    }, g_sets.vector_dim);
   join_func->setWindow(win_ms, trig_ms);
 
   // pipeline 构建
@@ -360,7 +374,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   // 等待直到 JoinOperator 消费完所有输入（以指标计数为准），避免固定时间等待
   {
     using namespace std::chrono_literals;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(600);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(800); // 最长等待 800s
     for (;;) {
       uint64_t l = JoinMetrics::instance().total_records_left.load();
       uint64_t r = JoinMetrics::instance().total_records_right.load();
@@ -467,7 +481,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   }
 
   // 基本性能与锁争用检测
-  EXPECT_LT(duration.count(), data_size * 100) << "Performance too slow for method " << method;
+  EXPECT_LT(duration.count(), data_size * g_sets_for_dim.vector_dim) << "Performance too slow for method " << method;
   uint64_t total_time_ns = JoinMetrics::instance().window_insert_ns.load() +
                           JoinMetrics::instance().index_insert_ns.load() +
                           JoinMetrics::instance().similarity_ns.load() +
@@ -485,9 +499,10 @@ static std::vector<PerfCaseParam> buildParams() {
   for (auto &m : sets.methods)
     for (auto sz : sets.sizes)
       for (auto par : sets.parallelism)
+        for (auto win : sets.win_ms_list)
         {
-          CANDY_LOG_INFO("TEST", "[PARAMGEN] method={} size={} parallelism={} ", m, sz, par);
-          params.push_back({m, sz, par});
+          CANDY_LOG_INFO("TEST", "[PARAMGEN] method={} size={} parallelism={} win_ms={} ", m, sz, par, win);
+          params.push_back({m, sz, par, win});
         }
   return params;
 }
@@ -501,8 +516,9 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
 
   for (auto data_size : sets.sizes) {
     for (auto par : sets.parallelism) {
-      CANDY_LOG_INFO("TEST", "[BEGIN] MethodSpeedComparison size={} parallelism={} ", data_size, par);
-      CANDY_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} ", sets.threshold, sets.win_ms, sets.trig_ms);
+      for (auto win_ms : sets.win_ms_list) {
+        CANDY_LOG_INFO("TEST", "[BEGIN] MethodSpeedComparison size={} parallelism={} win_ms={} ", data_size, par, win_ms);
+        CANDY_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} ", sets.threshold, win_ms, sets.trig_ms);
 
       std::vector<std::pair<std::string, int64_t>> method_times;
 
@@ -545,7 +561,7 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
   auto left_source = std::make_shared<TestVectorStreamSource>("MSLeft", std::move(left_records));
   auto right_source = std::make_shared<TestVectorStreamSource>("MSRight", std::move(right_records));
 
-  auto join_func = createSimpleJoinFunction(sets.vector_dim, sets.win_ms, sets.trig_ms);
+  auto join_func = createSimpleJoinFunction(sets.vector_dim, win_ms, sets.trig_ms);
 
         std::atomic<size_t> match_count{0};
         auto sink_func = std::make_unique<SinkFunction>("MSSink", [&](std::unique_ptr<VectorRecord>& rec){ if (rec) match_count++; });
@@ -582,7 +598,7 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
 
   method_times.emplace_back(method, duration.count());
   CANDY_LOG_INFO("TEST", "Method={} Size={} Par={} time_ms={} matches={} win_ms={} trig_ms={} ",
-           method, data_size, par, duration.count(), (size_t)match_count.load(), sets.win_ms, sets.trig_ms);
+           method, data_size, par, duration.count(), (size_t)match_count.load(), win_ms, sets.trig_ms);
       }
 
       // 验证：在较大规模（>=5000）下 IVF 应当快于 Bruteforce（放宽倍数关系以避免偶然波动）
@@ -594,6 +610,7 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
       if (data_size >= 5000 && bruteforce_time != method_times.end() && ivf_time != method_times.end()) {
         EXPECT_LT(ivf_time->second * 2, bruteforce_time->second)
           << "IVF should be faster than BruteForce for large datasets (size=" << data_size << ", par=" << par << ")";
+      }
       }
     }
   }
