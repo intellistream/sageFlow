@@ -3,8 +3,11 @@ add_library(
         monitoring.cpp
         log_config.cpp
 )
-target_link_libraries(
-        utils
-        ${PROFILER_LIB}
-        ${TCMALLOC_LIB}
-)
+
+if(ENABLE_GPERFTOOLS)
+    target_link_libraries(
+            utils
+            ${PROFILER_LIB}
+            ${TCMALLOC_LIB}
+    )
+endif()
