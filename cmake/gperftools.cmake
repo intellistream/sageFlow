@@ -4,8 +4,12 @@ find_library(TCMALLOC_LIB tcmalloc)
 
 # 检查是否找到库
 if(NOT PROFILER_LIB)
-    message(FATAL_ERROR "Profiler library not found.")
+    message(WARNING "Profiler library not found. Performance profiling will be disabled.")
+    set(ENABLE_GPERFTOOLS OFF)
+else()
+    set(ENABLE_GPERFTOOLS ON)
 endif()
+
 if(NOT TCMALLOC_LIB)
-    message(FATAL_ERROR "TCMalloc library not found.")
+    message(WARNING "TCMalloc library not found. Memory allocation profiling will be disabled.")
 endif()

@@ -19,6 +19,15 @@ class SimpleStreamSource final : public DataStreamSource {
 
   auto Next() -> std::unique_ptr<VectorRecord> override;
 
+  // Programmatic ingestion APIs
+  void addRecord(const VectorRecord &rec) {
+    records_.push_back(std::make_unique<VectorRecord>(rec));
+  }
+
+  void addRecord(uint64_t uid, int64_t timestamp, VectorData &&data) {
+    records_.push_back(std::make_unique<VectorRecord>(uid, timestamp, std::move(data)));
+  }
+
  private:
   std::string file_path_;
   std::vector<std::unique_ptr<VectorRecord>> records_;

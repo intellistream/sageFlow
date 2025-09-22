@@ -17,7 +17,7 @@ candy::SimpleStreamSource::SimpleStreamSource(std::string name, std::string file
 void candy::SimpleStreamSource::Init() {
   if (file_path_.empty()) {
     // 测试环境下可为空：不加载任何记录
-  CANDY_LOG_INFO("SOURCE", "SimpleStreamSource empty path name={} ", name_);
+    CANDY_LOG_INFO("SOURCE", "SimpleStreamSource empty path name={} ", name_);
     return;
   }
   std::ifstream file(file_path_, std::ios::binary);
