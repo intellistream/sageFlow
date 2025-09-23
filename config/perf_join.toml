@@ -9,9 +9,9 @@ name = "perf_join_test"
 sizes = [4000]
 ## 旧版本无 records_count；解析器需要该字段。若提供 sizes，则 records_count 仅作占位。
 records_count = 10
-vector_dim = 128
+vector_dim = 64
 # 并行度
-parallelism = [20,32,40]
+parallelism = [1,2,4,8,16,32,40]
 # 窗口参数（可选）
 window_time_ms = [10000]
 window_trigger_ms = 50

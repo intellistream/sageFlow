@@ -106,9 +106,8 @@ auto JoinOperator::updateSideThreadSafe(
     std::unique_ptr<VectorRecord>& data_ptr,
     int64_t now_time_stamp,
     int slot) -> bool {
-#ifdef CANDY_ENABLE_METRICS
-    uint64_t lock_start = ScopedAccumulateAtomic::now_ns();
-#endif
+    // 备注：本函数中将分别对窗口插入/过期与索引插入/删除进行分段计时；
+    // 同时为每一次加锁补充 lock_wait 统计，避免漏计导致占比异常。
     std::unique_ptr<VectorRecord> data_for_index_insert = nullptr;
     if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
         data_for_index_insert = std::make_unique<VectorRecord>(*data_ptr);
@@ -118,11 +117,21 @@ auto JoinOperator::updateSideThreadSafe(
 #endif
     std::unique_lock<std::shared_mutex> lock(records_mutex);
 #ifdef CANDY_ENABLE_METRICS
-    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_lock, std::memory_order_relaxed);
-    ScopedTimerAtomic t_window(JoinMetrics::instance().window_insert_ns);
+    {
+        uint64_t waited = ScopedAccumulateAtomic::now_ns() - before_lock;
+        // 锁等待：单独统计 + 计入窗口阶段（使 compute 覆盖锁等待）
+        JoinMetrics::instance().lock_wait_ns.fetch_add(waited, std::memory_order_relaxed);
+        JoinMetrics::instance().window_insert_ns.fetch_add(waited, std::memory_order_relaxed);
+    }
     if (slot==0) JoinMetrics::instance().total_records_left.fetch_add(1,std::memory_order_relaxed); else JoinMetrics::instance().total_records_right.fetch_add(1,std::memory_order_relaxed);
 #endif
-    records.emplace_back(std::move(data_ptr));
+    // 窗口插入阶段（仅插入）
+    {
+#ifdef CANDY_ENABLE_METRICS
+        ScopedTimerAtomic t_window_ins(JoinMetrics::instance().window_insert_ns);
+#endif
+        records.emplace_back(std::move(data_ptr));
+    }
 
     if (use_index_ && concurrency_manager_ && data_for_index_insert && index_id_for_cc != -1) {
 #ifdef CANDY_ENABLE_METRICS
@@ -144,31 +153,31 @@ auto JoinOperator::updateSideThreadSafe(
     auto& window = (slot == 0) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
 
     int64_t timelimit = window.windowTimeLimit(now_time_stamp);
-#ifdef CANDY_ENABLE_METRICS
-    {
-        ScopedTimerAtomic t_expire(JoinMetrics::instance().expire_ns);
-#endif
-      CANDY_LOG_DEBUG("JOIN", "Expiring records before timestamp {} now={} current_size={} ", timelimit, now_time_stamp, records.size());
-      try {
+    // 窗口过期阶段（包含过期判定与容器维护；索引删除单独计时）
+    CANDY_LOG_DEBUG("JOIN", "Expiring records before timestamp {} now={} current_size={} ", timelimit, now_time_stamp, records.size());
+    try {
+        // 过期阶段的容器维护开销：将每次 pop_front 计入 window_insert_ns，索引删除计入 index_insert_ns。
         while (!records.empty() && records.front()->timestamp_ <= timelimit) {
-          uint64_t expired_uid = records.front()->uid_;
-          records.pop_front();
-          if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
+            uint64_t expired_uid = records.front()->uid_;
+            {
 #ifdef CANDY_ENABLE_METRICS
-            ScopedTimerAtomic t_idx(JoinMetrics::instance().index_insert_ns);
+                ScopedTimerAtomic t_window_expire_unit(JoinMetrics::instance().window_insert_ns);
 #endif
-            // lock.unlock();
-            concurrency_manager_->erase(index_id_for_cc, expired_uid);
-            // lock.lock();
-          }
+                records.pop_front();
+            }
+            if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
+#ifdef CANDY_ENABLE_METRICS
+                ScopedTimerAtomic t_idx_del(JoinMetrics::instance().index_insert_ns);
+#endif
+                // lock.unlock();
+                concurrency_manager_->erase(index_id_for_cc, expired_uid);
+                // lock.lock();
+            }
         }
         CANDY_LOG_DEBUG("JOIN", "Expiration loop finished. current_size={} ", records.size());
-      } catch (const std::exception& e) {
+    } catch (const std::exception& e) {
         CANDY_LOG_ERROR("JOIN", "Exception during expiration: what={} ", e.what());
-      }
-#ifdef CANDY_ENABLE_METRICS
     }
-#endif
 
     CANDY_LOG_DEBUG("JOIN", "Before unlocking records mutex. size={} ", records.size());
     lock.unlock();
@@ -227,16 +236,27 @@ std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidates(
     }
     std::deque<std::unique_ptr<VectorRecord>> query_records_copy; // 改为 deque
     if (slot == left_slot_id_) {
-        std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
+    // 加锁等待计入 lock_wait
 #ifdef CANDY_ENABLE_METRICS
-        uint64_t before_wait = ScopedAccumulateAtomic::now_ns();
+    uint64_t before_wait = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_wait, std::memory_order_relaxed);
 #endif
         for (auto &p : left_records_)
           if (p) {
             query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
           }
     } else {
-        std::shared_lock<std::shared_mutex> lk(right_records_mutex_);
+    // 加锁等待计入 lock_wait
+#ifdef CANDY_ENABLE_METRICS
+    uint64_t before_wait = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::shared_lock<std::shared_mutex> lk(right_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_wait, std::memory_order_relaxed);
+#endif
         for (auto &p : right_records_)
           if (p) {
             query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
@@ -259,12 +279,17 @@ void JoinOperator::executeJoinForCandidates(
     int slot,
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
 #ifdef CANDY_ENABLE_METRICS
+    // 注：similarity_ns 仅用于粗粒度的候选比对阶段计时；
     ScopedTimerAtomic t_similarity(JoinMetrics::instance().similarity_ns);
 #endif
     if (slot == 0) {
-        std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
+    // 加锁等待计入 lock_wait
 #ifdef CANDY_ENABLE_METRICS
-        JoinMetrics::instance().lock_wait_ns.fetch_add(0, std::memory_order_relaxed);
+    uint64_t before_wait = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_wait, std::memory_order_relaxed);
 #endif
         for (auto &cand : candidates) {
             if (validateCandidateInWindow(cand, right_records_)) {
@@ -302,7 +327,14 @@ void JoinOperator::executeJoinForCandidates(
             }
         }
     } else {
-        std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
+    // 加锁等待计入 lock_wait
+#ifdef CANDY_ENABLE_METRICS
+    uint64_t before_wait = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_wait, std::memory_order_relaxed);
+#endif
         for (auto &cand : candidates) {
             if (validateCandidateInWindow(cand, left_records_)) {
                 auto left_copy = std::make_unique<VectorRecord>(*cand);
@@ -345,9 +377,24 @@ void JoinOperator::executeLazyJoin(
     const std::vector<std::unique_ptr<VectorRecord>>& candidates,
     int slot,
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
+#ifdef CANDY_ENABLE_METRICS
+    // 统一计量 Lazy 路径的候选匹配阶段
+    ScopedTimerAtomic t_similarity(JoinMetrics::instance().similarity_ns);
+#endif
     if (slot == left_slot_id_) {
-        std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
-        std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
+    // 两侧加锁等待计入 lock_wait
+#ifdef CANDY_ENABLE_METRICS
+    uint64_t before_wait_r = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_wait_r, std::memory_order_relaxed);
+    uint64_t before_wait_l = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_wait_l, std::memory_order_relaxed);
+#endif
         for (auto &l : left_records_) {
             if (!l) continue;
             for (auto &cand : candidates) {
@@ -357,6 +404,9 @@ void JoinOperator::executeLazyJoin(
                     Response lhs{ResponseType::Record, std::move(left_copy)};
                     Response rhs{ResponseType::Record, std::move(right_copy)};
                     try {
+#ifdef CANDY_ENABLE_METRICS
+                        ScopedTimerAtomic t_joinF(JoinMetrics::instance().join_function_ns);
+#endif
                         auto res = join_func_->Execute(lhs, rhs);
                         if (res.record_) local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
                     } catch (const std::exception& e) {
@@ -373,8 +423,19 @@ void JoinOperator::executeLazyJoin(
             }
         }
     } else {
-        std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
-        std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
+    // 两侧加锁等待计入 lock_wait
+#ifdef CANDY_ENABLE_METRICS
+    uint64_t before_wait_l = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_wait_l, std::memory_order_relaxed);
+    uint64_t before_wait_r = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    JoinMetrics::instance().lock_wait_ns.fetch_add(ScopedAccumulateAtomic::now_ns() - before_wait_r, std::memory_order_relaxed);
+#endif
         for (auto &r : right_records_) {
             if (!r) continue;
             for (auto &cand : candidates) {
@@ -384,6 +445,9 @@ void JoinOperator::executeLazyJoin(
                     Response lhs{ResponseType::Record, std::move(left_copy)};
                     Response rhs{ResponseType::Record, std::move(right_copy)};
                     try {
+#ifdef CANDY_ENABLE_METRICS
+                        ScopedTimerAtomic t_joinF(JoinMetrics::instance().join_function_ns);
+#endif
                         auto res = join_func_->Execute(lhs, rhs);
                         if (res.record_) local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
                     } catch (const std::exception& e) {
@@ -441,8 +505,27 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
         executeJoinForCandidates(candidates, data_ptr, slot, local_return_pool);
     } else {
         executeLazyJoin(candidates, slot, local_return_pool);
-        std::unique_lock<std::shared_mutex> lkL(left_records_mutex_);
-        std::unique_lock<std::shared_mutex> lkR(right_records_mutex_);
+    // 清理窗口前加锁等待计入 lock_wait 与 window_insert_ns（视为窗口阶段的一部分）
+#ifdef CANDY_ENABLE_METRICS
+    uint64_t before_wait_L = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::unique_lock<std::shared_mutex> lkL(left_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    {
+        uint64_t waited = ScopedAccumulateAtomic::now_ns() - before_wait_L;
+        JoinMetrics::instance().lock_wait_ns.fetch_add(waited, std::memory_order_relaxed);
+        JoinMetrics::instance().window_insert_ns.fetch_add(waited, std::memory_order_relaxed);
+    }
+    uint64_t before_wait_R = ScopedAccumulateAtomic::now_ns();
+#endif
+    std::unique_lock<std::shared_mutex> lkR(right_records_mutex_);
+#ifdef CANDY_ENABLE_METRICS
+    {
+        uint64_t waited = ScopedAccumulateAtomic::now_ns() - before_wait_R;
+        JoinMetrics::instance().lock_wait_ns.fetch_add(waited, std::memory_order_relaxed);
+        JoinMetrics::instance().window_insert_ns.fetch_add(waited, std::memory_order_relaxed);
+    }
+#endif
         left_records_.clear();
         right_records_.clear();
     }
