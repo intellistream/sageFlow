@@ -1,26 +1,93 @@
-# ignore everything
-/*
+# Build directories
+build/
+cmake-build-*/
+dist/
+*.egg-info/
 
-# except for the some source folders
-!/src
-!/include
-!/test
-!/docs
-!/data
-!/config
-!/cmake
-!/examples
-!/third-party
-!/setup
-!/.github
+# Compiled Object files
+*.slo
+*.lo
+*.o
+*.obj
 
+# Precompiled Headers
+*.gch
+*.pch
 
-# except for some files
-!/.gitignore
-!/CMakeLists.txt
-!/README.md
-!/LICENSE
-!/.clang-format
-!/.clang-tidy
-data/siftsmall/answer.txt
-!sage_flow.py
+# Compiled Dynamic libraries
+*.so
+*.dylib
+*.dll
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.out
+*.app
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.bak
+.cache/
+
+# CMake
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+CTestTestfile.cmake
+_deps
+
+# Testing
+.coverage
+.pytest_cache/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+htmlcov/
+
+# Documentation
+docs/_build/
+
+# Data and examples (if generated)
+# Uncomment if needed
+# data/generated/
+# examples/output/
