@@ -17,13 +17,13 @@ RUN apt-get update && apt-get install -y \
     cd gperftools && \
     ./autogen.sh && ./configure && make -j && make install && ldconfig && \
     mkdir -p /home/dev && \
-    mkdir -p /home/dev/candyflow && \
+    mkdir -p /home/dev/sageflow && \
     mkdir /var/run/sshd && \
     echo 'root:root' | chpasswd && \
     sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config 
 
-COPY ../../ /home/dev/candyflow/
+COPY ../../ /home/dev/sageflow/
 
 EXPOSE 22
 

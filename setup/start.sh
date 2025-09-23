@@ -7,7 +7,7 @@ echo "Docker container is running. You can connect via SSH with:"
 echo "ssh root@localhost -p 2222"
 
 # Get the container ID or name dynamically using the service name
-service_name="candyflow"
+service_name="sageflow"
 container_name=$(docker-compose ps -q $service_name)
 
 # Wait for the container to start

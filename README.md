@@ -1,10 +1,10 @@
-## candyFlow
+## sageFlow
 
-`candyFlow` is a cutting-edge, vector-native stream processing engine designed specifically to maintain and materialize semantic state snapshots for real-time, LLM-based generation tasks. The engine offers a declarative API to compose stateful vector operations within temporal windows, enabling fast and efficient updates to semantic context for dynamically changing datasets.
+`sageFlow` is a cutting-edge, vector-native stream processing engine designed specifically to maintain and materialize semantic state snapshots for real-time, LLM-based generation tasks. The engine offers a declarative API to compose stateful vector operations within temporal windows, enabling fast and efficient updates to semantic context for dynamically changing datasets.
 
 ## Features
 
--   **Vector-Native Stream Processing**: At its core, candyFlow is built to handle high-dimensional vector streams efficiently.
+-   **Vector-Native Stream Processing**: At its core, sageFlow is built to handle high-dimensional vector streams efficiently.
 -   **Declarative API**: Easily compose complex, stateful vector operations such as `TopK`, `Filter`, and `Join` within defined temporal windows.
 -   **Incremental Low-Latency Updates**: Optimized for incremental computations, ensuring semantic states are updated with minimal delay.
 -   **Optimized Three-Phase Pipeline**: Abstracts stream processing into three distinct phases—ingestion, state materialization, and snapshot exposure—unlocking significant optimization opportunities.
@@ -19,9 +19,9 @@
 
 ## Setup
 
-To setup `candyFlow` and it's dependencies, begin by making sure that you have `docker` installed, or any **Linux** release version that contains `apt`, such as `Ubuntu` or `Debian`
+To setup `sageFlow` and it's dependencies, begin by making sure that you have `docker` installed, or any **Linux** release version that contains `apt`, such as `Ubuntu` or `Debian`
 
-We suggest first begin with `docker` before you are familiar with `candyFlow` .
+We suggest first begin with `docker` before you are familiar with `sageFlow`.
 
 ### Docker
 
@@ -45,7 +45,7 @@ cd <PATH_TO_REPO>/setup
 
 check the dependencies in <PATH_TO_REPO>/setup/Dockerfile, and build your env
 
-## candyFlow: examples
+## sageFlow: examples
 
 run the following commands to generate examples
 

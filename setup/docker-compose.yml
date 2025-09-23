@@ -1,9 +1,9 @@
 services:
-  candyflow:
+  sageflow:
     build:
       context: ../
       dockerfile: setup/Dockerfile
-    container_name: candyflow-runner
+  container_name: sageflow-runner
     ports:
       - "2222:22"
     stdin_open: true

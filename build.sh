@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "Building candyFlow with CMake..."
+echo "Building sageFlow with CMake..."
 
 # Create build directory if not exists
 mkdir -p build
@@ -12,4 +12,4 @@ cmake -B build
 # Build
 cmake --build build -j $(nproc)
 
-echo "candyFlow build completed."
+echo "sageFlow build completed."
