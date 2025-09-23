@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
+import time
 
 from sage.middleware.components.sage_flow.python.sage_flow import (
     SimpleStreamSource,
@@ -34,10 +35,8 @@ class SageFlowService:
         self._env = StreamEnvironment()
         self._source = SimpleStreamSource("sage_flow_service_source")
         self._lock = threading.Lock()
-
-        # default sink (no-op) to ensure pipeline validity
-        self._source.write_sink_py("noop_sink", lambda uid, ts: None)
-        self._env.addStream(self._source)
+        self._added_to_env = False
+        # Note: don't add to env yet; defer until a sink is attached
 
     # API expected by examples
     def push(self, uid: int, vec: np.ndarray) -> None:
@@ -57,11 +56,31 @@ class SageFlowService:
                     rec = self._q.get_nowait()
                 except queue.Empty:
                     break
-                ts = 0  # simplified timestamp
+                ts = int(time.time() * 1000)
                 self._source.addRecord(rec.uid, ts, rec.vec)
                 drained += 1
         if drained:
+            # If user hasn't attached sinks, add source to env once so execution proceeds
+            if not self._added_to_env:
+                # Attach a default printing sink for visibility
+                self._source.write_sink_py(
+                    "default_print_sink", lambda uid, ts: print(f"[svc sink] uid={uid}, ts={ts}", flush=True)
+                )
+                self._env.addStream(self._source)
+                self._added_to_env = True
             self._env.execute()
+
+    def set_sink(self, callback, name: str = "py_sink") -> None:
+        """Attach a Python sink callback for visible outputs.
+
+        Args:
+            callback: Callable taking (uid: int, ts: int)
+            name: Sink name, defaults to 'py_sink'.
+        """
+        self._source.write_sink_py(name, callback)
+        if not self._added_to_env:
+            self._env.addStream(self._source)
+            self._added_to_env = True
 
     # Optional: expose environment for advanced integrations
     @property
