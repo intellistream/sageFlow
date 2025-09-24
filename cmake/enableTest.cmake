@@ -1,5 +1,5 @@
 macro(add_gtest test_name)
 	add_executable(${test_name} ${ARGN})
-	target_link_libraries(${test_name} gtest_main)
+	target_link_libraries(${test_name} GTest::gtest_main)
 	add_test(NAME ${test_name} COMMAND ${test_name})
 endmacro()

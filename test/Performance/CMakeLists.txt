@@ -17,6 +17,6 @@ target_link_libraries(
 target_link_libraries(
     test_window_pipeline
     candy
-    gtest
-    gtest_main
+    GTest::gtest
+    GTest::gtest_main
 )
