@@ -10,7 +10,7 @@ import numpy as np
 
 try:
     from . import _sage_flow
-except ImportError:
+except ImportError as e:
     import importlib
     import sys
     from pathlib import Path
@@ -24,7 +24,12 @@ except ImportError:
     for p in candidate_paths:
         if p.exists():
             sys.path.insert(0, str(p))
-    _sage_flow = importlib.import_module("_sage_flow")
+    try:
+        _sage_flow = importlib.import_module("_sage_flow")
+    except Exception:
+        raise ImportError(
+            "_sage_flow native module not found. Please build the extension by running 'sage extensions install sage_flow' or executing the build.sh under packages/sage-middleware/src/sage/middleware/components/sage_flow."
+        ) from e
 
 DataType = _sage_flow.DataType
 VectorData = _sage_flow.VectorData
