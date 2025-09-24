@@ -1,5 +1,6 @@
 from conans import ConanFile
 
+
 class ArgparseConan(ConanFile):
     name = "argparse"
     version = "3.1"
