@@ -2,16 +2,13 @@ from __future__ import annotations
 
 import queue
 import threading
+import time
 from dataclasses import dataclass
 from typing import Optional
 
 import numpy as np
-import time
-
 from sage.middleware.components.sage_flow.python.sage_flow import (
-    SimpleStreamSource,
-    StreamEnvironment,
-)
+    SimpleStreamSource, StreamEnvironment)
 
 
 @dataclass
@@ -64,7 +61,8 @@ class SageFlowService:
             if not self._added_to_env:
                 # Attach a default printing sink for visibility
                 self._source.write_sink_py(
-                    "default_print_sink", lambda uid, ts: print(f"[svc sink] uid={uid}, ts={ts}", flush=True)
+                    "default_print_sink",
+                    lambda uid, ts: print(f"[svc sink] uid={uid}, ts={ts}", flush=True),
                 )
                 self._env.addStream(self._source)
                 self._added_to_env = True
