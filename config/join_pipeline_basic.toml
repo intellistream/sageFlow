@@ -1,0 +1,27 @@
+[pipeline]
+parallelism_source = 1
+parallelism_join = 3
+parallelism_sink = 1
+records_per_source = 10000
+vector_dim = 128
+similarity_threshold = 0.8
+join_method = "bruteforce_eager"   # 允许: "ivf_eager" "ivf_lazy" "bruteforce_eager" "bruteforce_lazy"
+
+[window]
+time_ms = 60000
+trigger_interval_ms = 1000
+
+[index.ivf]
+nlist = 64
+nprobes = 8
+rebuild_threshold = 0.05
+
+[data.pattern]
+# 控制性数据，用于可预测匹配数量
+positive_pairs = 10
+near_threshold_pairs = 10
+negative_pairs = 10
+random_tail = 10
+seed = 114514
+
+log.level = "warn"

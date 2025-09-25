@@ -1,8 +1,11 @@
-add_library(
+add_lib(
     storage
     storage_manager.cpp
 )
 target_link_libraries(
         storage
-        compute_engine
+    PRIVATE
+    compute_engine
+    utils
+    common
 )

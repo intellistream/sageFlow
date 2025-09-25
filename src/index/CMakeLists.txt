@@ -1,4 +1,4 @@
-add_library(
+add_lib(
         index
         knn.cpp
         hnsw.cpp
@@ -7,5 +7,6 @@ add_library(
 )
 target_link_libraries(
         index
+        PRIVATE
         storage
 )

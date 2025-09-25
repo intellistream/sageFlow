@@ -4,6 +4,10 @@
 #include <utils/conf_map.h>
 #include <utils/monitoring.h>  // Keep for potential detailed monitoring
 
+#ifdef CANDY_ENABLE_METRICS
+#include "operator/join_metrics.h"
+#endif
+
 #include <algorithm>  // For std::min
 #include <atomic>
 #include <chrono>
@@ -116,7 +120,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   for (int i = 0; i < num_base_vectors; ++i) {
     auto record = base_vector_source->Next();
 
-    if (!concurrency_manager->insert(index_id, record)) {
+    if (!concurrency_manager->insert(index_id, std::move(record))) {
       cerr << "Warning: Failed to insert base vector with UID " << record->uid_ << endl;
       continue;  // Skip this iteration if record is null
     }

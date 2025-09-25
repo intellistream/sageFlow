@@ -2,6 +2,7 @@
 // Created by Pygon on 25-4-9.
 //
 #include "common/data_types.h"
+#include <iomanip>
 #include <istream>
 #include <cstring>
 
@@ -51,6 +52,65 @@ bool candy::VectorData::Deserialize(std::istream &in) {
   data_ = std::make_unique<char[]>(dim_ * DATA_TYPE_SIZE[type_]);
   in.read(data_.get(), dim_ * DATA_TYPE_SIZE[type_]);
   return !in.fail();
+}
+
+void candy::VectorData::printData(std::ostream &os) const {
+  if (!data_) {
+    os << "Data is null." << std::endl;
+    return;
+  }
+
+  os << "VectorData (dim: " << dim_ << ", type: ";
+  switch (type_) {
+    case DataType::Int8:   os << "Int8";   break;
+    case DataType::Int16:  os << "Int16";  break;
+    case DataType::Int32:  os << "Int32";  break;
+    case DataType::Int64:  os << "Int64";  break;
+    case DataType::Float32:os << "Float32";break;
+    case DataType::Float64:os << "Float64";break;
+    case DataType::None:   os << "None";   break;
+    default: os << "Unknown"; break;
+  }
+  os << "): [";
+
+  if (type_ == DataType::None || dim_ == 0) {
+    os << "]" << std::endl;
+    return;
+  }
+
+  for (int32_t i = 0; i < dim_; ++i) {
+    switch (type_) {
+      case DataType::Int8:
+        os << static_cast<int32_t>(reinterpret_cast<int8_t*>(data_.get())[i]);
+        break;
+      case DataType::Int16:
+        os << reinterpret_cast<int16_t*>(data_.get())[i];
+        break;
+      case DataType::Int32:
+        os << reinterpret_cast<int32_t*>(data_.get())[i];
+        break;
+      case DataType::Int64:
+        os << reinterpret_cast<int64_t*>(data_.get())[i];
+        break;
+      case DataType::Float32:
+        os << std::fixed << std::setprecision(6) << reinterpret_cast<float*>(data_.get())[i];
+        break;
+      case DataType::Float64:
+        os << std::fixed << std::setprecision(6) << reinterpret_cast<double*>(data_.get())[i];
+        break;
+      case DataType::None: // Should not happen due to earlier check
+        break;
+    }
+    if (i < dim_ - 1) {
+      os << ", ";
+    }
+  }
+  os << "]" << std::endl;
+}
+
+void candy::VectorRecord::printRecord(std::ostream &os) const {
+  os << "VectorRecord (uid: " << uid_ << ", timestamp: " << timestamp_ << ")" << std::endl;
+  data_.printData(os);
 }
 
 candy::VectorRecord::VectorRecord(const uint64_t& uid, const int64_t& timestamp, VectorData&& data)

@@ -5,6 +5,7 @@ add_library(
 )
 target_link_libraries(
     ${library_name}
-    externalLibs
+    PRIVATE
+    externalRuntimeLibs
 )
 endmacro(add_lib library_name)

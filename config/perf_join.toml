@@ -1,0 +1,24 @@
+[[performance_test]]
+#methods = ["bruteforce_eager", "bruteforce_lazy", "ivf_eager", "ivf_lazy"]
+#methods = ["bruteforce_lazy", "ivf_lazy"]
+methods = ["bruteforce_eager", "ivf_eager"]
+#methods = ["ivf_eager"]
+# 新解析结构需要 name 字段；迁移时赋予一个标识名称
+name = "perf_join_test"
+# 数据规模
+sizes = [4000]
+## 旧版本无 records_count；解析器需要该字段。若提供 sizes，则 records_count 仅作占位。
+records_count = 10
+vector_dim = 64
+# 并行度
+parallelism = [1,2,4,8,16,32,40]
+# 窗口参数（可选）
+window_time_ms = [10000]
+window_trigger_ms = 50
+# 记录时间间隔（ms，控制相邻生成记录的时间差），可选，默认100
+time_interval = 10
+# 阈值（全局）
+similarity_threshold = 0.8
+seed = 42
+
+log.level = "debug"

@@ -1,9 +1,14 @@
-add_library(
+add_lib(
         concurrency
         blank_controller.cpp
         concurrency_manager.cpp
 )
 target_link_libraries(
         concurrency
+        PRIVATE
         index
+        storage
+        compute_engine
+        common
+        utils
 )

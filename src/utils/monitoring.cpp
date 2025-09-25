@@ -4,6 +4,7 @@
 #include <gperftools/profiler.h>
 #endif
 #include <utility>
+#include "utils/logger.h"
 
 namespace candy {
 
@@ -21,9 +22,9 @@ void PerformanceMonitor::StartProfiling() {
   if (!profiling_) {
     ProfilerStart(profile_output_file_.c_str());
     profiling_ = true;
-    std::cout << "Profiling started: " << profile_output_file_ << '\n';
+  CANDY_LOG_INFO("MONITOR", "profiling_started file={} ", profile_output_file_);
   } else {
-    std::cerr << "Profiling is already running." << '\n';
+  CANDY_LOG_WARN("MONITOR", "profiling_already_running file={} ", profile_output_file_);
   }
 #else
   std::cerr << "Profiling not available: gperftools not found." << '\n';
@@ -35,9 +36,9 @@ void PerformanceMonitor::StopProfiling() {
   if (profiling_) {
     ProfilerStop();
     profiling_ = false;
-    std::cout << "Profiling stopped and saved to: " << profile_output_file_ << '\n';
+  CANDY_LOG_INFO("MONITOR", "profiling_stopped file={} ", profile_output_file_);
   } else {
-    std::cerr << "Profiling is not running." << '\n';
+  CANDY_LOG_WARN("MONITOR", "profiling_not_running file={} ", profile_output_file_);
   }
 #else
   std::cerr << "Profiling not available: gperftools not found." << '\n';
@@ -46,13 +47,13 @@ void PerformanceMonitor::StopProfiling() {
 
 void PerformanceMonitor::StartTimer() {
   start_time_ = std::chrono::high_resolution_clock::now();
-  std::cout << "Timer started." << '\n';
+  CANDY_LOG_INFO("MONITOR", "timer_started");
 }
 
 void PerformanceMonitor::StopTimer(const std::string &task_name) {
   const auto end_time = std::chrono::high_resolution_clock::now();
   const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time_).count();
-  std::cout << "Task [" << task_name << "] completed in " << duration << " ms." << '\n';
+  CANDY_LOG_INFO("MONITOR", "task_done name={} duration_ms={} ", task_name, duration);
 }
 
 }  // namespace candy
