@@ -1,6 +1,7 @@
 # Fetch third-party dependencies using FetchContent
 include(FetchContent)
 
+# Dependency declarations -------------------------------------------------
 # argparse
 FetchContent_Declare(
     argparse
@@ -36,57 +37,55 @@ FetchContent_Declare(
     GIT_TAG        v3.4.0
 )
 
-# Configure options before making available
+# Configure upstream projects before fetching --------------------------------
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 set(BUILD_GTEST ON CACHE BOOL "" FORCE)
 set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
 
-# Make all dependencies available
+# Fetch and build third-party projects ---------------------------------------
 FetchContent_MakeAvailable(argparse fmt googletest spdlog tomlplusplus)
 
-# Retrieve source/include directories for header-only dependencies
-FetchContent_GetProperties(argparse)
-FetchContent_GetProperties(fmt)
-FetchContent_GetProperties(spdlog)
-FetchContent_GetProperties(tomlplusplus)
+# Ensure compiled libraries are position independent (shared objects, pybind11)
+foreach(_pic_target fmt spdlog)
+    if(TARGET ${_pic_target})
+        set_target_properties(${_pic_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    endif()
+endforeach()
 
-# Create interface libraries for external dependencies
+# Collect include directories exposed transitively through our interface libs
+set(_external_runtime_include_dirs "")
+foreach(_dep IN ITEMS argparse fmt spdlog tomlplusplus)
+    FetchContent_GetProperties(${_dep})
+    if(${_dep}_SOURCE_DIR AND EXISTS "${${_dep}_SOURCE_DIR}/include")
+        list(APPEND _external_runtime_include_dirs "${${_dep}_SOURCE_DIR}/include")
+    endif()
+endforeach()
+if(_external_runtime_include_dirs)
+    list(REMOVE_DUPLICATES _external_runtime_include_dirs)
+    message(STATUS "externalRuntimeLibs include dirs: ${_external_runtime_include_dirs}")
+endif()
+
+# Interface library consumed by runtime components ---------------------------
 add_library(externalRuntimeLibs INTERFACE)
 target_link_libraries(
     externalRuntimeLibs INTERFACE
     argparse
-    fmt::fmt-header-only
-    spdlog::spdlog_header_only
+    fmt::fmt
+    spdlog::spdlog
     tomlplusplus::tomlplusplus
 )
 target_compile_definitions(
     externalRuntimeLibs INTERFACE
     SPDLOG_FMT_EXTERNAL=1
-    FMT_HEADER_ONLY=1
 )
-set(_external_runtime_include_dirs "")
-if(argparse_SOURCE_DIR)
-    list(APPEND _external_runtime_include_dirs ${argparse_SOURCE_DIR}/include)
-endif()
-if(fmt_SOURCE_DIR)
-    list(APPEND _external_runtime_include_dirs ${fmt_SOURCE_DIR}/include)
-endif()
-if(spdlog_SOURCE_DIR)
-    list(APPEND _external_runtime_include_dirs ${spdlog_SOURCE_DIR}/include)
-endif()
-if(tomlplusplus_SOURCE_DIR)
-    list(APPEND _external_runtime_include_dirs ${tomlplusplus_SOURCE_DIR}/include)
-endif()
-
 if(_external_runtime_include_dirs)
-    list(REMOVE_DUPLICATES _external_runtime_include_dirs)
-    message(STATUS "externalRuntimeLibs include dirs: ${_external_runtime_include_dirs}")
     target_include_directories(
         externalRuntimeLibs INTERFACE
         ${_external_runtime_include_dirs}
     )
 endif()
 
+# Interface library consumed by tests ----------------------------------------
 add_library(externalTestLibs INTERFACE)
 target_link_libraries(
     externalTestLibs INTERFACE
