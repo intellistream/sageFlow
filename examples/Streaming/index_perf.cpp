@@ -53,7 +53,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     base_stream->Init();
     std::unique_ptr<VectorRecord> record;
     while ((record = base_stream->Next())) {
-      concurrency_manager->insert(index_id, record);
+      concurrency_manager->insert(index_id, std::move(record));
     }
     auto file_stream = make_shared<SimpleStreamSource>("FileStream", "data/vector_records_high_query.bin");
     file_stream->topk(index_id, 5);

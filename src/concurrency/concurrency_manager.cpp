@@ -43,28 +43,32 @@ auto candy::ConcurrencyManager::create_index(const std::string& name, const Inde
   const auto blank_controller = std::make_shared<BlankController>(index);
 
   controller_map_[index->index_id_] = blank_controller;
-  index_map_[name] = IdWithType{index->index_id_, index_type};
+  index_map_[name] = IdWithType{.id_ = index->index_id_, .index_type_ = index_type};
   return index->index_id_;
+}
+
+auto candy::ConcurrencyManager::create_index(const std::string& name, int dimension) -> int {
+  return create_index(name, IndexType::BruteForce, dimension);
 }
 
 auto candy::ConcurrencyManager::drop_index(const std::string& name) -> bool { return false; }
 
-auto candy::ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecord>& record) -> bool {
+auto candy::ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecord> record) -> bool {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return false;
   }
   const auto& controller = it->second;
-  return controller->insert(record);
+  return controller->insert(std::move(record));
 }
 
-auto candy::ConcurrencyManager::erase(const int index_id, std::unique_ptr<VectorRecord>& record) -> bool {
+auto candy::ConcurrencyManager::erase(int index_id, std::unique_ptr<VectorRecord> record) -> bool {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return false;
   }
   const auto& controller = it->second;
-  return controller->erase(record);
+  return controller->erase(std::move(record));
 }
 
 auto candy::ConcurrencyManager::erase(int index_id, uint64_t uid) -> bool {
@@ -76,12 +80,22 @@ auto candy::ConcurrencyManager::erase(int index_id, uint64_t uid) -> bool {
   return controller->erase(uid);
 }
 
-auto candy::ConcurrencyManager::query(const int index_id, std::unique_ptr<VectorRecord>& record, int k)
-    -> std::vector<std::unique_ptr<VectorRecord>> {
+auto candy::ConcurrencyManager::query(int index_id, const VectorRecord& record, int k)
+    -> std::vector<std::shared_ptr<const VectorRecord>> {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return {};
   }
   const auto& controller = it->second;
   return controller->query(record, k);
+}
+
+auto candy::ConcurrencyManager::query_for_join(int index_id, const VectorRecord& record,
+                      double join_similarity_threshold) -> std::vector<std::shared_ptr<const VectorRecord>> {
+  const auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return {};
+  }
+  const auto& controller = it->second;
+  return controller->query_for_join(record, join_similarity_threshold);
 }

@@ -3,9 +3,27 @@ cmake_minimum_required(VERSION 3.20)
 project(CANDY CXX)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# 是否启用运行时指标采集代码（通过编译宏控制）。默认开启以保持现有行为。
+option(CANDY_ENABLE_METRICS "Enable metrics instrumentation in join/operator and tests" ON)
+message(STATUS "CANDY_ENABLE_METRICS: ${CANDY_ENABLE_METRICS}")
+
+# 启用测试选项（CLion 识别 gtest 必需）
+option(BUILD_TESTING "Build tests" ON)
+if(BUILD_TESTING)
+    enable_testing()
+endif()
+
 
 include(cmake/macros.cmake)
+option(ENABLE_GPERFTOOLS "Enable gperftools profiling support" ON)
 include(cmake/gperftools.cmake)
+
+# 先构建第三方库，确保 gtest/gtest_main 目标可用
+add_subdirectory(third-party)
+
 include(cmake/enableTest.cmake)
 
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -34,7 +52,6 @@ if(ENABLE_GPERFTOOLS)
     add_definitions(-DENABLE_GPERFTOOLS)
 endif()
 
-add_subdirectory(third-party)
 add_subdirectory(src)
 add_subdirectory(test)
 add_subdirectory(examples)
@@ -50,17 +67,8 @@ FetchContent_MakeAvailable(pybind11)
 
 pybind11_add_module(_sage_flow python/bindings.cpp)
 target_link_libraries(_sage_flow PRIVATE
-    common
-    stream
-    function
-    operator
-    index
-    concurrency
-    storage
-    compute_engine
-    utils
-    spdlog::spdlog
-    fmt::fmt
+    candy
+    externalRuntimeLibs
 )
 target_include_directories(_sage_flow PRIVATE include)
 

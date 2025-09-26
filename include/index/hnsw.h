@@ -6,19 +6,23 @@
 namespace candy {
 class HNSW final : public Index {
  public:
-  HNSW(int m = 20, int ef_construction = 100, int ef_search = 40);
+  // HNSW() : HNSW(20, 100, 40) {}
+  explicit HNSW(int m = 20, int ef_construction = 100, int ef_search = 40);
 
   ~HNSW() override = default;
 
   auto insert(uint64_t uid) -> bool override;
   auto erase(uint64_t uid) -> bool override;
-  auto query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> override;
+  auto query(const VectorRecord &record, int k) -> std::vector<uint64_t> override;
   auto select_neighbors_heuristic(const VectorRecord& q, const std::vector<uint64_t>& c, int m, int lc,
                                   bool extend_candidates, bool keep_pruned_connections) const -> std::vector<uint64_t>;
-
   inline auto select_neighbors_basic(const VectorRecord& q, const std::vector<uint64_t>& C, int M,
                                      int lc) const -> std::vector<uint64_t>;
-
+  auto query_for_join(const VectorRecord &record,
+                            double join_similarity_threshold) -> std::vector<uint64_t> override {
+    // NOT IMPLEMENTED;
+    return {};
+  }
  private:
   struct Neighbor {
     uint64_t id_;  // uid（即 storage_engine 中的 id）

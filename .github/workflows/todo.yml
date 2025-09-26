@@ -7,12 +7,22 @@ on:
 
 jobs:
   todo_to_issue:
-    runs-on: self-hosted
+    # 使用 GitHub 托管的 Runner
+    runs-on: ubuntu-latest
+
+    # 需要创建 Issue 和（在同仓库分支上）提交回链路
+    permissions:
+      contents: write   # 允许 push 回 PR 分支（仅当来自同仓库分支时）
+      issues: write     # 允许创建/更新 Issue
+      pull-requests: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0  # 获取完整的git历史
+          # 若是 PR 事件，检出 PR 的来源分支，便于在其上提交更改（仅同仓库 PR 有权限）
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
       - name: TODO to Issue
         uses: alstr/todo-to-issue-action@v5
@@ -25,10 +35,14 @@ jobs:
           DIFF_URL: ""
 
       - name: Set Git User
+        shell: bash
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
       - name: Commit and Push Changes
+        # 仅当为同仓库的 PR 分支时才尝试提交回去（fork PR 无法推送）
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository }}
+        shell: bash
         run: |
           git add -A
           if [[ $(git status --porcelain) ]]; then

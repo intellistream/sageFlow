@@ -1,4 +1,13 @@
-add_library(
+add_lib(
         optimizer
         planner.cpp
+)
+target_link_libraries(
+        optimizer
+        PRIVATE
+        operator
+        function
+        execution
+        concurrency
+        stream
 )

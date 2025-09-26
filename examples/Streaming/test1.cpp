@@ -52,13 +52,13 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
     auto index_id = concurrency_manager->create_index("test_index", IndexType::BruteForce, 3);
     auto record = make_unique<VectorRecord>(
         1, 3, VectorData{3, DataType::Float32, reinterpret_cast<char *>(new float[3]{1, 2, 3})});
-    concurrency_manager->insert(index_id, record);
+    concurrency_manager->insert(index_id, std::move(record));
     record = make_unique<VectorRecord>(
         2, 3, VectorData{3, DataType::Float32, reinterpret_cast<char *>(new float[3]{4, 5, 6})});
-    concurrency_manager->insert(index_id, record);
+    concurrency_manager->insert(index_id, std::move(record));
     record = make_unique<VectorRecord>(
         3, 3, VectorData{3, DataType::Float32, reinterpret_cast<char *>(new float[3]{7, 8, 9})});
-    concurrency_manager->insert(index_id, record);
+    concurrency_manager->insert(index_id, std::move(record));
     auto file_stream = make_shared<SimpleStreamSource>("FileStream", conf.getString("inputPath"));
     file_stream
         ->filter(std::make_unique<FilterFunction>("filter1",

@@ -34,11 +34,11 @@ target_link_libraries(
         aggregate
         candy
 )
-macro(add_test name)
-    add_executable(${name} ${name}.cpp)
-    target_link_libraries(${name} candy)
+macro(add_streaming_example name)
+        add_executable(${name} ${name}.cpp)
+        target_link_libraries(${name} candy)
 endmacro()
-add_test(test1)
-add_test(test2)
-add_test(index_perf)
-add_test(buffer_test)
+add_streaming_example(test1)
+add_streaming_example(test2)
+add_streaming_example(index_perf)
+add_streaming_example(buffer_test)

@@ -9,6 +9,7 @@ add_lib(
 )
 target_link_libraries(
         stream
+        PRIVATE
         query
         function
         common

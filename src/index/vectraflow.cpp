@@ -14,19 +14,15 @@ auto candy::VectraFlow::erase(uint64_t id) -> bool { return true; }
 
 
 // 并行没搞明白 先不鸟它了
-auto candy::VectraFlow::query(std::unique_ptr<VectorRecord>& record, int k) -> std::vector<uint64_t> {
+auto candy::VectraFlow::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
+    const auto rec = &record;
 
-
-
-    
-    const auto rec = record.get();
-    
     std :: priority_queue<std::pair<double, uint64_t>> pq;
 
     std::vector<double> selfquare(datas_.size());
     for (size_t i = 0; i < datas_.size(); i++) {
-        auto rec = storage_manager_->getVectorByUid(datas_[i]).get();
-        auto square = storage_manager_->engine_->getVectorSquareLength(rec->data_);
+        auto rec_data = storage_manager_->getVectorByUid(datas_[i]).get();
+        auto square = storage_manager_->engine_->getVectorSquareLength(rec_data->data_);
         selfquare.emplace_back(square);
     }
 

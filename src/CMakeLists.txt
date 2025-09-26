@@ -14,6 +14,9 @@ add_subdirectory(
         concurrency
 )
 add_subdirectory(
+        execution
+)
+add_subdirectory(
         function
 )
 add_subdirectory(
@@ -35,10 +38,16 @@ add_library(
 target_link_libraries(
         candy
         INTERFACE
-        externalLibs
+        externalRuntimeLibs
+        execution
         stream
         query
         operator
+        function
+        common
         utils
         concurrency
+        storage
+        index
+        compute_engine
 )

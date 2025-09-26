@@ -1,10 +1,12 @@
-add_library(
+add_lib(
         utils
         monitoring.cpp
+        log_config.cpp
 )
 if(ENABLE_GPERFTOOLS)
     target_link_libraries(
             utils
+                        PRIVATE
             ${PROFILER_LIB}
             ${TCMALLOC_LIB}
     )

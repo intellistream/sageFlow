@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <utility>
+#include "utils/logger.h"
 
 candy::SiftStreamSource::SiftStreamSource(std::string name)
     : DataStreamSource(std::move(name), DataStreamSourceType::None) {}
@@ -16,7 +17,7 @@ candy::SiftStreamSource::SiftStreamSource(std::string name, std::string file_pat
 void candy::SiftStreamSource::Init() {
   std::ifstream file(file_path_, std::ios::binary);
   if (!file.is_open()) {
-    std::cerr << "Error opening file: " << file_path_ << std::endl;
+    CANDY_LOG_ERROR("SOURCE", "open_fail path={} ", file_path_);
     return;
   }
 
@@ -37,7 +38,7 @@ void candy::SiftStreamSource::Init() {
     if (!file.good() && !file.eof()) {
       // Error reading the vector data
       delete[] vector_data;
-      std::cerr << "Error reading vector data from file" << std::endl;
+      CANDY_LOG_ERROR("SOURCE", "read_vector_fail path={} index={} ", file_path_, records_.size());
       break;
     }
 
@@ -56,7 +57,7 @@ void candy::SiftStreamSource::Init() {
   }
 
   file.close();
-  std::cout << "Loaded " << records_.size() << " SIFT vectors from " << file_path_ << std::endl;
+  CANDY_LOG_INFO("SOURCE", "sift_loaded count={} path={} ", records_.size(), file_path_);
 }
 
 auto candy::SiftStreamSource::Next() -> std::unique_ptr<VectorRecord> {
