@@ -4,10 +4,10 @@ This directory manages external dependencies using CMake's FetchContent module i
 
 ## Dependencies
 
-- **argparse** (v3.0): Command line argument parser for C++
-- **fmt** (10.1.1): A modern formatting library
-- **googletest** (v1.14.0): Google's C++ testing framework
-- **spdlog** (v1.12.0): Fast C++ logging library
+- **argparse** (v3.1): Command line argument parser for C++
+- **fmt** (11.0.2): A modern formatting library
+- **googletest** (v1.15.2): Google's C++ testing framework
+- **spdlog** (v1.15.0): Fast C++ logging library
 - **tomlplusplus** (v3.4.0): Header-only TOML parser and serializer
 
 ## Migration from Embedded Source Code
