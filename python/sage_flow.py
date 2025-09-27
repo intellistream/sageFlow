@@ -11,10 +11,10 @@ import numpy as np
 try:
     from . import _sage_flow
 except ImportError as e:
+    import glob
     import importlib
     import sys
     from pathlib import Path
-    import glob
 
     here = Path(__file__).resolve().parent
     candidate_paths = [
@@ -24,12 +24,12 @@ except ImportError as e:
         here.parent / "build",  # build directory
         here.parent / "install",  # install directory
     ]
-    
+
     # Add paths to sys.path
     for p in candidate_paths:
         if p.exists() and str(p) not in sys.path:
             sys.path.insert(0, str(p))
-    
+
     # Try to find the .so file directly
     found_so = False
     for p in candidate_paths:
@@ -42,7 +42,7 @@ except ImportError as e:
                 if str(p) not in sys.path:
                     sys.path.insert(0, str(p))
                 break
-    
+
     try:
         _sage_flow = importlib.import_module("_sage_flow")
     except Exception:
