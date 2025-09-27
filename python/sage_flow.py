@@ -14,21 +14,41 @@ except ImportError as e:
     import importlib
     import sys
     from pathlib import Path
+    import glob
 
     here = Path(__file__).resolve().parent
-    # In repo build, lib is located at ../build/lib relative to project root; adjust upwards
     candidate_paths = [
+        here,  # same directory as this file (editable install case)
         here / "build" / "lib",  # standard local build
         here.parent / "build" / "lib",  # component-level build
+        here.parent / "build",  # build directory
+        here.parent / "install",  # install directory
     ]
+    
+    # Add paths to sys.path
+    for p in candidate_paths:
+        if p.exists() and str(p) not in sys.path:
+            sys.path.insert(0, str(p))
+    
+    # Try to find the .so file directly
+    found_so = False
     for p in candidate_paths:
         if p.exists():
-            sys.path.insert(0, str(p))
+            # Look for _sage_flow.*.so files
+            so_files = list(p.glob("_sage_flow*.so"))
+            if so_files:
+                found_so = True
+                # Add this directory to sys.path if not already there
+                if str(p) not in sys.path:
+                    sys.path.insert(0, str(p))
+                break
+    
     try:
         _sage_flow = importlib.import_module("_sage_flow")
     except Exception:
         raise ImportError(
-            "_sage_flow native module not found. Please build the extension by running 'sage extensions install sage_flow' or executing the build.sh under packages/sage-middleware/src/sage/middleware/components/sage_flow."
+            f"_sage_flow native module not found. Please build the extension by running 'sage extensions install sage_flow' or executing the build.sh under packages/sage-middleware/src/sage/middleware/components/sage_flow. "
+            f"Searched in: {[str(p) for p in candidate_paths if p.exists()]}, Found .so files: {found_so}"
         ) from e
 
 DataType = _sage_flow.DataType
