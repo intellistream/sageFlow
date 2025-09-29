@@ -8,7 +8,9 @@ from typing import Optional
 
 import numpy as np
 from sage.middleware.components.sage_flow.python.sage_flow import (
-    SimpleStreamSource, StreamEnvironment)
+    SimpleStreamSource,
+    StreamEnvironment,
+)
 
 
 @dataclass
