@@ -3,11 +3,10 @@ add_lib(
         monitoring.cpp
         log_config.cpp
 )
-if(ENABLE_GPERFTOOLS)
-    target_link_libraries(
-            utils
+if(ENABLE_GPERFTOOLS AND DEFINED SAGE_GPERFTOOLS_LIBS AND SAGE_GPERFTOOLS_LIBS)
+        target_link_libraries(
+                        utils
                         PRIVATE
-            ${PROFILER_LIB}
-            ${TCMALLOC_LIB}
-    )
+                        ${SAGE_GPERFTOOLS_LIBS}
+        )
 endif()

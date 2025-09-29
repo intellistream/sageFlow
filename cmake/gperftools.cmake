@@ -1,20 +1,21 @@
 if(NOT ENABLE_GPERFTOOLS)
     message(STATUS "gperftools profiling support disabled by option")
-    set(PROFILER_LIB "" CACHE FILEPATH "" FORCE)
-    set(TCMALLOC_LIB "" CACHE FILEPATH "" FORCE)
+    set(SAGE_GPERFTOOLS_LIBS "")
     return()
 endif()
 
-# 查找 gperftools 库
-find_library(PROFILER_LIB profiler)
-find_library(TCMALLOC_LIB tcmalloc)
+find_library(SAGE_GPERFTOOLS_PROFILER_LIB profiler)
+find_library(SAGE_GPERFTOOLS_TCMALLOC_LIB tcmalloc)
 
-# 检查是否找到库
-if(NOT PROFILER_LIB)
-    message(WARNING "Profiler library not found. Performance profiling will be disabled.")
+if(SAGE_GPERFTOOLS_PROFILER_LIB AND SAGE_GPERFTOOLS_TCMALLOC_LIB)
+    set(SAGE_GPERFTOOLS_LIBS ${SAGE_GPERFTOOLS_PROFILER_LIB} ${SAGE_GPERFTOOLS_TCMALLOC_LIB})
+    message(STATUS "gperftools found for sage_flow: ${SAGE_GPERFTOOLS_LIBS}")
+elseif(NOT SAGE_GPERFTOOLS_PROFILER_LIB)
+    message(WARNING "Profiler library not found. Disabling gperftools support.")
+    set(SAGE_GPERFTOOLS_LIBS "")
     set(ENABLE_GPERFTOOLS OFF CACHE BOOL "Enable gperftools profiling support" FORCE)
-endif()
-
-if(ENABLE_GPERFTOOLS AND NOT TCMALLOC_LIB)
-    message(WARNING "TCMalloc library not found. Memory allocation profiling will be disabled.")
+elseif(NOT SAGE_GPERFTOOLS_TCMALLOC_LIB)
+    message(WARNING "TCMalloc library not found. Disabling gperftools support.")
+    set(SAGE_GPERFTOOLS_LIBS "")
+    set(ENABLE_GPERFTOOLS OFF CACHE BOOL "Enable gperftools profiling support" FORCE)
 endif()
