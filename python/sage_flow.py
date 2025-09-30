@@ -4,14 +4,13 @@ SAGE Flow - High-performance vector stream processing engine (Python side)
 All Python-facing APIs for SAGE-Flow live under this module.
 """
 
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Dict, Optional
 
 import numpy as np
 
 try:
     from . import _sage_flow
 except ImportError as e:
-    import glob
     import importlib
     import sys
     from pathlib import Path

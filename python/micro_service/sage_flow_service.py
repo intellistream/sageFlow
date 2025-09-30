@@ -4,9 +4,13 @@ import queue
 import threading
 import time
 from dataclasses import dataclass
-from typing import Optional
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
 
 import numpy as np
+
 from sage.middleware.components.sage_flow.python.sage_flow import (
     SimpleStreamSource,
     StreamEnvironment,
