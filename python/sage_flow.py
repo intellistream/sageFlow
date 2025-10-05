@@ -46,7 +46,8 @@ except ImportError as e:
         _sage_flow = importlib.import_module("_sage_flow")
     except Exception:
         raise ImportError(
-            f"_sage_flow native module not found. Please build the extension by running 'sage extensions install sage_flow' or executing the build.sh under packages/sage-middleware/src/sage/middleware/components/sage_flow. "
+            "_sage_flow native module not found. Install it via 'sage extensions install sage_flow' "
+            "(add --force if you need to rebuild). "
             f"Searched in: {[str(p) for p in candidate_paths if p.exists()]}, Found .so files: {found_so}"
         ) from e
 
