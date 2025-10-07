@@ -11,7 +11,7 @@
 #include "storage/storage_manager.h"
 #include "execution/collector.h"
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 class JoinBruteForceTest : public ::testing::Test {
@@ -264,4 +264,4 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

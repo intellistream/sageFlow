@@ -5,7 +5,7 @@
 #include "common/data_types.h"
 #include "function/function.h"
 
-namespace candy {
+namespace sageFlow {
 
 class TopkFunction final : public Function {
  public:
@@ -20,4 +20,4 @@ class TopkFunction final : public Function {
   int k_ = 0;
   int index_id_ = 0;
 };
-};  // namespace candy
+};  // namespace sageFlow

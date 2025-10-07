@@ -7,7 +7,7 @@
 #include "common/data_types.h"
 #include "function/function.h"
 
-namespace candy {
+namespace sageFlow {
 
 class ITopkFunction final : public Function {
  public:
@@ -24,4 +24,4 @@ class ITopkFunction final : public Function {
   int dim_ = 0;
   std::unique_ptr<VectorRecord> record_;
 };
-};  // namespace candy
+};  // namespace sageFlow

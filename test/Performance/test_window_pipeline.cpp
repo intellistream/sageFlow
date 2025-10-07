@@ -20,7 +20,7 @@
 #include "operator/join_metrics.h"
 #endif
 
-using namespace candy;
+using namespace sageFlow;
 using namespace std;
 using namespace std::chrono;
 

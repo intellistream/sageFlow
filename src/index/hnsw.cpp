@@ -19,7 +19,7 @@
 
 
 
-namespace candy {
+namespace sageFlow {
 
 // --- Constructor ---
 // Based on the provided hnsw.h
@@ -494,4 +494,4 @@ auto HNSW::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
 }
 
 
-} // namespace candy
+} // namespace sageFlow

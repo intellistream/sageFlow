@@ -6,7 +6,7 @@
 
 #include "function/join_function.h"
 
-namespace candy {
+namespace sageFlow {
 
 enum class JoinMethodType {
   BRUTEFORCE_EAGER,
@@ -48,4 +48,4 @@ class BaseMethod {
   double join_similarity_threshold_;
  private:
 };
-}  // namespace candy
+}  // namespace sageFlow

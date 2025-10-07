@@ -2,7 +2,7 @@
 
 #include "function/function.h"
 
-namespace candy {
+namespace sageFlow {
 enum class WindowType {
   Sliding,
   Tumbling
@@ -24,4 +24,4 @@ class WindowFunction final : public Function {
   int window_size_;
   int slide_size_;
 };
-};  // namespace candy
+};  // namespace sageFlow

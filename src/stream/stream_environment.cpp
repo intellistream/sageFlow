@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace candy {
+namespace sageFlow {
 
 auto StreamEnvironment::loadConfiguration(const std::string &file_path) -> ConfigMap {
   ConfigMap config;
@@ -109,4 +109,4 @@ void StreamEnvironment::reset() {
   CANDY_LOG_INFO("ENV", "StreamEnvironment reset completed");
 }
 
-}  // namespace candy
+}  // namespace sageFlow

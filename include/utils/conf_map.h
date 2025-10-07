@@ -13,7 +13,7 @@
 
 #include "toml++/toml.hpp"
 
-namespace candy {
+namespace sageFlow {
 enum class ConfigType { STRING, I64, DOUBLE };
 
 using ConfigValue = std::variant<std::string, int64_t, double>;
@@ -83,6 +83,6 @@ class ConfigMap {
     return true;
   }
 };
-}  // namespace candy
+}  // namespace sageFlow
 
 #endif  // CONF_MAP_H

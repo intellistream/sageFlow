@@ -6,7 +6,7 @@
 #include "common/data_types.h"
 #include "storage/storage_manager.h"
 
-namespace candy {
+namespace sageFlow {
 class ConcurrencyController {
  public:
   // Constructor
@@ -28,4 +28,4 @@ class ConcurrencyController {
 
   std::shared_ptr<StorageManager> storage_manager_ = nullptr;
 };
-};  // namespace candy
+};  // namespace sageFlow

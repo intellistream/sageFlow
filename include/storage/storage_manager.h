@@ -12,7 +12,7 @@
 #include "common/data_types.h"
 #include "compute_engine/compute_engine.h"
 
-namespace candy {
+namespace sageFlow {
 using idx_t = int32_t;
 
 class StorageManager {
@@ -46,4 +46,4 @@ class StorageManager {
   mutable std::shared_mutex map_mutex_;
   int begin_ = 0;
 };
-}  // namespace candy
+}  // namespace sageFlow

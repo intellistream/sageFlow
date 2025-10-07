@@ -8,7 +8,7 @@
 #include "common/data_types.h" // Required for VectorRecord
 #include <memory> // Required for std::shared_ptr, std::unique_ptr
 
-namespace candy {
+namespace sageFlow {
 
 class IvfEager final : public BaseMethod {
 public:
@@ -48,4 +48,4 @@ private:
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
 };
 
-} // namespace candy
+} // namespace sageFlow

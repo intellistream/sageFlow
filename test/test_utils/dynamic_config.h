@@ -6,7 +6,7 @@
 #include <cstdint>
 #include "toml++/toml.hpp"
 
-namespace candy { namespace test {
+namespace sageFlow { namespace test {
 
 using ConfigValue = std::variant<int,int64_t,uint32_t,double,std::string,std::vector<int>,std::vector<std::string>>;
 

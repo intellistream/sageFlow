@@ -11,7 +11,7 @@
 #include <atomic>
 #include <iostream>
 
-namespace candy {
+namespace sageFlow {
 class ExecutionVertex {
 private:
   std::shared_ptr<Operator> operator_;
@@ -50,4 +50,4 @@ public:
 private:
   void run()const;
 };
-} // namespace candy
+} // namespace sageFlow

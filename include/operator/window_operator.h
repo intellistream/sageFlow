@@ -7,7 +7,7 @@
 #include "common/data_types.h"
 #include "operator/operator.h"
 
-namespace candy {
+namespace sageFlow {
 class WindowOperator : public Operator {
  public:
   explicit WindowOperator(std::unique_ptr<Function> &window_func);
@@ -50,4 +50,4 @@ class SlidingWindowOperator final : public WindowOperator {
   std::list<std::unique_ptr<VectorRecord>> window_buffer_;
   int slide_size_;
 };
-}  // namespace candy
+}  // namespace sageFlow

@@ -29,10 +29,10 @@
 #endif
 
 using namespace std;
-using namespace candy;
+using namespace sageFlow;
 using namespace std::chrono;
 
-namespace candy {
+namespace sageFlow {
 
 // 模拟结果收集器，用于替代emit功能
 class JoinResultCollector {
@@ -309,7 +309,7 @@ public:
     }
 };
 
-}  // namespace candy
+}  // namespace sageFlow
 
 // Google Test 测试用例
 TEST(JoinMethodPerformanceTest, BruteForceEager) {

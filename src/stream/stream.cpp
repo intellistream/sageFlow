@@ -2,7 +2,7 @@
 
 #include "function/function_api.h"
 
-namespace candy {
+namespace sageFlow {
 
 auto Stream::filter(std::unique_ptr<FilterFunction>& filter_func, size_t parallelism) -> std::shared_ptr<Stream> {
   return filter(std::move(filter_func), parallelism);
@@ -119,4 +119,4 @@ auto Stream::writeSink(std::unique_ptr<SinkFunction> sink_func, size_t paralleli
   streams_.push_back(stream);
   return stream;
 }
-}  // namespace candy
+}  // namespace sageFlow

@@ -5,7 +5,7 @@
 #include "common/data_types.h"
 #include "operator/operator.h"
 
-namespace candy {
+namespace sageFlow {
 class FilterOperator final : public Operator {
  public:
   explicit FilterOperator(std::unique_ptr<Function> &filter_func);
@@ -17,4 +17,4 @@ class FilterOperator final : public Operator {
  private:
   std::unique_ptr<Function> filter_func_;
 };
-}  // namespace candy
+}  // namespace sageFlow

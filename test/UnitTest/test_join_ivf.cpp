@@ -11,7 +11,7 @@
 #include "storage/storage_manager.h"
 #include "execution/collector.h"
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 // 通用 JoinFunction 工厂，供本文件所有测试复用
@@ -244,4 +244,4 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

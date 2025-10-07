@@ -5,7 +5,7 @@
 #include "operator/operator.h"
 #include "stream/data_stream_source/data_stream_source.h"
 
-namespace candy {
+namespace sageFlow {
 enum class OutputChoice { NONE, Broadcast, Hash };  // NOLINT
 
 class OutputOperator final : public Operator {
@@ -27,4 +27,4 @@ class OutputOperator final : public Operator {
   OutputChoice output_choice_ = OutputChoice::NONE;
   std::shared_ptr<DataStreamSource> stream_ = nullptr;
 };
-}  // namespace candy
+}  // namespace sageFlow

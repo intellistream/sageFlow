@@ -12,7 +12,7 @@
 #include "operator/join_operator_methods/base_method.h"
 #include "concurrency/concurrency_manager.h"
 
-namespace candy {
+namespace sageFlow {
   class JoinOperator final : public Operator {
    public:
     explicit JoinOperator(std::unique_ptr<Function> &join_func,
@@ -97,4 +97,4 @@ namespace candy {
     int left_slot_id_ = 0;
     int right_slot_id_ = 1;
   };
-  }  // namespace candy
+  }  // namespace sageFlow

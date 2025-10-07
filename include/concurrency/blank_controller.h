@@ -3,7 +3,7 @@
 #include "concurrency/concurrency_controller.h"
 #include "index/index.h"
 
-namespace candy {
+namespace sageFlow {
 class BlankController final : public ConcurrencyController {
  public:
   BlankController();
@@ -26,4 +26,4 @@ class BlankController final : public ConcurrencyController {
  private:
   std::shared_ptr<Index> index_;
 };
-}  // namespace candy
+}  // namespace sageFlow

@@ -5,7 +5,7 @@
 
 #include "common/data_types.h"
 
-namespace candy {
+namespace sageFlow {
 enum class FunctionType {  // NOLINT
   None,
   Filter,
@@ -41,4 +41,4 @@ class Function {
   std::string name_;
   FunctionType type_ = FunctionType::None;
 };
-};  // namespace candy
+};  // namespace sageFlow

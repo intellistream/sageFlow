@@ -4,7 +4,7 @@
 
 #include "execution/input_gate.h"
 
-namespace candy {
+namespace sageFlow {
 
 void InputGate::setup(const std::vector<QueuePtr>& queues) {
   input_queues_ = queues;

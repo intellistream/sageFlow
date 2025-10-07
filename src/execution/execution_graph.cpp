@@ -7,7 +7,7 @@
 #include <algorithm>
 #include "utils/logger.h"
 
-namespace candy {
+namespace sageFlow {
 
 ExecutionGraph::~ExecutionGraph() {
     stop();
@@ -237,4 +237,4 @@ void ExecutionGraph::join() {
     CANDY_LOG_INFO("GRAPH", "All ExecutionVertices finished");
 }
 
-} // namespace candy
+} // namespace sageFlow

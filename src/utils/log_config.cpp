@@ -2,7 +2,7 @@
 #include "utils/logger.h"
 #include <cstdlib>
 
-namespace candy {
+namespace sageFlow {
 
 void apply_log_level(spdlog::level::level_enum lvl) {
     auto lg = get_logger();
@@ -21,4 +21,4 @@ void init_log_level(const std::string &level_from_config) {
     apply_log_level(lvl);
 }
 
-} // namespace candy
+} // namespace sageFlow

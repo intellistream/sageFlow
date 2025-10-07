@@ -24,7 +24,7 @@
 #include "test_utils/test_config_manager.h"
 #include "test_utils/test_data_adapter.h"
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 // 自适应等待：直到 Join 消费完预期输入并且输出在短时间内稳定
@@ -658,4 +658,4 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 // );
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

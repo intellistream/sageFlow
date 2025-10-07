@@ -25,7 +25,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 // 本地复制 TestVectorStreamSource（避免跨测试文件定义冲突/依赖）
@@ -617,4 +617,4 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
 }
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

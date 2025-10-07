@@ -22,13 +22,13 @@
 #include "stream/data_stream_source/sift_stream_source.h"  // Include SiftStreamSource explicitly
 
 using namespace std;          // NOLINT
-using namespace candy;        // NOLINT
+using namespace sageFlow;        // NOLINT
 using namespace std::chrono;  // NOLINT
 
 const std::string CANDY_PATH = PROJECT_DIR;
 #define CONFIG_DIR "/config/"
 
-namespace candy {
+namespace sageFlow {
 
 // -------------------------------
 
@@ -311,7 +311,7 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   cout << "Queries Per Second (QPS): " << qps << " queries/second" << endl;
 }
 
-}  // namespace candy
+}  // namespace sageFlow
 
 // Main function remains the same
 auto main(int argc, char *argv[]) -> int {

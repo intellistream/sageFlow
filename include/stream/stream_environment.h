@@ -10,7 +10,7 @@
 #include "query/optimizer/planner.h"
 #include "execution/execution_graph.h"
 
-namespace candy {
+namespace sageFlow {
 class StreamEnvironment {
  public:
   // Constructor to initialize the environment
@@ -69,6 +69,6 @@ class StreamEnvironment {
   ConfigMap config_{}; // 扁平 key（支持 log.level）
 };
 
-}  // namespace candy
+}  // namespace sageFlow
 
 #endif  // STREAM_ENVIRONMENT_HPP

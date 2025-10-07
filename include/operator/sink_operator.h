@@ -7,7 +7,7 @@
 #include "function/function.h"
 #include "operator/operator.h"
 
-namespace candy {
+namespace sageFlow {
 class SinkOperator final : public Operator {
  public:
   explicit SinkOperator(std::unique_ptr<Function> &sink_func);
@@ -19,4 +19,4 @@ class SinkOperator final : public Operator {
  private:
   std::unique_ptr<Function> sink_func_;
 };
-}  // namespace candy
+}  // namespace sageFlow

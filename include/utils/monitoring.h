@@ -4,7 +4,7 @@
 #include <iostream>
 #include <string>
 
-namespace candy {
+namespace sageFlow {
 
 class PerformanceMonitor {
  public:
@@ -29,4 +29,4 @@ class PerformanceMonitor {
   bool profiling_;
 };
 
-}  // namespace candy
+}  // namespace sageFlow

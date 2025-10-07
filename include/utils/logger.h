@@ -10,7 +10,7 @@
 
 // Windows 控制台 ANSI 支持：由用户外部启用，避免在头文件内直接调用 WinAPI 造成编译器解析问题。
 
-namespace candy {
+namespace sageFlow {
 inline std::atomic<uint64_t> g_log_seq{0};
 
 
@@ -54,4 +54,4 @@ inline std::shared_ptr<spdlog::logger> get_logger() {
 #define CANDY_LOG_ERROR(phase, fmt, ...) \
     get_logger()->error("[{}] seq={} " fmt, phase, candy::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 
-} // namespace candy
+} // namespace sageFlow

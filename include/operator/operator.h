@@ -11,7 +11,7 @@
 #include "function/function_api.h"
 #include "execution/collector.h"
 
-namespace candy {
+namespace sageFlow {
 enum class OperatorType {
   NONE,
   OUTPUT,
@@ -54,4 +54,4 @@ class Operator {
   std::string name = "Operator"; // 添加name字段用于标识算子
 };
 
-}  // namespace candy
+}  // namespace sageFlow

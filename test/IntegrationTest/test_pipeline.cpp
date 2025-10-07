@@ -23,7 +23,7 @@
 #include "function/sink_function.h"
 #include "function/join_function.h"
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 /**
@@ -695,4 +695,4 @@ TEST_F(PipelineConstructionTest, JoinParallelismPerformanceTest) {
 }
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

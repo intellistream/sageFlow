@@ -2,7 +2,7 @@
 #include <string>
 #include <spdlog/spdlog.h>
 
-namespace candy {
+namespace sageFlow {
 struct LogConfig {
     spdlog::level::level_enum level = spdlog::level::info;
 };

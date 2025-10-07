@@ -2,7 +2,7 @@
 #include "compute_engine/compute_engine.h"
 #include <deque>
 
-namespace candy {
+namespace sageFlow {
 
 // 新的构造函数，支持KNN索引
 BruteForceLazy::BruteForceLazy(int left_knn_index_id,
@@ -158,4 +158,4 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceLazy::ExecuteLazy(
   return all_results;
 }
 
-}  // namespace candy
+}  // namespace sageFlow

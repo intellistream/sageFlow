@@ -6,7 +6,7 @@
 #include <utility>
 #include "utils/logger.h"
 
-namespace candy {
+namespace sageFlow {
 
 PerformanceMonitor::PerformanceMonitor(std::string profile_output)
     : profile_output_file_(std::move(profile_output)), profiling_(false) {}
@@ -56,4 +56,4 @@ void PerformanceMonitor::StopTimer(const std::string &task_name) {
   CANDY_LOG_INFO("MONITOR", "task_done name={} duration_ms={} ", task_name, duration);
 }
 
-}  // namespace candy
+}  // namespace sageFlow

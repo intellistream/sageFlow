@@ -9,7 +9,7 @@
 #include <spdlog/fmt/fmt.h>
 #include "utils/logger.h"
 
-namespace candy {
+namespace sageFlow {
 
 ExecutionVertex::ExecutionVertex(const std::shared_ptr<Operator> &op, const size_t index)
   : operator_(op), subtask_index_(index) {

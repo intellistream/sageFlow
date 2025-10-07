@@ -11,7 +11,7 @@
 #include <memory>
 #include <unordered_map>
 
-namespace candy {
+namespace sageFlow {
 class ResultPartition {
 private:
   std::unique_ptr<IPartitioner> partitioner_;

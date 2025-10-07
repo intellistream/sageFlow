@@ -14,7 +14,7 @@
 
 #include "spdlog/fmt/bundled/chrono.h"
 
-namespace candy {
+namespace sageFlow {
 
 // 旧接口保留（如果未来需要 IVF 特有参数，可扩展重写）
 void JoinOperator::initializeIVFIndexes(int /*nlist*/, double /*rebuild_threshold*/, int /*nprobes*/) {
@@ -549,4 +549,4 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
 #endif
 }
 
-} // namespace candy
+} // namespace sageFlow

@@ -2,7 +2,7 @@
 #include "utils/logger.h"
 #include <deque>
 
-namespace candy {
+namespace sageFlow {
 
 std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteEager(const VectorRecord &query_record, int query_slot) {
   std::vector<std::unique_ptr<VectorRecord>> results;
@@ -44,4 +44,4 @@ std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteLazy(const std:
   return all_results;
 }
 
-} // namespace candy
+} // namespace sageFlow

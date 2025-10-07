@@ -10,7 +10,7 @@
 #include "operator/itopk_operator.h"
 #include "operator/window_operator.h"
 
-namespace candy {
+namespace sageFlow {
 
 Planner::Planner(const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
     : concurrency_manager_(concurrency_manager) {}
@@ -147,4 +147,4 @@ void Planner::configureOperatorParallelism(std::shared_ptr<Operator>& op,
   }
 }
 
-} // namespace candy
+} // namespace sageFlow

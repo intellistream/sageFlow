@@ -6,7 +6,7 @@
 #include "function/join_function.h"
 #include "concurrency/concurrency_manager.h"
 
-namespace candy {
+namespace sageFlow {
 class BruteForceLazy final : public BaseMethod {
  public:
     explicit BruteForceLazy(double join_similarity_threshold) : BaseMethod(join_similarity_threshold) {}
@@ -45,4 +45,4 @@ class BruteForceLazy final : public BaseMethod {
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
     bool using_knn_ = false;
 };
-}  // namespace candy
+}  // namespace sageFlow

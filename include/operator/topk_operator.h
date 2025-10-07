@@ -7,7 +7,7 @@
 #include "function/function.h"
 #include "operator/operator.h"
 
-namespace candy {
+namespace sageFlow {
 class TopkOperator final : public Operator {
  public:
   explicit TopkOperator(std::unique_ptr<Function> &topk_func,
@@ -21,4 +21,4 @@ class TopkOperator final : public Operator {
   std::unique_ptr<Function> topk_func_;
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
 };
-}  // namespace candy
+}  // namespace sageFlow

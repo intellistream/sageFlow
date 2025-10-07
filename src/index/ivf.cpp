@@ -13,7 +13,7 @@
 
 #include "utils/logger.h"
 
-namespace candy {
+namespace sageFlow {
 
 void Ivf::debugDumpStateUnlocked() {
   // 调用方需已持有 global_mutex_ 锁
@@ -510,4 +510,4 @@ auto Ivf::query_for_join(const VectorRecord &record, double join_similarity_thre
 
   return results;
 }
-}  // namespace candy
+}  // namespace sageFlow

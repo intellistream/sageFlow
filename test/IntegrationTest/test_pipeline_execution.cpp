@@ -1,6 +1,6 @@
 #include "../UnitTest/execution/test_common.h"
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 /**
@@ -89,4 +89,4 @@ TEST_F(MultiThreadPipelineExecutionTest, HighParallelism) {
 }
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

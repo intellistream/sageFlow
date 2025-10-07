@@ -3,7 +3,7 @@
 #include <deque>
 #include "spdlog/spdlog.h"
 
-namespace candy {
+namespace sageFlow {
 
 std::vector<std::unique_ptr<VectorRecord>> BruteForceJoinMethod::ExecuteEager(const VectorRecord &query_record, int query_slot) {
   std::vector<std::unique_ptr<VectorRecord>> results;
@@ -39,4 +39,4 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceJoinMethod::ExecuteLazy(con
   return all_results;
 }
 
-} // namespace candy
+} // namespace sageFlow

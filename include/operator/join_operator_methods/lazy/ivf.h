@@ -7,7 +7,7 @@
 #include "index/ivf.h"
 #include "concurrency/concurrency_manager.h"
 
-namespace candy {
+namespace sageFlow {
 
 class IvfLazy final : public BaseMethod {
 public:
@@ -45,4 +45,4 @@ private:
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
 };
 
-} // namespace candy
+} // namespace sageFlow

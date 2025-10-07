@@ -1,6 +1,6 @@
 #include "index/index.h"
 
-namespace candy {
+namespace sageFlow {
 class VectraFlow final : public Index {
  private:
   std::vector<uint64_t> datas_;
@@ -16,4 +16,4 @@ class VectraFlow final : public Index {
     return {};
   }
 };
-}  // namespace candy
+}  // namespace sageFlow

@@ -3,7 +3,7 @@
 
 #include "function/function.h"
 
-namespace candy {
+namespace sageFlow {
 using SinkFunc = std::function<void(std::unique_ptr<VectorRecord> &)>;
 
 class SinkFunction final : public Function {
@@ -19,4 +19,4 @@ class SinkFunction final : public Function {
  private:
   SinkFunc sink_func_;
 };
-};  // namespace candy
+};  // namespace sageFlow

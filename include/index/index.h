@@ -9,7 +9,7 @@
 #include "compute_engine/compute_engine.h"
 #include "storage/storage_manager.h"
 
-namespace candy {
+namespace sageFlow {
 enum class IndexType {  // NOLINT
   None,
   HNSW,
@@ -44,4 +44,4 @@ class GlobalIndex final : public Index {
   auto load(const std::string &path) -> bool;
   auto remove() -> bool;
 };
-}  // namespace candy
+}  // namespace sageFlow

@@ -1,6 +1,6 @@
 #include "operator/join_operator_methods/base_method.h"
 
-namespace candy {
+namespace sageFlow {
 void BaseMethod::Excute(
   std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,
   std::unique_ptr<candy::JoinFunction> &joinfuc,

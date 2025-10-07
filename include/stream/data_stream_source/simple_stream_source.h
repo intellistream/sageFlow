@@ -8,7 +8,7 @@
 #include "common/data_types.h"
 #include "stream/data_stream_source/data_stream_source.h"
 
-namespace candy {
+namespace sageFlow {
 class SimpleStreamSource final : public DataStreamSource {
  public:
   explicit SimpleStreamSource(std::string name);
@@ -32,4 +32,4 @@ class SimpleStreamSource final : public DataStreamSource {
   std::string file_path_;
   std::vector<std::unique_ptr<VectorRecord>> records_;
 };
-}  // namespace candy
+}  // namespace sageFlow
