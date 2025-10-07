@@ -31,23 +31,38 @@ add_subdirectory(
 add_subdirectory(
         stream
 )
-add_library(
-        sageflow
-        INTERFACE
+
+# 收集所有源文件生成动态库（像 sageDB 一样）
+file(GLOB_RECURSE SAGEFLOW_SOURCES
+    utils/*.cpp
+    index/*.cpp
+    common/*.cpp
+    compute_engine/*.cpp
+    concurrency/*.cpp
+    execution/*.cpp
+    function/*.cpp
+    operator/*.cpp
+    query/*.cpp
+    storage/*.cpp
+    stream/*.cpp
 )
+
+# 排除测试和示例文件
+list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*test.*")
+list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*example.*")
+
+# 创建动态库
+add_library(sageflow SHARED ${SAGEFLOW_SOURCES})
+
 target_link_libraries(
         sageflow
-        INTERFACE
+        PUBLIC
         externalRuntimeLibs
-        execution
-        stream
-        query
-        operator
-        function
-        common
-        utils
-        concurrency
-        storage
-        index
-        compute_engine
+)
+
+# 安装动态库
+install(TARGETS sageflow
+        LIBRARY DESTINATION lib
+        ARCHIVE DESTINATION lib
+        RUNTIME DESTINATION bin
 )
