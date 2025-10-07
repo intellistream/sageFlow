@@ -39,11 +39,21 @@ FetchContent_Declare(
 
 # Configure upstream projects before fetching --------------------------------
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
-set(BUILD_GTEST ON CACHE BOOL "" FORCE)
+# 只在需要测试时构建 gtest
+if(BUILD_TESTING)
+    set(BUILD_GTEST ON CACHE BOOL "" FORCE)
+else()
+    set(BUILD_GTEST OFF CACHE BOOL "" FORCE)
+endif()
 set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
 
 # Fetch and build third-party projects ---------------------------------------
-FetchContent_MakeAvailable(argparse fmt googletest spdlog tomlplusplus)
+if(BUILD_TESTING)
+    FetchContent_MakeAvailable(argparse fmt googletest spdlog tomlplusplus)
+else()
+    # 不构建测试时跳过 googletest
+    FetchContent_MakeAvailable(argparse fmt spdlog tomlplusplus)
+endif()
 
 # Ensure compiled libraries are position independent (shared objects, pybind11)
 foreach(_pic_target fmt spdlog)
@@ -86,9 +96,11 @@ if(_external_runtime_include_dirs)
 endif()
 
 # Interface library consumed by tests ----------------------------------------
-add_library(externalTestLibs INTERFACE)
-target_link_libraries(
-    externalTestLibs INTERFACE
-    GTest::gtest
-    GTest::gtest_main
-)
+if(BUILD_TESTING)
+    add_library(externalTestLibs INTERFACE)
+    target_link_libraries(
+        externalTestLibs INTERFACE
+        GTest::gtest
+        GTest::gtest_main
+    )
+endif()
