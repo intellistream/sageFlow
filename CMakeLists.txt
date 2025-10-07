@@ -16,7 +16,6 @@ if(BUILD_TESTING)
     enable_testing()
 endif()
 
-
 set(_sage_flow_shared_deps FALSE)
 if(DEFINED SAGE_COMMON_DEPS_FILE AND EXISTS "${SAGE_COMMON_DEPS_FILE}")
     include("${SAGE_COMMON_DEPS_FILE}")
@@ -78,34 +77,4 @@ endif()
 add_subdirectory(src)
 add_subdirectory(test)
 add_subdirectory(examples)
-
-# Python bindings
-if(NOT _sage_flow_shared_deps)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/pybind11_dependency.cmake)
-endif()
-
-pybind11_add_module(_sage_flow python/bindings.cpp)
-target_link_libraries(_sage_flow PRIVATE
-    sageflow
-    externalRuntimeLibs
-)
-target_include_directories(_sage_flow PRIVATE include)
-if(DEFINED SAGE_COMMON_COMPILE_DEFINITIONS)
-    target_compile_definitions(_sage_flow PRIVATE ${SAGE_COMMON_COMPILE_DEFINITIONS})
-else()
-    target_compile_definitions(_sage_flow PRIVATE PYBIND11_INTERNALS_ID="sage_pybind11_shared")
-endif()
-
-# Reduce exported symbol surface to minimize potential cross-module clashes
-if(DEFINED SAGE_COMMON_COMPILE_OPTIONS)
-    target_compile_options(_sage_flow PRIVATE ${SAGE_COMMON_COMPILE_OPTIONS})
-else()
-    target_compile_options(_sage_flow PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
-endif()
-
-if(ENABLE_GPERFTOOLS AND DEFINED SAGE_GPERFTOOLS_LIBS AND SAGE_GPERFTOOLS_LIBS)
-    target_link_libraries(_sage_flow PRIVATE ${SAGE_GPERFTOOLS_LIBS})
-endif()
-set_target_properties(_sage_flow PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
-
 
