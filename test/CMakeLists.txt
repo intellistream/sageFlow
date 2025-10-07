@@ -23,10 +23,10 @@ target_include_directories(test_data_support
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# 依赖主工程接口库 candy（其 transitively 链接全部内部组件）
+# 依赖主工程接口库 sageflow（其 transitively 链接全部内部组件）
 target_link_libraries(test_data_support
     PRIVATE
-    candy
+    sageflow
 )
 
 # 向所有测试目标注入的公共宏定义（基线：PROJECT_DIR；按选项追加 CANDY_ENABLE_METRICS）
@@ -50,7 +50,7 @@ function(register_test TEST_NAME REL_PATH TIMEOUT_SECS GROUP_TAG)
         return()
     endif()
     add_gtest(${TEST_NAME} ${REL_PATH})           # 宏自动链接 gtest_main
-    target_link_libraries(${TEST_NAME} PRIVATE test_data_support candy)
+    target_link_libraries(${TEST_NAME} PRIVATE test_data_support sageflow)
     target_compile_definitions(${TEST_NAME} PRIVATE ${TEST_COMMON_DEFINES})
     # 为每个测试目标补充包含路径：工程 include/ 与 test/ 根目录（包含 utils/、UnitTest/、Performance/ 等）
     target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})

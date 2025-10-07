@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(CANDY CXX)
+project(sageFlow CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -86,7 +86,7 @@ endif()
 
 pybind11_add_module(_sage_flow python/bindings.cpp)
 target_link_libraries(_sage_flow PRIVATE
-    candy
+    sageflow
     externalRuntimeLibs
 )
 target_include_directories(_sage_flow PRIVATE include)

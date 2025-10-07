@@ -32,11 +32,11 @@ add_subdirectory(
         stream
 )
 add_library(
-        candy
+        sageflow
         INTERFACE
 )
 target_link_libraries(
-        candy
+        sageflow
         INTERFACE
         externalRuntimeLibs
         execution
