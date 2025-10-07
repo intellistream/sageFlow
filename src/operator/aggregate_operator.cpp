@@ -6,13 +6,13 @@
 #include <mutex>
 #include "function/aggregate_function.h"
 
-candy::AggregateOperator::AggregateOperator(std::unique_ptr<Function>& aggregate_func)
+sageFlow::AggregateOperator::AggregateOperator(std::unique_ptr<Function>& aggregate_func)
     : Operator(OperatorType::AGGREGATE), aggregate_func_(std::move(aggregate_func)) {}
 
-auto Sum(std::unique_ptr<candy::VectorRecord>& record, std::unique_ptr<candy::VectorRecord>& record2) -> void {
+auto Sum(std::unique_ptr<sageFlow::VectorRecord>& record, std::unique_ptr<sageFlow::VectorRecord>& record2) -> void {
   const auto& data = record->data_;
   const auto& data2 = record2->data_;
-  if (data.type_ == candy::DataType::Float32) {
+  if (data.type_ == sageFlow::DataType::Float32) {
     const auto d1 = reinterpret_cast<float*>(data.data_.get());
     const auto d2 = reinterpret_cast<float*>(data2.data_.get());
     for (int i = 0; i < data.dim_; ++i) {
@@ -21,8 +21,8 @@ auto Sum(std::unique_ptr<candy::VectorRecord>& record, std::unique_ptr<candy::Ve
   }
 }
 
-void Avg(const std::unique_ptr<candy::VectorRecord>& record, int size) {
-  if (const auto& data = record->data_; data.type_ == candy::DataType::Float32) {
+void Avg(const std::unique_ptr<sageFlow::VectorRecord>& record, int size) {
+  if (const auto& data = record->data_; data.type_ == sageFlow::DataType::Float32) {
     const auto d1 = reinterpret_cast<float*>(data.data_.get());
     for (int i = 0; i < data.dim_; ++i) {
       d1[i] /= size;
@@ -30,7 +30,7 @@ void Avg(const std::unique_ptr<candy::VectorRecord>& record, int size) {
   }
 }
 
-auto candy::AggregateOperator::process(Response&data, int slot) -> std::optional<Response> {
+auto sageFlow::AggregateOperator::process(Response&data, int slot) -> std::optional<Response> {
   // TODO: 多线程改造 - 聚合算子的并发状态管理
   // 在多线程环境中，需要考虑以下改造：
   // 1. 使用线程安全的累加器或状态管理
@@ -58,7 +58,7 @@ auto candy::AggregateOperator::process(Response&data, int slot) -> std::optional
   return std::nullopt;
 }
 
-auto candy::AggregateOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::AggregateOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   const auto aggregate_func = dynamic_cast<AggregateFunction*>(aggregate_func_.get());
   if (record.type_ == ResponseType::List && record.records_) {
     const auto records = record.records_.get();

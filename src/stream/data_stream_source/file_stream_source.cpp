@@ -12,13 +12,13 @@
 
 #include "common/data_types.h"
 
-candy::FileStreamSource::FileStreamSource(std::string name)
+sageFlow::FileStreamSource::FileStreamSource(std::string name)
     : DataStreamSource(std::move(name), DataStreamSourceType::File) {}
 
-candy::FileStreamSource::FileStreamSource(std::string name, std::string file_path)
+sageFlow::FileStreamSource::FileStreamSource(std::string name, std::string file_path)
     : DataStreamSource(std::move(name), DataStreamSourceType::File), file_path_(std::move(file_path)) {}
 
-void candy::FileStreamSource::Init() {
+void sageFlow::FileStreamSource::Init() {
   running_ = true;
   std::thread([this]() {
     std::ifstream file(file_path_, std::ios::binary);
@@ -132,7 +132,7 @@ void candy::FileStreamSource::Init() {
   }).detach();
 }
 
-auto candy::FileStreamSource::Next() -> std::unique_ptr<VectorRecord> {
+auto sageFlow::FileStreamSource::Next() -> std::unique_ptr<VectorRecord> {
   std::lock_guard<std::mutex> lock(mtx_);
   if (records_.empty()) {
     return nullptr;

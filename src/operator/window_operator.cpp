@@ -8,19 +8,19 @@
 
 #include "function/window_function.h"
 
-candy::WindowOperator::WindowOperator(std::unique_ptr<Function>& window_func) : Operator(OperatorType::WINDOW) {}
+sageFlow::WindowOperator::WindowOperator(std::unique_ptr<Function>& window_func) : Operator(OperatorType::WINDOW) {}
 
-auto candy::WindowOperator::process(Response&data, int slot) -> std::optional<Response> {
+auto sageFlow::WindowOperator::process(Response&data, int slot) -> std::optional<Response> {
   return std::nullopt;
 }
 
-candy::TumblingWindowOperator::TumblingWindowOperator(std::unique_ptr<Function>& window_func)
+sageFlow::TumblingWindowOperator::TumblingWindowOperator(std::unique_ptr<Function>& window_func)
     : WindowOperator(window_func) {
   auto window_func_ = dynamic_cast<WindowFunction*>(window_func.get());
   window_size_ = window_func_->getWindowSize();
 }
 
-auto candy::TumblingWindowOperator::process(Response&data, int slot) -> std::optional<Response> {
+auto sageFlow::TumblingWindowOperator::process(Response&data, int slot) -> std::optional<Response> {
   // TODO: 多线程改造 - 滚动窗口的并发状态管理
   // 在多线程环境中，需要考虑以下改造：
   // 1. 窗口状态(window_buffer_)的并发访问保护
@@ -49,14 +49,14 @@ auto candy::TumblingWindowOperator::process(Response&data, int slot) -> std::opt
   return std::nullopt;
 }
 
-candy::SlidingWindowOperator::SlidingWindowOperator(std::unique_ptr<Function>& window_func)
+sageFlow::SlidingWindowOperator::SlidingWindowOperator(std::unique_ptr<Function>& window_func)
     : WindowOperator(window_func) {
   auto window_func_ = dynamic_cast<WindowFunction*>(window_func.get());
   window_size_ = window_func_->getWindowSize();
   slide_size_ = window_func_->getSlideSize();
 }
 
-auto candy::SlidingWindowOperator::process(Response&data, int slot) -> std::optional<Response> {
+auto sageFlow::SlidingWindowOperator::process(Response&data, int slot) -> std::optional<Response> {
   std::lock_guard<std::mutex> lock(window_mutex_);
 
   if (data.type_ == ResponseType::Record) {
@@ -82,12 +82,12 @@ auto candy::SlidingWindowOperator::process(Response&data, int slot) -> std::opti
   return std::nullopt;
 }
 
-auto candy::WindowOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::WindowOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   // 基类默认实现，子类需要重写此方法
   collector.collect(std::make_unique<Response>(std::move(record)), slot);
 }
 
-auto candy::TumblingWindowOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::TumblingWindowOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   std::lock_guard<std::mutex> lock(window_mutex_);
 
   if (record.type_ == ResponseType::Record && record.record_) {
@@ -109,7 +109,7 @@ auto candy::TumblingWindowOperator::apply(Response&& record, int slot, Collector
   }
 }
 
-auto candy::SlidingWindowOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::SlidingWindowOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   std::lock_guard<std::mutex> lock(window_mutex_);
 
   if (record.type_ == ResponseType::Record && record.record_) {

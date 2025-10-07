@@ -3,9 +3,9 @@
 //
 #include "function/aggregate_function.h"
 
-candy::AggregateFunction::AggregateFunction(const std::string& name) : Function(name, FunctionType::None) {}
+sageFlow::AggregateFunction::AggregateFunction(const std::string& name) : Function(name, FunctionType::None) {}
 
-candy::AggregateFunction::AggregateFunction(const std::string& name, AggregateType aggregate_type)
+sageFlow::AggregateFunction::AggregateFunction(const std::string& name, AggregateType aggregate_type)
     : Function(name, FunctionType::Aggregate), aggregate_type_(aggregate_type) {}
 
-auto candy::AggregateFunction::getAggregateType() const -> AggregateType { return aggregate_type_; }
+auto sageFlow::AggregateFunction::getAggregateType() const -> AggregateType { return aggregate_type_; }

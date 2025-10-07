@@ -29,7 +29,7 @@ inline std::shared_ptr<spdlog::logger> get_logger() {
     // 注意：不调用 init_log_level()/apply_log_level 以避免静态初始化期间的递归。
     spdlog::level::level_enum initial_lvl = spdlog::level::info;
     if (const char* env = std::getenv("CANDY_LOG_LEVEL"); env && *env) {
-        initial_lvl = candy::parse_log_level(env);
+        initial_lvl = sageFlow::parse_log_level(env);
     }
     lg->set_level(initial_lvl);
     for (auto &s : lg->sinks()) {
@@ -44,14 +44,14 @@ inline std::shared_ptr<spdlog::logger> get_logger() {
 // 统一格式：[PHASE] seq=N message
 // 新增 DEBUG 级别，便于将高频诊断从 INFO 下沉
 #define CANDY_LOG_DEBUG(phase, fmt, ...) \
-    get_logger()->debug("[{}] seq={} " fmt, phase, candy::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
+    get_logger()->debug("[{}] seq={} " fmt, phase, sageFlow::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 #define CANDY_LOG_INFO(phase, fmt, ...) \
-    get_logger()->info("[{}] seq={} " fmt, phase, candy::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
+    get_logger()->info("[{}] seq={} " fmt, phase, sageFlow::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 
 #define CANDY_LOG_WARN(phase, fmt, ...) \
-    get_logger()->warn("[{}] seq={} " fmt, phase, candy::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
+    get_logger()->warn("[{}] seq={} " fmt, phase, sageFlow::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 
 #define CANDY_LOG_ERROR(phase, fmt, ...) \
-    get_logger()->error("[{}] seq={} " fmt, phase, candy::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
+    get_logger()->error("[{}] seq={} " fmt, phase, sageFlow::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 
 } // namespace sageFlow

@@ -8,13 +8,13 @@
 #include <utility>
 #include "utils/logger.h"
 
-candy::SimpleStreamSource::SimpleStreamSource(std::string name)
+sageFlow::SimpleStreamSource::SimpleStreamSource(std::string name)
     : DataStreamSource(std::move(name), DataStreamSourceType::None) {}
 
-candy::SimpleStreamSource::SimpleStreamSource(std::string name, std::string file_path)
+sageFlow::SimpleStreamSource::SimpleStreamSource(std::string name, std::string file_path)
     : DataStreamSource(std::move(name), DataStreamSourceType::None), file_path_(std::move(file_path)) {}
 
-void candy::SimpleStreamSource::Init() {
+void sageFlow::SimpleStreamSource::Init() {
   if (file_path_.empty()) {
     // 测试环境下可为空：不加载任何记录
     CANDY_LOG_INFO("SOURCE", "SimpleStreamSource empty path name={} ", name_);
@@ -39,7 +39,7 @@ void candy::SimpleStreamSource::Init() {
   file.close();
 }
 
-auto candy::SimpleStreamSource::Next() -> std::unique_ptr<VectorRecord> {
+auto sageFlow::SimpleStreamSource::Next() -> std::unique_ptr<VectorRecord> {
   if (records_.empty()) {
     return nullptr;
   }

@@ -1,14 +1,14 @@
 #include "operator/output_operator.h"
 
-candy::OutputOperator::OutputOperator() : Operator(OperatorType::OUTPUT) {}
+sageFlow::OutputOperator::OutputOperator() : Operator(OperatorType::OUTPUT) {}
 
-candy::OutputOperator::OutputOperator(const OutputChoice output_choice, std::shared_ptr<DataStreamSource> stream)
+sageFlow::OutputOperator::OutputOperator(const OutputChoice output_choice, std::shared_ptr<DataStreamSource> stream)
     : Operator(OperatorType::OUTPUT), output_choice_(output_choice), stream_(std::move(stream)) {}
 
-candy::OutputOperator::OutputOperator(std::shared_ptr<DataStreamSource> stream)
+sageFlow::OutputOperator::OutputOperator(std::shared_ptr<DataStreamSource> stream)
     : Operator(OperatorType::OUTPUT), stream_(std::move(stream)) {}
 
-auto candy::OutputOperator::open() -> void {
+auto sageFlow::OutputOperator::open() -> void {
   if (is_open_) {
     return;
   }
@@ -26,7 +26,7 @@ auto candy::OutputOperator::open() -> void {
 
 }
 
-auto candy::OutputOperator::process(Response&data, int slot) -> std::optional<Response> {
+auto sageFlow::OutputOperator::process(Response&data, int slot) -> std::optional<Response> {
   // OutputOperator作为数据源，通常不需要处理输入数据
   // 而是负责从数据流中读取数据并发射到下游
   // 在新的collector模式下，OutputOperator主要用于数据生成
@@ -58,7 +58,7 @@ auto candy::OutputOperator::process(Response&data, int slot) -> std::optional<Re
    return std::nullopt;
 }
 
-auto candy::OutputOperator::run(Collector& collector) -> void {
+auto sageFlow::OutputOperator::run(Collector& collector) -> void {
   std::unique_ptr<VectorRecord> record = nullptr;
   while (stream_ && (record = stream_->Next())) {
     auto resp = Response{ResponseType::Record, std::move(record)};
@@ -67,7 +67,7 @@ auto candy::OutputOperator::run(Collector& collector) -> void {
   }
 }
 
-auto candy::OutputOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::OutputOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   if (record.type_ != ResponseType::None) {
     if (output_choice_ == OutputChoice::Broadcast) {
       // 广播模式：将数据发送到所有下游slot

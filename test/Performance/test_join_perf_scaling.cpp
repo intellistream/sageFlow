@@ -153,7 +153,7 @@ inline PerfConfigSets loadPerfConfig() {
   if (DynamicConfigManager::loadConfig("config/perf_join.toml", "", global_config)) {
     auto log_level = global_config.get<std::string>("log.level", "info");
     std::cout << "[PerfTest] Setting log level to: " << log_level << std::endl;
-    candy::init_log_level(log_level);
+    sageFlow::init_log_level(log_level);
   }
   
   return out;

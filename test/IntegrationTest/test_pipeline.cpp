@@ -308,10 +308,10 @@ TEST_F(PipelineConstructionTest, JoinPipelineConstruction) {
 
   // 3. 构建Join流水线，指定并行度
   // 从配置读取 Join 配置
-  candy::test::PipelineConfig pipeline_cfg{};
+  sageFlow::test::PipelineConfig pipeline_cfg{};
   std::string method = "bruteforce_lazy";
   double threshold = 0.8;
-  candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg);
+  sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg);
   method = pipeline_cfg.join_method;
   threshold = pipeline_cfg.similarity_threshold;
   EXPECT_NO_THROW(
@@ -576,8 +576,8 @@ TEST_F(PipelineConstructionTest, CompleteJoinPipelineExecution) {
 
   // 6. 构建Join流水线，设置Join算子并行度为3
   // 从配置读取 Join 配置
-  candy::test::PipelineConfig pipeline_cfg2{};
-  candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg2);
+  sageFlow::test::PipelineConfig pipeline_cfg2{};
+  sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg2);
   auto join_result = filtered_left->join(filtered_right, std::move(join_func), pipeline_cfg2.join_method, pipeline_cfg2.similarity_threshold, 3);
 
   // 7. 对Join结果进行后处理
@@ -660,8 +660,8 @@ TEST_F(PipelineConstructionTest, JoinParallelismPerformanceTest) {
   auto start_time = std::chrono::high_resolution_clock::now();
 
   // 从配置读取 Join 配置
-  candy::test::PipelineConfig pipeline_cfg3{};
-  candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg3);
+  sageFlow::test::PipelineConfig pipeline_cfg3{};
+  sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg3);
   left_source->join(right_source, std::move(join_func), pipeline_cfg3.join_method, pipeline_cfg3.similarity_threshold, 4) // Join并行度为4
             ->writeSink(std::make_unique<SinkFunction>(
                 "PerformanceSink",

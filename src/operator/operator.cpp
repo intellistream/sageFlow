@@ -1,7 +1,7 @@
 #include "operator/operator.h"
-candy::Operator::~Operator() = default;
+sageFlow::Operator::~Operator() = default;
 
-candy::Operator::Operator(OperatorType type, size_t parallelism)
+sageFlow::Operator::Operator(OperatorType type, size_t parallelism)
       : type_(type) {
   set_parallelism(parallelism);
   // 根据算子类型设置默认名称
@@ -19,26 +19,26 @@ candy::Operator::Operator(OperatorType type, size_t parallelism)
   }
 }
 
-auto candy::Operator::getType() const -> OperatorType { return type_; }
+auto sageFlow::Operator::getType() const -> OperatorType { return type_; }
 
-auto candy::Operator::open() -> void { is_open_ = true; }
+auto sageFlow::Operator::open() -> void { is_open_ = true; }
 
-auto candy::Operator::close() -> void { is_open_ = false; }
+auto sageFlow::Operator::close() -> void { is_open_ = false; }
 
-auto candy::Operator::process(Response&record, int slot) -> std::optional<Response> {
+auto sageFlow::Operator::process(Response&record, int slot) -> std::optional<Response> {
   return std::nullopt;
 }
 
-auto candy::Operator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::Operator::apply(Response&& record, int slot, Collector& collector) -> void {
   // 默认实现：直接将数据传递给下游
   collector.collect(std::make_unique<Response>(std::move(record)), slot);
 }
 
-void candy::Operator::set_parallelism(const size_t p) {
+void sageFlow::Operator::set_parallelism(const size_t p) {
   if (p > 0) {
     parallelism_ = p;
   }
 }
-auto candy::Operator::get_parallelism() const -> size_t {
+auto sageFlow::Operator::get_parallelism() const -> size_t {
   return parallelism_;
 }

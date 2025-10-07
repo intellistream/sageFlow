@@ -313,36 +313,36 @@ public:
 
 // Google Test 测试用例
 TEST(JoinMethodPerformanceTest, BruteForceEager) {
-    candy::JoinMethodPerformanceTester tester;
-    double execution_time = tester.RunJoinMethodTest(candy::JoinMethodType::BRUTEFORCE_EAGER, 500);
+    sageFlow::JoinMethodPerformanceTester tester;
+    double execution_time = tester.RunJoinMethodTest(sageFlow::JoinMethodType::BRUTEFORCE_EAGER, 500);
     EXPECT_GT(execution_time, 0);
 }
 
 TEST(JoinMethodPerformanceTest, BruteForceLazy) {
-    candy::JoinMethodPerformanceTester tester;
-    double execution_time = tester.RunJoinMethodTest(candy::JoinMethodType::BRUTEFORCE_LAZY, 500);
+    sageFlow::JoinMethodPerformanceTester tester;
+    double execution_time = tester.RunJoinMethodTest(sageFlow::JoinMethodType::BRUTEFORCE_LAZY, 500);
     EXPECT_GT(execution_time, 0);
 }
 
 TEST(JoinMethodPerformanceTest, IVFEager) {
-  candy::JoinMethodPerformanceTester tester;
-  double execution_time = tester.RunJoinMethodTest(candy::JoinMethodType::IVF_EAGER, 500);
+  sageFlow::JoinMethodPerformanceTester tester;
+  double execution_time = tester.RunJoinMethodTest(sageFlow::JoinMethodType::IVF_EAGER, 500);
   EXPECT_GT(execution_time, 0);
 }
 
 TEST(JoinMethodPerformanceTest, IvfLazy) {
-  candy::JoinMethodPerformanceTester tester;
-  double execution_time = tester.RunJoinMethodTest(candy::JoinMethodType::IVF_EAGER, 500);
+  sageFlow::JoinMethodPerformanceTester tester;
+  double execution_time = tester.RunJoinMethodTest(sageFlow::JoinMethodType::IVF_EAGER, 500);
   EXPECT_GT(execution_time, 0);
 }
 
 TEST(JoinMethodPerformanceTest, CompareAllMethods) {
-    candy::JoinMethodPerformanceTester tester;
+    sageFlow::JoinMethodPerformanceTester tester;
     ASSERT_NO_THROW(tester.RunComparisonTest(500));
 }
 
 TEST(JoinMethodPerformanceTest, ScalabilityTest) {
-    candy::JoinMethodPerformanceTester tester;
+    sageFlow::JoinMethodPerformanceTester tester;
     ASSERT_NO_THROW(tester.RunScalabilityTest());
 }
 
@@ -354,7 +354,7 @@ int main(int argc, char* argv[]) {
     // 如果命令行参数指定了特定的测试模式
     if (argc > 1) {
         string mode = argv[1];
-        candy::JoinMethodPerformanceTester tester;
+        sageFlow::JoinMethodPerformanceTester tester;
         
         if (mode == "performance") {
             cout << "Running Join Method Performance Comparison Test..." << endl;
@@ -366,13 +366,13 @@ int main(int argc, char* argv[]) {
             return 0;
         } else if (mode == "eager") {
             cout << "Testing BruteForce Eager method..." << endl;
-            tester.RunJoinMethodTest(candy::JoinMethodType::BRUTEFORCE_EAGER, 1000);
-            tester.RunJoinMethodTest(candy::JoinMethodType::IVF_EAGER, 1000);
+            tester.RunJoinMethodTest(sageFlow::JoinMethodType::BRUTEFORCE_EAGER, 1000);
+            tester.RunJoinMethodTest(sageFlow::JoinMethodType::IVF_EAGER, 1000);
             return 0;
         } else if (mode == "lazy") {
             cout << "Testing BruteForce Lazy method..." << endl;
-            tester.RunJoinMethodTest(candy::JoinMethodType::BRUTEFORCE_LAZY, 1000);
-            tester.RunJoinMethodTest(candy::JoinMethodType::IVF_LAZY, 1000);
+            tester.RunJoinMethodTest(sageFlow::JoinMethodType::BRUTEFORCE_LAZY, 1000);
+            tester.RunJoinMethodTest(sageFlow::JoinMethodType::IVF_LAZY, 1000);
             return 0;
         }
     }

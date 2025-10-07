@@ -47,7 +47,7 @@ void ValidateConfiguration(const ConfigMap &conf) {
 
 void SetupAndRunPipeline(const std::string &config_file_path) {
   StreamEnvironment env;
-  const auto conf = candy::StreamEnvironment::loadConfiguration(config_file_path);
+  const auto conf = sageFlow::StreamEnvironment::loadConfiguration(config_file_path);
   try {
     cerr << "Loading configuration..." << endl;
     ValidateConfiguration(conf);  // Use the updated validation function

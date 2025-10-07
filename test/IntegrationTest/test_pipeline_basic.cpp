@@ -191,8 +191,8 @@ TEST_F(MultiThreadPipelineTest, BasicPipelineConstruction) {
       });
 
   // 从配置读取 Join 配置
-  candy::test::PipelineConfig pipeline_cfg{};
-  if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
+  sageFlow::test::PipelineConfig pipeline_cfg{};
+  if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
     // 应用窗口配置
     join_func_direct->setWindow(pipeline_cfg.window.time_ms, pipeline_cfg.window.trigger_interval_ms);
     // 通过 Stream API 构建链式算子链，并设置并行度（使用配置的 join 方法与阈值）
@@ -320,10 +320,10 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
         });
 
     // 从配置读取 Join 配置
-    candy::test::PipelineConfig pipeline_cfg{};
+    sageFlow::test::PipelineConfig pipeline_cfg{};
     std::string method = "bruteforce_lazy";
     double threshold = 0.8;
-    if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
+    if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
       method = pipeline_cfg.join_method;
       threshold = pipeline_cfg.similarity_threshold;
       join_func_direct->setWindow(pipeline_cfg.window.time_ms, pipeline_cfg.window.trigger_interval_ms);
@@ -407,10 +407,10 @@ TEST_F(MultiThreadPipelineTest, StressTestMultipleRestarts) {
     [&](std::unique_ptr<VectorRecord>& rec) { sink_count.fetch_add(1, std::memory_order_relaxed); });
 
   // 配置驱动 Join 方法
-  candy::test::PipelineConfig pipeline_cfg_rs{};
+  sageFlow::test::PipelineConfig pipeline_cfg_rs{};
   std::string method_rs = "bruteforce_lazy";
   double threshold_rs = 0.8;
-  if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_rs)) {
+  if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_rs)) {
     method_rs = pipeline_cfg_rs.join_method;
     threshold_rs = pipeline_cfg_rs.similarity_threshold;
     join_func_direct->setWindow(pipeline_cfg_rs.window.time_ms, pipeline_cfg_rs.window.trigger_interval_ms);
@@ -490,10 +490,10 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 
   // 构建并行 Join
   // 配置驱动 Join 方法
-  candy::test::PipelineConfig pipeline_cfg_hc{};
+  sageFlow::test::PipelineConfig pipeline_cfg_hc{};
   std::string method_hc = "bruteforce_lazy";
   double threshold_hc = 0.8;
-  if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_hc)) {
+  if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_hc)) {
     method_hc = pipeline_cfg_hc.join_method;
     threshold_hc = pipeline_cfg_hc.similarity_threshold;
     join_func_direct->setWindow(pipeline_cfg_hc.window.time_ms, pipeline_cfg_hc.window.trigger_interval_ms);
@@ -614,9 +614,9 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 //       [&](std::unique_ptr<VectorRecord>&) { total_matches.fetch_add(1, std::memory_order_relaxed); });
 //
 //   // 从配置读取默认阈值；方法由参数提供
-//   candy::test::PipelineConfig pipeline_cfg_param{};
+//   sageFlow::test::PipelineConfig pipeline_cfg_param{};
 //   double threshold_param = 0.8;
-//   if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_param)) {
+//   if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_param)) {
 //     threshold_param = pipeline_cfg_param.similarity_threshold;
 //     join_func_direct->setWindow(pipeline_cfg_param.window.time_ms, pipeline_cfg_param.window.trigger_interval_ms);
 //   }

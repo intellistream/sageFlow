@@ -2,11 +2,11 @@
 
 #include <mutex>
 
-candy::TopkOperator::TopkOperator(std::unique_ptr<Function>& topk_func,
+sageFlow::TopkOperator::TopkOperator(std::unique_ptr<Function>& topk_func,
                                   const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
     : Operator(OperatorType::TOPK), topk_func_(std::move(topk_func)), concurrency_manager_(concurrency_manager) {}
 
-auto candy::TopkOperator::process(Response&data, int slot) -> std::optional<Response> {
+auto sageFlow::TopkOperator::process(Response&data, int slot) -> std::optional<Response> {
   // TODO: 多线程改造 - TopK算子的并发安全
   // 在多线程环境中，需要考虑以下改造：
   // 1. 索引的并发访问保护（concurrency_manager已经处理）
@@ -38,7 +38,7 @@ auto candy::TopkOperator::process(Response&data, int slot) -> std::optional<Resp
   return std::nullopt;
 }
 
-auto candy::TopkOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::TopkOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   auto topk = dynamic_cast<TopkFunction*>(topk_func_.get());
   if (record.type_ == ResponseType::Record && record.record_) {
     // 使用ConcurrencyManager进行线程安全的TopK查询
