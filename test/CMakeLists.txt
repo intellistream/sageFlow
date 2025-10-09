@@ -103,7 +103,7 @@ endforeach()
 # -----------------------------------------------------------------------------
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Performance/IndexTest.cpp")
     add_executable(IndexTest Performance/IndexTest.cpp)
-    target_link_libraries(IndexTest PRIVATE test_data_support sageFlow)
+    target_link_libraries(IndexTest PRIVATE test_data_support sageflow)
     target_compile_definitions(IndexTest PRIVATE ${TEST_COMMON_DEFINES})
     target_include_directories(IndexTest PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
     add_test(NAME IndexTest COMMAND IndexTest)
