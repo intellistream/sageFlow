@@ -18,25 +18,29 @@ add_executable(
 
 target_link_libraries(
         Streaming_example
-        candy
+        PRIVATE
+        sageflow
 )
 target_link_libraries(
         topk
-        candy
+        PRIVATE
+        sageflow
 )
 
 target_link_libraries(
         itopk
-        candy
+        PRIVATE
+        sageflow
 )
 
 target_link_libraries(
         aggregate
-        candy
+        PRIVATE
+        sageflow
 )
 macro(add_streaming_example name)
         add_executable(${name} ${name}.cpp)
-        target_link_libraries(${name} candy)
+        target_link_libraries(${name} PRIVATE sageflow)
 endmacro()
 add_streaming_example(test1)
 add_streaming_example(test2)
