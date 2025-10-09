@@ -2,7 +2,7 @@
 #include <iostream>
 #include <filesystem>
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 void DynamicConfig::set(const std::string& key, const ConfigValue& value) { config_map_[key]=value; }
@@ -82,4 +82,4 @@ bool DynamicConfigManager::loadConfigs(const std::string& config_path, const std
 bool DynamicConfigManager::loadRootConfig(const std::string& config_path, DynamicConfig& config) { return loadConfig(config_path, "", config); }
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

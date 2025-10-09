@@ -2,7 +2,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace candy { namespace test {
+namespace sageFlow { namespace test {
 
 TestDataGenerator::TestDataGenerator(const Config& config) : config_(config), rng_(config.seed) {}
 

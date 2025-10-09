@@ -2,19 +2,19 @@
 #include <queue>
 #include <omp.h>
 
-candy::VectraFlow::~VectraFlow() = default;
+sageFlow::VectraFlow::~VectraFlow() = default;
 
-auto candy::VectraFlow::insert(uint64_t id) -> bool { 
+auto sageFlow::VectraFlow::insert(uint64_t id) -> bool { 
     datas_.push_back(id);
     return true; 
 }
 
 /// VectraFlow 目前不支持删除
-auto candy::VectraFlow::erase(uint64_t id) -> bool { return true; }
+auto sageFlow::VectraFlow::erase(uint64_t id) -> bool { return true; }
 
 
 // 并行没搞明白 先不鸟它了
-auto candy::VectraFlow::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
+auto sageFlow::VectraFlow::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
     const auto rec = &record;
 
     std :: priority_queue<std::pair<double, uint64_t>> pq;

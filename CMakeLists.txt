@@ -1,21 +1,20 @@
 cmake_minimum_required(VERSION 3.20)
 
-project(CANDY CXX)
+project(sageFlow CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 是否启用运行时指标采集代码（通过编译宏控制）。默认开启以保持现有行为。
-option(CANDY_ENABLE_METRICS "Enable metrics instrumentation in join/operator and tests" ON)
-message(STATUS "CANDY_ENABLE_METRICS: ${CANDY_ENABLE_METRICS}")
+option(sageFlow_ENABLE_METRICS "Enable metrics instrumentation in join/operator and tests" ON)
+message(STATUS "sageFlow_ENABLE_METRICS: ${sageFlow_ENABLE_METRICS}")
 
 # 启用测试选项（CLion 识别 gtest 必需）
 option(BUILD_TESTING "Build tests" ON)
 if(BUILD_TESTING)
     enable_testing()
 endif()
-
 
 set(_sage_flow_shared_deps FALSE)
 if(DEFINED SAGE_COMMON_DEPS_FILE AND EXISTS "${SAGE_COMMON_DEPS_FILE}")
@@ -78,34 +77,4 @@ endif()
 add_subdirectory(src)
 add_subdirectory(test)
 add_subdirectory(examples)
-
-# Python bindings
-if(NOT _sage_flow_shared_deps)
-    include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/pybind11_dependency.cmake)
-endif()
-
-pybind11_add_module(_sage_flow python/bindings.cpp)
-target_link_libraries(_sage_flow PRIVATE
-    candy
-    externalRuntimeLibs
-)
-target_include_directories(_sage_flow PRIVATE include)
-if(DEFINED SAGE_COMMON_COMPILE_DEFINITIONS)
-    target_compile_definitions(_sage_flow PRIVATE ${SAGE_COMMON_COMPILE_DEFINITIONS})
-else()
-    target_compile_definitions(_sage_flow PRIVATE PYBIND11_INTERNALS_ID="sage_pybind11_shared")
-endif()
-
-# Reduce exported symbol surface to minimize potential cross-module clashes
-if(DEFINED SAGE_COMMON_COMPILE_OPTIONS)
-    target_compile_options(_sage_flow PRIVATE ${SAGE_COMMON_COMPILE_OPTIONS})
-else()
-    target_compile_options(_sage_flow PRIVATE -fvisibility=hidden -fvisibility-inlines-hidden)
-endif()
-
-if(ENABLE_GPERFTOOLS AND DEFINED SAGE_GPERFTOOLS_LIBS AND SAGE_GPERFTOOLS_LIBS)
-    target_link_libraries(_sage_flow PRIVATE ${SAGE_GPERFTOOLS_LIBS})
-endif()
-set_target_properties(_sage_flow PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES)
-
 

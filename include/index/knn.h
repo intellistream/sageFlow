@@ -1,6 +1,6 @@
 #include "index/index.h"
 
-namespace candy {
+namespace sageFlow {
 class Knn final : public Index {
  public:
   ~Knn() override;
@@ -10,4 +10,4 @@ class Knn final : public Index {
   auto query_for_join(const VectorRecord &record,
                       double join_similarity_threshold) -> std::vector<uint64_t> override;
 };
-}  // namespace candy
+}  // namespace sageFlow

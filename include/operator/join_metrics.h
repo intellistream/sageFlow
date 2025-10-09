@@ -7,7 +7,7 @@
 #include <fstream>
 #include <mutex>
 
-namespace candy {
+namespace sageFlow {
 struct JoinMetrics {
   std::atomic<uint64_t> window_insert_ns{0};
   std::atomic<uint64_t> index_insert_ns{0};
@@ -75,4 +75,4 @@ class ScopedAccumulateAtomic {
   uint64_t start_ns_;
 };
 
-} // namespace candy
+} // namespace sageFlow

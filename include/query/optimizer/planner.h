@@ -8,7 +8,7 @@
 #include "operator/operator_api.h"
 #include "execution/execution_graph.h"
 
-namespace candy {
+namespace sageFlow {
 
 class Planner {
  public:
@@ -42,4 +42,4 @@ class Planner {
                                     size_t default_parallelism) const;
 
 };
-}  // namespace candy
+}  // namespace sageFlow

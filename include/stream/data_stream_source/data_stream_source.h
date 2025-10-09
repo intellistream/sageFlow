@@ -5,7 +5,7 @@
 #include "common/data_types.h"
 #include "stream/stream.h"
 
-namespace candy {
+namespace sageFlow {
 enum class DataStreamSourceType {  // NOLINT
   None,
   File,
@@ -30,4 +30,4 @@ class DataStreamSource : public Stream {
   DataStreamSourceType type_ = DataStreamSourceType::None;
   size_t buffer_size_limit_ = (1<<20);  // 1MB
 };
-}  // namespace candy
+}  // namespace sageFlow

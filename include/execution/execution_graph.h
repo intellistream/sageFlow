@@ -9,7 +9,7 @@
 #include "execution/partitioner.h"
 #include "operator/operator.h"
 
-namespace candy {
+namespace sageFlow {
 
 struct OperatorInfo {
     std::shared_ptr<Operator> op;
@@ -64,4 +64,4 @@ private:
                                       bool is_join_operator = false);
 };
 
-} // namespace candy
+} // namespace sageFlow

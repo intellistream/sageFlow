@@ -8,7 +8,7 @@
 
 #include "function/function.h"
 
-namespace candy {
+namespace sageFlow {
 class Function;
 class FilterFunction;
 class MapFunction;
@@ -90,4 +90,4 @@ class Stream {
   std::string join_method_ = "bruteforce_lazy";
   double join_similarity_threshold_ = 0.8;
 };
-}  // namespace candy
+}  // namespace sageFlow

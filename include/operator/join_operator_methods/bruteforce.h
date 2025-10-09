@@ -6,7 +6,7 @@
 #include "function/join_function.h"
 #include "concurrency/concurrency_manager.h"
 
-namespace candy {
+namespace sageFlow {
 class BruteForceJoinMethod final : public BaseMethod {
  public:
   BruteForceJoinMethod(int left_index_id,
@@ -31,4 +31,4 @@ class BruteForceJoinMethod final : public BaseMethod {
   int right_index_id_ = -1;
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
 };
-} // namespace candy
+} // namespace sageFlow

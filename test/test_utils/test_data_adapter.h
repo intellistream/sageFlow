@@ -10,7 +10,7 @@
 #include <cstring>
 #include <iostream>
 
-namespace candy { namespace test {
+namespace sageFlow { namespace test {
 
 enum class Side { LEFT, RIGHT, BOTH };
 

@@ -8,16 +8,16 @@
 #include <utility>
 #include "utils/logger.h"
 
-candy::SiftStreamSource::SiftStreamSource(std::string name)
+sageFlow::SiftStreamSource::SiftStreamSource(std::string name)
     : DataStreamSource(std::move(name), DataStreamSourceType::None) {}
 
-candy::SiftStreamSource::SiftStreamSource(std::string name, std::string file_path)
+sageFlow::SiftStreamSource::SiftStreamSource(std::string name, std::string file_path)
     : DataStreamSource(std::move(name), DataStreamSourceType::None), file_path_(std::move(file_path)) {}
 
-void candy::SiftStreamSource::Init() {
+void sageFlow::SiftStreamSource::Init() {
   std::ifstream file(file_path_, std::ios::binary);
   if (!file.is_open()) {
-    CANDY_LOG_ERROR("SOURCE", "open_fail path={} ", file_path_);
+    sageFlow_LOG_ERROR("SOURCE", "open_fail path={} ", file_path_);
     return;
   }
 
@@ -38,7 +38,7 @@ void candy::SiftStreamSource::Init() {
     if (!file.good() && !file.eof()) {
       // Error reading the vector data
       delete[] vector_data;
-      CANDY_LOG_ERROR("SOURCE", "read_vector_fail path={} index={} ", file_path_, records_.size());
+      sageFlow_LOG_ERROR("SOURCE", "read_vector_fail path={} index={} ", file_path_, records_.size());
       break;
     }
 
@@ -57,10 +57,10 @@ void candy::SiftStreamSource::Init() {
   }
 
   file.close();
-  CANDY_LOG_INFO("SOURCE", "sift_loaded count={} path={} ", records_.size(), file_path_);
+  sageFlow_LOG_INFO("SOURCE", "sift_loaded count={} path={} ", records_.size(), file_path_);
 }
 
-auto candy::SiftStreamSource::Next() -> std::unique_ptr<VectorRecord> {
+auto sageFlow::SiftStreamSource::Next() -> std::unique_ptr<VectorRecord> {
   if (records_.empty()) {
     return nullptr;
   }

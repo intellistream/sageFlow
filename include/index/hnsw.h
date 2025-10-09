@@ -3,7 +3,7 @@
 
 #include "index/index.h"
 
-namespace candy {
+namespace sageFlow {
 class HNSW final : public Index {
  public:
   // HNSW() : HNSW(20, 100, 40) {}
@@ -55,4 +55,4 @@ class HNSW final : public Index {
 
   auto random_level() -> int;
 };
-}  // namespace candy
+}  // namespace sageFlow

@@ -7,7 +7,7 @@
 
 #include "common/data_types.h"
 
-namespace candy {
+namespace sageFlow {
 
 class ComputeEngine {
  public:
@@ -30,4 +30,4 @@ class ComputeEngine {
   auto EuclideanDistanceImpl(const VectorData &vec1, const VectorData &vec2) -> double;
 };
 
-}  // namespace candy
+}  // namespace sageFlow

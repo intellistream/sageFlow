@@ -6,7 +6,7 @@
 #include "function/function.h"
 #include "operator/operator.h"
 
-namespace candy {
+namespace sageFlow {
 class MapOperator final : public Operator {
  public:
   explicit MapOperator(std::unique_ptr<Function> &map_func);
@@ -18,4 +18,4 @@ class MapOperator final : public Operator {
  private:
   std::unique_ptr<Function> map_func_;
 };
-}  // namespace candy
+}  // namespace sageFlow

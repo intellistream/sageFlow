@@ -2,7 +2,7 @@
 #include <string>
 #include <spdlog/spdlog.h>
 
-namespace candy {
+namespace sageFlow {
 struct LogConfig {
     spdlog::level::level_enum level = spdlog::level::info;
 };
@@ -24,6 +24,6 @@ inline spdlog::level::level_enum parse_log_level(const std::string &s) {
 // Apply log level to global logger
 void apply_log_level(spdlog::level::level_enum lvl);
 
-// Load from env (CANDY_LOG_LEVEL) or passed string; env overrides.
+// Load from env (sageFlow_LOG_LEVEL) or passed string; env overrides.
 void init_log_level(const std::string &level_from_config);
 }

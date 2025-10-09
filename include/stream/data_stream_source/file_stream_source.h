@@ -8,7 +8,7 @@
 #include "common/data_types.h"
 #include "stream/data_stream_source/data_stream_source.h"
 
-namespace candy {
+namespace sageFlow {
 class FileStreamSource : public DataStreamSource {
  public:
   explicit FileStreamSource(std::string name);
@@ -26,4 +26,4 @@ class FileStreamSource : public DataStreamSource {
   uint64_t timeout_ms_{1000};
   std::mutex mtx_;
 };
-}  // namespace candy
+}  // namespace sageFlow

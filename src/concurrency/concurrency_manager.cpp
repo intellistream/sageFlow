@@ -9,11 +9,11 @@
 #include "index/knn.h"
 #include "index/vectraflow.h"
 
-candy::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
+sageFlow::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
 
-candy::ConcurrencyManager::~ConcurrencyManager() = default;
+sageFlow::ConcurrencyManager::~ConcurrencyManager() = default;
 
-auto candy::ConcurrencyManager::create_index(const std::string& name, const IndexType& index_type, int dimension)
+auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const IndexType& index_type, int dimension)
     -> int {
   std::shared_ptr<Index> index = nullptr;
   switch (index_type) {
@@ -47,13 +47,13 @@ auto candy::ConcurrencyManager::create_index(const std::string& name, const Inde
   return index->index_id_;
 }
 
-auto candy::ConcurrencyManager::create_index(const std::string& name, int dimension) -> int {
+auto sageFlow::ConcurrencyManager::create_index(const std::string& name, int dimension) -> int {
   return create_index(name, IndexType::BruteForce, dimension);
 }
 
-auto candy::ConcurrencyManager::drop_index(const std::string& name) -> bool { return false; }
+auto sageFlow::ConcurrencyManager::drop_index(const std::string& name) -> bool { return false; }
 
-auto candy::ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecord> record) -> bool {
+auto sageFlow::ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecord> record) -> bool {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return false;
@@ -62,7 +62,7 @@ auto candy::ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecor
   return controller->insert(std::move(record));
 }
 
-auto candy::ConcurrencyManager::erase(int index_id, std::unique_ptr<VectorRecord> record) -> bool {
+auto sageFlow::ConcurrencyManager::erase(int index_id, std::unique_ptr<VectorRecord> record) -> bool {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return false;
@@ -71,7 +71,7 @@ auto candy::ConcurrencyManager::erase(int index_id, std::unique_ptr<VectorRecord
   return controller->erase(std::move(record));
 }
 
-auto candy::ConcurrencyManager::erase(int index_id, uint64_t uid) -> bool {
+auto sageFlow::ConcurrencyManager::erase(int index_id, uint64_t uid) -> bool {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return false;
@@ -80,7 +80,7 @@ auto candy::ConcurrencyManager::erase(int index_id, uint64_t uid) -> bool {
   return controller->erase(uid);
 }
 
-auto candy::ConcurrencyManager::query(int index_id, const VectorRecord& record, int k)
+auto sageFlow::ConcurrencyManager::query(int index_id, const VectorRecord& record, int k)
     -> std::vector<std::shared_ptr<const VectorRecord>> {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
@@ -90,7 +90,7 @@ auto candy::ConcurrencyManager::query(int index_id, const VectorRecord& record, 
   return controller->query(record, k);
 }
 
-auto candy::ConcurrencyManager::query_for_join(int index_id, const VectorRecord& record,
+auto sageFlow::ConcurrencyManager::query_for_join(int index_id, const VectorRecord& record,
                       double join_similarity_threshold) -> std::vector<std::shared_ptr<const VectorRecord>> {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {

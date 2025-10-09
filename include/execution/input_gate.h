@@ -9,7 +9,7 @@
 #include <memory>
 #include <optional>
 
-namespace candy {
+namespace sageFlow {
 class InputGate {
 private:
   std::vector<QueuePtr> input_queues_;

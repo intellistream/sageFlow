@@ -1,11 +1,11 @@
 #include "function/map_function.h"
 
-candy::MapFunction::MapFunction(std::string name) : Function(std::move(name), FunctionType::Map) {}
+sageFlow::MapFunction::MapFunction(std::string name) : Function(std::move(name), FunctionType::Map) {}
 
-candy::MapFunction::MapFunction(std::string name, MapFunc map_func)
+sageFlow::MapFunction::MapFunction(std::string name, MapFunc map_func)
     : Function(std::move(name), FunctionType::Map), map_func_(std::move(map_func)) {}
 
-candy::Response candy::MapFunction::Execute(Response &resp) {
+sageFlow::Response sageFlow::MapFunction::Execute(Response &resp) {
   if (resp.type_ == ResponseType::Record) {
     auto record = std::move(resp.record_);
     map_func_(record);
@@ -22,4 +22,4 @@ candy::Response candy::MapFunction::Execute(Response &resp) {
   return {};
 }
 
-auto candy::MapFunction::setMapFunc(MapFunc map_func) -> void { map_func_ = std::move(map_func); }
+auto sageFlow::MapFunction::setMapFunc(MapFunc map_func) -> void { map_func_ = std::move(map_func); }

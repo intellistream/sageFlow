@@ -3,7 +3,7 @@
 
 #include "function/function.h"
 
-namespace candy {
+namespace sageFlow {
 using FilterFunc = std::function<bool(std::unique_ptr<VectorRecord> &)>;
 
 class FilterFunction final : public Function {
@@ -19,4 +19,4 @@ class FilterFunction final : public Function {
  private:
   FilterFunc filter_func_;
 };
-};  // namespace candy
+};  // namespace sageFlow

@@ -23,21 +23,21 @@ target_include_directories(test_data_support
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# 依赖主工程接口库 candy（其 transitively 链接全部内部组件）
+# 依赖主工程接口库 sageflow（其 transitively 链接全部内部组件）
 target_link_libraries(test_data_support
     PRIVATE
-    candy
+    sageflow
 )
 
-# 向所有测试目标注入的公共宏定义（基线：PROJECT_DIR；按选项追加 CANDY_ENABLE_METRICS）
+# 向所有测试目标注入的公共宏定义（基线：PROJECT_DIR；按选项追加 sageFlow_ENABLE_METRICS）
 set(TEST_COMMON_DEFINES 
     PROJECT_DIR="${CMAKE_SOURCE_DIR}"
 )
-if(CANDY_ENABLE_METRICS)
-    list(APPEND TEST_COMMON_DEFINES CANDY_ENABLE_METRICS=1)
+if(sageFlow_ENABLE_METRICS)
+    list(APPEND TEST_COMMON_DEFINES sageFlow_ENABLE_METRICS=1)
 endif()
 
-# 让公共库也拥有相同的编译宏（例如 PROJECT_DIR、可选的 CANDY_ENABLE_METRICS）
+# 让公共库也拥有相同的编译宏（例如 PROJECT_DIR、可选的 sageFlow_ENABLE_METRICS）
 target_compile_definitions(test_data_support PRIVATE ${TEST_COMMON_DEFINES})
 
 # -----------------------------------------------------------------------------
@@ -50,7 +50,7 @@ function(register_test TEST_NAME REL_PATH TIMEOUT_SECS GROUP_TAG)
         return()
     endif()
     add_gtest(${TEST_NAME} ${REL_PATH})           # 宏自动链接 gtest_main
-    target_link_libraries(${TEST_NAME} PRIVATE test_data_support candy)
+    target_link_libraries(${TEST_NAME} PRIVATE test_data_support sageflow)
     target_compile_definitions(${TEST_NAME} PRIVATE ${TEST_COMMON_DEFINES})
     # 为每个测试目标补充包含路径：工程 include/ 与 test/ 根目录（包含 utils/、UnitTest/、Performance/ 等）
     target_include_directories(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
@@ -103,7 +103,7 @@ endforeach()
 # -----------------------------------------------------------------------------
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Performance/IndexTest.cpp")
     add_executable(IndexTest Performance/IndexTest.cpp)
-    target_link_libraries(IndexTest PRIVATE test_data_support candy)
+    target_link_libraries(IndexTest PRIVATE test_data_support sageFlow)
     target_compile_definitions(IndexTest PRIVATE ${TEST_COMMON_DEFINES})
     target_include_directories(IndexTest PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
     add_test(NAME IndexTest COMMAND IndexTest)
@@ -181,8 +181,8 @@ add_custom_target(run_quick_tests
 
 # 输出说明
 message(STATUS "Test targets registered: UNIT=${ALL_UNIT_TARGETS}; PERF=${ALL_PERF_TARGETS}; INTEGRATION=${ALL_INTEG_TARGETS}")
-if(CANDY_ENABLE_METRICS)
-    message(STATUS "CANDY_ENABLE_METRICS enabled for tests to collect performance data")
+if(sageFlow_ENABLE_METRICS)
+    message(STATUS "sageFlow_ENABLE_METRICS enabled for tests to collect performance data")
 else()
-    message(STATUS "CANDY_ENABLE_METRICS disabled for tests (metrics code excluded)")
+    message(STATUS "sageFlow_ENABLE_METRICS disabled for tests (metrics code excluded)")
 endif()

@@ -8,8 +8,8 @@
 static int cnt = 0;
 
 // Helper function to generate a random vector
-auto GenerateRandomVectorData(std::mt19937& gen, int dim, candy::DataType data_type) -> candy::VectorData {
-  candy::VectorData vector_data(dim, data_type);
+auto GenerateRandomVectorData(std::mt19937& gen, int dim, sageFlow::DataType data_type) -> sageFlow::VectorData {
+  sageFlow::VectorData vector_data(dim, data_type);
   float begin = 0;
   float end = 1.0F;
   // Create distributions based on data type
@@ -18,35 +18,35 @@ auto GenerateRandomVectorData(std::mt19937& gen, int dim, candy::DataType data_t
   std::uniform_real_distribution<double> double_dist(-100.0, 100.0);
 
   // Fill the vector with random data based on its type
-  int element_size = candy::DATA_TYPE_SIZE[data_type];
+  int element_size = sageFlow::DATA_TYPE_SIZE[data_type];
   for (int i = 0; i < dim; ++i) {
     switch (data_type) {
-      case candy::Int8: {
+      case sageFlow::Int8: {
         auto value = static_cast<int8_t>(int_dist(gen) % 128);
         std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
-      case candy::Int16: {
+      case sageFlow::Int16: {
         auto value = static_cast<int16_t>(int_dist(gen));
         std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
-      case candy::Int32: {
+      case sageFlow::Int32: {
         int32_t value = int_dist(gen);
         std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
-      case candy::Int64: {
+      case sageFlow::Int64: {
         auto value = static_cast<int64_t>(int_dist(gen));
         std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
-      case candy::Float32: {
+      case sageFlow::Float32: {
         float value = float_dist(gen);
         std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
       }
-      case candy::Float64: {
+      case sageFlow::Float64: {
         double value = double_dist(gen);
         std::memcpy(vector_data.data_.get() + i * element_size, &value, element_size);
         break;
@@ -94,19 +94,19 @@ auto main(int argc, char* argv[]) -> int {
   // Write number of records as header
   int32_t record_count = num_records;
   output_file.write(reinterpret_cast<char*>(&record_count), sizeof(int32_t));
-  candy::DataType type = candy::Float32;
+  sageFlow::DataType type = sageFlow::Float32;
   for (int i = 0; i < num_records; ++i) {
     // Generate random values for the vector record
     uint64_t uid = i;
     int64_t timestamp = base_timestamp + i;  // Sequential timestamps
 
     // Generate random vector data
-    candy::VectorData vector_data = GenerateRandomVectorData(gen, dim, type);
+    sageFlow::VectorData vector_data = GenerateRandomVectorData(gen, dim, type);
 
     // Create vector record
 
     // Serialize and write to file
-    if (candy::VectorRecord record(uid, timestamp, std::move(vector_data)); !record.Serialize(output_file)) {
+    if (sageFlow::VectorRecord record(uid, timestamp, std::move(vector_data)); !record.Serialize(output_file)) {
       std::cerr << "Failed to serialize record " << i << '\n';
       output_file.close();
       return 1;

@@ -2,7 +2,7 @@
 #include "utils/logger.h"
 #include <deque>
 
-namespace candy {
+namespace sageFlow {
 
 std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteEager(const VectorRecord &query_record, int query_slot) {
   std::vector<std::unique_ptr<VectorRecord>> results;
@@ -12,12 +12,12 @@ std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteEager(const Vec
     return results;
   }
   auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_);
-  CANDY_LOG_DEBUG("JOIN_IVF", "eager_query slot={} candidates={} ", query_slot, candidates.size());
+  sageFlow_LOG_DEBUG("JOIN_IVF", "eager_query slot={} candidates={} ", query_slot, candidates.size());
   // LOG输出匹配上的向量和到达向量具体是什么
-  CANDY_LOG_DEBUG("JOIN_IVF", "eager_query input uid={} ", query_record.uid_);
+  sageFlow_LOG_DEBUG("JOIN_IVF", "eager_query input uid={} ", query_record.uid_);
   for (auto &c : candidates) {
     if (c) {
-  CANDY_LOG_DEBUG("JOIN_IVF", "eager_query matched candidate uid={} ", c->uid_);
+  sageFlow_LOG_DEBUG("JOIN_IVF", "eager_query matched candidate uid={} ", c->uid_);
     }
   }
   results.reserve(candidates.size());
@@ -44,4 +44,4 @@ std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteLazy(const std:
   return all_results;
 }
 
-} // namespace candy
+} // namespace sageFlow

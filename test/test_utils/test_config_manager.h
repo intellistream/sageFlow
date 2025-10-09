@@ -5,7 +5,7 @@
 #include <cstdint>
 #include "toml++/toml.hpp"
 
-namespace candy { namespace test {
+namespace sageFlow { namespace test {
 
 struct TestCaseConfig {
   std::string name;

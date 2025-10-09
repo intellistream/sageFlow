@@ -7,9 +7,11 @@ add_executable(
     fvecs_to_vector_records.cpp
 )
 target_link_libraries(generatorT
-    candy
+    PRIVATE
+    sageflow
 )
 
 target_link_libraries(fvecs_to_vector_records
-    candy
+    PRIVATE
+    sageflow
 )

@@ -6,7 +6,7 @@
 #include "stream/data_stream_source/file_stream_source.h"
 #include "common/data_types.h"
 
-namespace candy {
+namespace sageFlow {
 TEST(FileStreamSourceTest, BasicLoad) {
   // Create a temporary file with one serialized VectorRecord
   auto test_file = std::filesystem::temp_directory_path() / "test_source.dat";
@@ -72,4 +72,4 @@ TEST(FileStreamSourceTest, LargeLoad) {
   }
   EXPECT_EQ(count, 1500);
 }
-}  // namespace candy
+}  // namespace sageFlow

@@ -25,7 +25,7 @@
 #include <algorithm>
 #include <cmath>
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 // 本地复制 TestVectorStreamSource（避免跨测试文件定义冲突/依赖）
@@ -57,7 +57,7 @@ protected:
   std::string metrics_path = "build/metrics/join_perf_" + 
         std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".tsv";
     JoinMetrics::instance().dump_tsv(metrics_path);
-  CANDY_LOG_INFO("TEST", "Performance metrics saved path={} ", metrics_path);
+  sageFlow_LOG_INFO("TEST", "Performance metrics saved path={} ", metrics_path);
   }
 
   // 创建JoinFunction（使用 test_data_adapter 助手），支持配置维度与窗口
@@ -146,14 +146,14 @@ inline PerfConfigSets loadPerfConfig() {
     for (size_t i=0;i<out.win_ms_list.size();++i){ if(i) ss<<","; ss<<out.win_ms_list[i]; }
     ss<<"] trig_ms="<<out.trig_ms<<" vector_dim="<<out.vector_dim
       <<" time_interval_ms="<<out.time_interval_ms;
-    CANDY_LOG_INFO("TEST", "[CONFIG] {}", ss.str());
+    sageFlow_LOG_INFO("TEST", "[CONFIG] {}", ss.str());
   }
   // 同时检查全局配置中的日志级别设置
   DynamicConfig global_config;
   if (DynamicConfigManager::loadConfig("config/perf_join.toml", "", global_config)) {
     auto log_level = global_config.get<std::string>("log.level", "info");
     std::cout << "[PerfTest] Setting log level to: " << log_level << std::endl;
-    candy::init_log_level(log_level);
+    sageFlow::init_log_level(log_level);
   }
   
   return out;
@@ -272,7 +272,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   }
 
   // 开始前打印本轮参数（方法/规模/并行度）
-  CANDY_LOG_INFO("TEST", "[BEGIN] method={} size={} parallelism={} ", method, data_size, parallelism);
+  sageFlow_LOG_INFO("TEST", "[BEGIN] method={} size={} parallelism={} ", method, data_size, parallelism);
 
   static PerfConfigSets g_sets_for_dim = loadPerfConfig();
   TestDataGenerator::Config config; config.vector_dim = g_sets_for_dim.vector_dim; config.similarity_threshold = 0.8;
@@ -304,7 +304,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   uint64_t trig_ms = g_sets.trig_ms; double threshold_override = g_sets.threshold;
 
   // 打印本轮的窗口/阈值等关键参数
-  CANDY_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} time_interval_ms={} ", threshold_override, win_ms, trig_ms, g_sets.time_interval_ms);
+  sageFlow_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} time_interval_ms={} ", threshold_override, win_ms, trig_ms, g_sets.time_interval_ms);
 
   // 构建环境与 Source
   StreamEnvironment env;
@@ -380,7 +380,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
       uint64_t r = JoinMetrics::instance().total_records_right.load();
       if (l >= expected_left && r >= expected_right) break;
       if (std::chrono::steady_clock::now() >= deadline) {
-        CANDY_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+        sageFlow_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
         break;
       }
       std::this_thread::sleep_for(5ms);
@@ -408,11 +408,11 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   // 精准匹配统计
   size_t match_count = 0;
   for (auto ap : actual_pairs) {
-    // CANDY_LOG_INFO("TEST", "  Actual match: L={} R={} ", ap.first, ap.second);
+    // sageFlow_LOG_INFO("TEST", "  Actual match: L={} R={} ", ap.first, ap.second);
     if (expected_matches.count(ap)) match_count++;
   }
   for (auto ep : expected_matches) {
-    // CANDY_LOG_INFO("TEST", "  Expected match: L={} R={} ", ep.first, ep.second);
+    // sageFlow_LOG_INFO("TEST", "  Expected match: L={} R={} ", ep.first, ep.second);
   }
 
   double recall = expected_matches.empty() ? 1.0 : static_cast<double>(match_count) / static_cast<double>(expected_matches.size());
@@ -420,7 +420,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   double precision = static_cast<double>(match_count)/static_cast<double>(actual_pairs.size());
   double f1 = (precision+recall)>0 ? 2*precision*recall/(precision+recall):0.0;
 
-  CANDY_LOG_INFO("TEST", "Method={} Size={} Parallelism={} time_ms={} matches={} expected={} recall={} precision={} f1={} win_ms={} trig_ms={} ",
+  sageFlow_LOG_INFO("TEST", "Method={} Size={} Parallelism={} time_ms={} matches={} expected={} recall={} precision={} f1={} win_ms={} trig_ms={} ",
                  method, data_size, parallelism, duration.count(), match_count, expected_matches.size(), recall, precision, f1, win_ms, trig_ms);
 
   // 将结果追加写入报告
@@ -438,7 +438,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
     bool new_file = !std::filesystem::exists(report_path);
     std::ofstream ofs(report_path, std::ios::app);
     if (!ofs.is_open()) {
-      CANDY_LOG_WARN("TEST", "[REPORT] cannot open {} for write", report_path);
+      sageFlow_LOG_WARN("TEST", "[REPORT] cannot open {} for write", report_path);
       return; // 放弃写报告，但不影响测试断言
     }
     if (new_file) {
@@ -475,9 +475,9 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
     << JoinMetrics::instance().candidate_fetch_ns.load() << '\t'
         << input_tput_rps << '\t' << output_tput_rps << '\t' << avg_apply_ms << '\t' << avg_e2e_ms << '\n';
   ofs.flush();
-    CANDY_LOG_INFO("TEST", "[REPORT] appended to {}", report_path);
+    sageFlow_LOG_INFO("TEST", "[REPORT] appended to {}", report_path);
   } catch(const std::exception &e) {
-    CANDY_LOG_WARN("TEST", "write_report_failed what={} ", e.what());
+    sageFlow_LOG_WARN("TEST", "write_report_failed what={} ", e.what());
   }
 
   // 基本性能与锁争用检测
@@ -501,7 +501,7 @@ static std::vector<PerfCaseParam> buildParams() {
       for (auto par : sets.parallelism)
         for (auto win : sets.win_ms_list)
         {
-          CANDY_LOG_INFO("TEST", "[PARAMGEN] method={} size={} parallelism={} win_ms={} ", m, sz, par, win);
+          sageFlow_LOG_INFO("TEST", "[PARAMGEN] method={} size={} parallelism={} win_ms={} ", m, sz, par, win);
           params.push_back({m, sz, par, win});
         }
   return params;
@@ -517,8 +517,8 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
   for (auto data_size : sets.sizes) {
     for (auto par : sets.parallelism) {
       for (auto win_ms : sets.win_ms_list) {
-        CANDY_LOG_INFO("TEST", "[BEGIN] MethodSpeedComparison size={} parallelism={} win_ms={} ", data_size, par, win_ms);
-        CANDY_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} ", sets.threshold, win_ms, sets.trig_ms);
+        sageFlow_LOG_INFO("TEST", "[BEGIN] MethodSpeedComparison size={} parallelism={} win_ms={} ", data_size, par, win_ms);
+        sageFlow_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} ", sets.threshold, win_ms, sets.trig_ms);
 
       std::vector<std::pair<std::string, int64_t>> method_times;
 
@@ -585,7 +585,7 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
             uint64_t r = JoinMetrics::instance().total_records_right.load();
             if (l >= expected_left && r >= expected_right) break;
             if (std::chrono::steady_clock::now() >= deadline) {
-              CANDY_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+              sageFlow_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
               break;
             }
             std::this_thread::sleep_for(5ms);
@@ -597,7 +597,7 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
   method_times.emplace_back(method, duration.count());
-  CANDY_LOG_INFO("TEST", "Method={} Size={} Par={} time_ms={} matches={} win_ms={} trig_ms={} ",
+  sageFlow_LOG_INFO("TEST", "Method={} Size={} Par={} time_ms={} matches={} win_ms={} trig_ms={} ",
            method, data_size, par, duration.count(), (size_t)match_count.load(), win_ms, sets.trig_ms);
       }
 
@@ -617,4 +617,4 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
 }
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

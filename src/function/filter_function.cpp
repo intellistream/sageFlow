@@ -1,11 +1,11 @@
 #include "function/filter_function.h"
 
-candy::FilterFunction::FilterFunction(std::string name) : Function(std::move(name), FunctionType::Filter) {}
+sageFlow::FilterFunction::FilterFunction(std::string name) : Function(std::move(name), FunctionType::Filter) {}
 
-candy::FilterFunction::FilterFunction(std::string name, FilterFunc filter_func)
+sageFlow::FilterFunction::FilterFunction(std::string name, FilterFunc filter_func)
     : Function(std::move(name), FunctionType::Filter), filter_func_(std::move(filter_func)) {}
 
-candy::Response candy::FilterFunction::Execute(Response &resp) {
+sageFlow::Response sageFlow::FilterFunction::Execute(Response &resp) {
    if (resp.type_ == ResponseType::Record) {
     if (auto record = std::move(resp.record_); filter_func_(record)) {
        return Response{ResponseType::Record, std::move(record)};
@@ -23,4 +23,4 @@ candy::Response candy::FilterFunction::Execute(Response &resp) {
   return {};
 }
 
-auto candy::FilterFunction::setFilterFunc(FilterFunc filter_func) -> void { filter_func_ = std::move(filter_func); }
+auto sageFlow::FilterFunction::setFilterFunc(FilterFunc filter_func) -> void { filter_func_ = std::move(filter_func); }

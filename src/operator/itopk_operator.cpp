@@ -8,7 +8,7 @@
 
 #include "function/itopk_function.h"
 
-candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& func,
+sageFlow::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& func,
                                     const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
     : Operator(OperatorType::ITOPK), itopk_func_(std::move(func)), concurrency_manager_(concurrency_manager) {
   auto itopk_func = dynamic_cast<ITopkFunction*>(itopk_func_.get());
@@ -19,7 +19,7 @@ candy::ITopkOperator::ITopkOperator(std::unique_ptr<Function>& func,
   record_ = itopk_func->getRecord();
 }
 
-auto candy::ITopkOperator::process(Response&data, int slot) -> std::optional<Response> {
+auto sageFlow::ITopkOperator::process(Response&data, int slot) -> std::optional<Response> {
   // TODO: 多线程改造 - ITopK算子的并发状态管理
   // 在多线程环境中，需要考虑以下改造：
   // 1. uid集合(uids_)的并发访问保护，需要使用线程安全的容器或加锁
@@ -68,12 +68,12 @@ auto candy::ITopkOperator::process(Response&data, int slot) -> std::optional<Res
   return std::nullopt;
 }
 
-auto candy::ITopkOperator::getRecord() const -> std::unique_ptr<VectorRecord> {
+auto sageFlow::ITopkOperator::getRecord() const -> std::unique_ptr<VectorRecord> {
   std::lock_guard<std::mutex> lock(state_mutex_);
   return std::make_unique<VectorRecord>(*record_);
 }
 
-auto candy::ITopkOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::ITopkOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   if (record.type_ == ResponseType::Record) {
     return; // ITopKOperator通常处理List类型的数据
   }

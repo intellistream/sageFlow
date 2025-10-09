@@ -10,7 +10,7 @@
 // Assuming sageFlow headers are accessible via include path
 #include "common/data_types.h" // For DataType enum
 
-using namespace candy;
+using namespace sageFlow;
 
 // Function to read vectors from an fvecs file (remains the same)
 int read_fvecs(const std::string& filename, std::vector<float>& data, int expected_dim = -1) {

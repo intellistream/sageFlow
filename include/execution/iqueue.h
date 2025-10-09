@@ -9,7 +9,7 @@
 #include <optional>
 #include "common/data_types.h"
 
-namespace candy {
+namespace sageFlow {
 
 struct TaggedResponse {
   Response response;
@@ -35,4 +35,4 @@ protected:
 
 using QueuePtr = std::shared_ptr<IQueue>;
 
-} // namespace candy
+} // namespace sageFlow

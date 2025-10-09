@@ -1,7 +1,7 @@
 #include "compute_engine/compute_engine.h"
 #include <iostream>
 
-auto candy::ComputeEngine::Similarity(const VectorData& vec1, const VectorData& vec2, const double alpha) -> double {
+auto sageFlow::ComputeEngine::Similarity(const VectorData& vec1, const VectorData& vec2, const double alpha) -> double {
   auto distance = EuclideanDistance(vec1, vec2);
   // Exponential Decay function to convert distance to similarity
   return std::exp(-alpha * distance);
@@ -9,7 +9,7 @@ auto candy::ComputeEngine::Similarity(const VectorData& vec1, const VectorData& 
 
 // 私有模板辅助函数
 template <typename T>
-auto candy::ComputeEngine::EuclideanDistanceImpl(const VectorData& vec1, const VectorData& vec2) -> double {
+auto sageFlow::ComputeEngine::EuclideanDistanceImpl(const VectorData& vec1, const VectorData& vec2) -> double {
   // 确保 T 是算术类型
   static_assert(std::is_arithmetic<T>::value, "Template parameter T must be an arithmetic type.");
 
@@ -26,7 +26,7 @@ auto candy::ComputeEngine::EuclideanDistanceImpl(const VectorData& vec1, const V
   return std::sqrt(distance_sq);
 }
 
-auto candy::ComputeEngine::EuclideanDistance(const VectorData& vec1, const VectorData& vec2) -> double {
+auto sageFlow::ComputeEngine::EuclideanDistance(const VectorData& vec1, const VectorData& vec2) -> double {
   if (vec1.dim_ != vec2.dim_) {
     throw std::invalid_argument("Vectors must be of the same size");
   }
@@ -60,9 +60,9 @@ auto candy::ComputeEngine::EuclideanDistance(const VectorData& vec1, const Vecto
   return distance;
 }
 
-auto candy::ComputeEngine::normalizeVector(const VectorData& vec) -> VectorData { return vec; }
+auto sageFlow::ComputeEngine::normalizeVector(const VectorData& vec) -> VectorData { return vec; }
 
-auto candy::ComputeEngine::getVectorSquareLength(const VectorData& vec) -> double {
+auto sageFlow::ComputeEngine::getVectorSquareLength(const VectorData& vec) -> double {
     if (vec.dim_ == 0) {
         throw std::invalid_argument("Vector dimension cannot be zero");
     }
@@ -78,7 +78,7 @@ auto candy::ComputeEngine::getVectorSquareLength(const VectorData& vec) -> doubl
     return 0.0;
 }
 
-auto candy::ComputeEngine::dotmultiply(const VectorData& vec1, const VectorData& vec2) -> double {
+auto sageFlow::ComputeEngine::dotmultiply(const VectorData& vec1, const VectorData& vec2) -> double {
     if (vec1.dim_ != vec2.dim_) {
         throw std::invalid_argument("Vectors must be of the same size");
     }
@@ -95,4 +95,4 @@ auto candy::ComputeEngine::dotmultiply(const VectorData& vec1, const VectorData&
     return 0.0;
 }
 
-candy::ComputeEngine::ComputeEngine() = default;
+sageFlow::ComputeEngine::ComputeEngine() = default;

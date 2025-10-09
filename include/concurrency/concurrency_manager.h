@@ -7,7 +7,7 @@
 #include "concurrency/concurrency_controller.h"
 #include "index/index.h"
 
-namespace candy {
+namespace sageFlow {
 struct IdWithType {
   int id_;
   IndexType index_type_;
@@ -50,4 +50,4 @@ class ConcurrencyManager {
   std::atomic<int> index_id_counter_ = 0;  // atomic counter for index id
 };
 
-};  // namespace candy
+};  // namespace sageFlow

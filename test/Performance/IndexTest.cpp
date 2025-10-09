@@ -4,7 +4,7 @@
 #include <utils/conf_map.h>
 #include <utils/monitoring.h>  // Keep for potential detailed monitoring
 
-#ifdef CANDY_ENABLE_METRICS
+#ifdef sageFlow_ENABLE_METRICS
 #include "operator/join_metrics.h"
 #endif
 
@@ -22,13 +22,13 @@
 #include "stream/data_stream_source/sift_stream_source.h"  // Include SiftStreamSource explicitly
 
 using namespace std;          // NOLINT
-using namespace candy;        // NOLINT
+using namespace sageFlow;        // NOLINT
 using namespace std::chrono;  // NOLINT
 
-const std::string CANDY_PATH = PROJECT_DIR;
+const std::string sageFlow_PATH = PROJECT_DIR;
 #define CONFIG_DIR "/config/"
 
-namespace candy {
+namespace sageFlow {
 
 // -------------------------------
 
@@ -47,7 +47,7 @@ void ValidateConfiguration(const ConfigMap &conf) {
 
 void SetupAndRunPipeline(const std::string &config_file_path) {
   StreamEnvironment env;
-  const auto conf = candy::StreamEnvironment::loadConfiguration(config_file_path);
+  const auto conf = sageFlow::StreamEnvironment::loadConfiguration(config_file_path);
   try {
     cerr << "Loading configuration..." << endl;
     ValidateConfiguration(conf);  // Use the updated validation function
@@ -311,17 +311,17 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
   cout << "Queries Per Second (QPS): " << qps << " queries/second" << endl;
 }
 
-}  // namespace candy
+}  // namespace sageFlow
 
 // Main function remains the same
 auto main(int argc, char *argv[]) -> int {
-  const std::string default_config_file = CANDY_PATH + CONFIG_DIR + "index_test_config.toml";
+  const std::string default_config_file = sageFlow_PATH + CONFIG_DIR + "index_test_config.toml";
 
   string config_file_path;
   if (argc < 2) {
     config_file_path = default_config_file;
   } else {
-    config_file_path = CANDY_PATH + CONFIG_DIR + string(argv[1]);
+    config_file_path = sageFlow_PATH + CONFIG_DIR + string(argv[1]);
   }
 
   try {

@@ -8,7 +8,7 @@
 #include "function/function.h"
 #include "stream/stream.h"
 
-namespace candy {
+namespace sageFlow {
   using JoinFunc = std::function<std::unique_ptr<VectorRecord>(std::unique_ptr<VectorRecord> &, std::unique_ptr<VectorRecord> &)>;
 
   // 线程安全的滑动窗口类
@@ -129,4 +129,4 @@ namespace candy {
     // TODO : 把Window逻辑扩展
     // 现在的 window 是固定长度步长的滑动窗口
   };
-  };  // namespace candy
+  };  // namespace sageFlow

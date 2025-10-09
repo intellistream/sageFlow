@@ -8,7 +8,7 @@
 #include "common/data_types.h"
 #include "test_utils/test_data_adapter.h"
 
-namespace candy { namespace test {
+namespace sageFlow { namespace test {
 
 struct PairHash { size_t operator()(const std::pair<uint64_t, uint64_t>& p) const noexcept { uint64_t a = std::min(p.first, p.second); uint64_t b = std::max(p.first, p.second); uint64_t mix = a * 1315423911u ^ ((b << 13) | (b >> 7)); return std::hash<uint64_t>{}(mix); } };
 

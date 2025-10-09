@@ -12,7 +12,7 @@
 #include "execution/iqueue.h"
 #include "common/data_types.h"
 
-namespace candy {
+namespace sageFlow {
 /// 阻塞队列实现，适用于多生产者多消费者场景
 class BlockingQueue final : public IQueue {
 public:
@@ -53,4 +53,4 @@ private:
     std::atomic<bool> stopped_;
 };
 
-}  // namespace candy
+}  // namespace sageFlow

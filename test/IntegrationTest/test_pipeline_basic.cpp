@@ -24,7 +24,7 @@
 #include "test_utils/test_config_manager.h"
 #include "test_utils/test_data_adapter.h"
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 // 自适应等待：直到 Join 消费完预期输入并且输出在短时间内稳定
@@ -38,7 +38,7 @@ static void wait_until_processed_and_stable(size_t expected_left,
     uint64_t r = JoinMetrics::instance().total_records_right.load();
     if (l >= expected_left && r >= expected_right) break;
     if (std::chrono::steady_clock::now() >= deadline) {
-      CANDY_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+      sageFlow_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
       break;
     }
     std::this_thread::sleep_for(5ms);
@@ -191,8 +191,8 @@ TEST_F(MultiThreadPipelineTest, BasicPipelineConstruction) {
       });
 
   // 从配置读取 Join 配置
-  candy::test::PipelineConfig pipeline_cfg{};
-  if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
+  sageFlow::test::PipelineConfig pipeline_cfg{};
+  if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
     // 应用窗口配置
     join_func_direct->setWindow(pipeline_cfg.window.time_ms, pipeline_cfg.window.trigger_interval_ms);
     // 通过 Stream API 构建链式算子链，并设置并行度（使用配置的 join 方法与阈值）
@@ -206,7 +206,7 @@ TEST_F(MultiThreadPipelineTest, BasicPipelineConstruction) {
   wait_until_stable_only(std::chrono::milliseconds(100), std::chrono::seconds(10));
   EXPECT_NO_THROW(env_->stop()) << "StreamEnvironment stop should not throw";
   EXPECT_NO_THROW(env_->awaitTermination()) << "StreamEnvironment awaitTermination should not throw";
-  CANDY_LOG_INFO("TEST", "pipeline construction success");
+  sageFlow_LOG_INFO("TEST", "pipeline construction success");
     return;
   }
   // 回退：若配置加载失败，使用默认 join 参数
@@ -225,7 +225,7 @@ TEST_F(MultiThreadPipelineTest, BasicPipelineConstruction) {
   EXPECT_NO_THROW(env_->stop()) << "StreamEnvironment stop should not throw";
   EXPECT_NO_THROW(env_->awaitTermination()) << "StreamEnvironment awaitTermination should not throw";
 
-  CANDY_LOG_INFO("TEST", "pipeline construction success");
+  sageFlow_LOG_INFO("TEST", "pipeline construction success");
 }
 
 TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
@@ -245,7 +245,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
   auto [base_records, expected_matches] = generator.generateData();
 
   // 打印所有记录信息，便于排查
-  CANDY_LOG_INFO("TEST", "ParallelJoinConsistency dataset: records={} expected_matches_size={} dim={} ",
+  sageFlow_LOG_INFO("TEST", "ParallelJoinConsistency dataset: records={} expected_matches_size={} dim={} ",
                  base_records.size(), expected_matches.size(), config.vector_dim);
   for (size_t i = 0; i < base_records.size(); ++i) {
     const auto& r = base_records[i];
@@ -256,7 +256,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
       vals += std::to_string(vec[d]);
       if (d + 1 < vec.size()) vals += ",";
     }
-    CANDY_LOG_INFO("TEST", "rec#{} uid={} ts={} values=[{}] ", i, r->uid_, r->timestamp_, vals);
+    sageFlow_LOG_INFO("TEST", "rec#{} uid={} ts={} values=[{}] ", i, r->uid_, r->timestamp_, vals);
   }
   
   std::vector<std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>> results_by_parallelism;
@@ -320,10 +320,10 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
         });
 
     // 从配置读取 Join 配置
-    candy::test::PipelineConfig pipeline_cfg{};
+    sageFlow::test::PipelineConfig pipeline_cfg{};
     std::string method = "bruteforce_lazy";
     double threshold = 0.8;
-    if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
+    if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg)) {
       method = pipeline_cfg.join_method;
       threshold = pipeline_cfg.similarity_threshold;
       join_func_direct->setWindow(pipeline_cfg.window.time_ms, pipeline_cfg.window.trigger_interval_ms);
@@ -346,7 +346,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
     env_->awaitTermination();
 
     results_by_parallelism.push_back(std::move(result_set));
-    CANDY_LOG_INFO("TEST", "Parallelism {} matches={} ", parallelism, results_by_parallelism.back().size());
+    sageFlow_LOG_INFO("TEST", "Parallelism {} matches={} ", parallelism, results_by_parallelism.back().size());
   }
   
   // 放宽一致性：对参考结果（parallelism=1）与其他并行度计算召回率，仅要求 recall >= 0.5
@@ -361,7 +361,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
       size_t hit = 0;
       for (const auto& p : ref) if (cur.count(p)) ++hit;
       double recall = static_cast<double>(hit) / static_cast<double>(ref.size());
-      CANDY_LOG_INFO("TEST", "Parallelism={} recall={} ref_size={} cur_size={} ", parallelism_levels[i], recall, ref.size(), cur.size());
+      sageFlow_LOG_INFO("TEST", "Parallelism={} recall={} ref_size={} cur_size={} ", parallelism_levels[i], recall, ref.size(), cur.size());
       EXPECT_GE(recall, 0.5) << "Recall below threshold for parallelism=" << parallelism_levels[i];
     }
   }
@@ -407,10 +407,10 @@ TEST_F(MultiThreadPipelineTest, StressTestMultipleRestarts) {
     [&](std::unique_ptr<VectorRecord>& rec) { sink_count.fetch_add(1, std::memory_order_relaxed); });
 
   // 配置驱动 Join 方法
-  candy::test::PipelineConfig pipeline_cfg_rs{};
+  sageFlow::test::PipelineConfig pipeline_cfg_rs{};
   std::string method_rs = "bruteforce_lazy";
   double threshold_rs = 0.8;
-  if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_rs)) {
+  if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_rs)) {
     method_rs = pipeline_cfg_rs.join_method;
     threshold_rs = pipeline_cfg_rs.similarity_threshold;
     join_func_direct->setWindow(pipeline_cfg_rs.window.time_ms, pipeline_cfg_rs.window.trigger_interval_ms);
@@ -429,10 +429,10 @@ TEST_F(MultiThreadPipelineTest, StressTestMultipleRestarts) {
   env_->stop();
   env_->awaitTermination();
     
-  CANDY_LOG_INFO("TEST", "Restart {} success", restart);
+  sageFlow_LOG_INFO("TEST", "Restart {} success", restart);
   }
   
-  CANDY_LOG_INFO("TEST", "Stress test restarts completed");
+  sageFlow_LOG_INFO("TEST", "Stress test restarts completed");
 }
 
 TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
@@ -490,10 +490,10 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 
   // 构建并行 Join
   // 配置驱动 Join 方法
-  candy::test::PipelineConfig pipeline_cfg_hc{};
+  sageFlow::test::PipelineConfig pipeline_cfg_hc{};
   std::string method_hc = "bruteforce_lazy";
   double threshold_hc = 0.8;
-  if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_hc)) {
+  if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_hc)) {
     method_hc = pipeline_cfg_hc.join_method;
     threshold_hc = pipeline_cfg_hc.similarity_threshold;
     join_func_direct->setWindow(pipeline_cfg_hc.window.time_ms, pipeline_cfg_hc.window.trigger_interval_ms);
@@ -509,7 +509,7 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
   env_->stop();
   env_->awaitTermination();
 
-  CANDY_LOG_INFO("TEST", "High concurrency test completed matches={} lock_wait_ms={} ",
+  sageFlow_LOG_INFO("TEST", "High concurrency test completed matches={} lock_wait_ms={} ",
                  sink_count.load(), JoinMetrics::instance().lock_wait_ns.load() / 1000000);
   
   // 验证无死锁且有合理处理量（以产生结果为标志）
@@ -568,7 +568,7 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 //   TestDataGenerator generator(config);
 //   auto [records, expected_matches] = generator.generateData();
 //
-//   CANDY_LOG_INFO("TEST", "Testing configuration method={} Source={} Join={} Data={} ",
+//   sageFlow_LOG_INFO("TEST", "Testing configuration method={} Source={} Join={} Data={} ",
 //                  method, source_parallelism, join_parallelism, data_size);
 //
 //   // 使用 StreamEnvironment 构建并行流水线
@@ -614,9 +614,9 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 //       [&](std::unique_ptr<VectorRecord>&) { total_matches.fetch_add(1, std::memory_order_relaxed); });
 //
 //   // 从配置读取默认阈值；方法由参数提供
-//   candy::test::PipelineConfig pipeline_cfg_param{};
+//   sageFlow::test::PipelineConfig pipeline_cfg_param{};
 //   double threshold_param = 0.8;
-//   if (candy::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_param)) {
+//   if (sageFlow::test::TestConfigManager::loadPipelineConfig("config/join_pipeline_basic.toml", pipeline_cfg_param)) {
 //     threshold_param = pipeline_cfg_param.similarity_threshold;
 //     join_func_direct->setWindow(pipeline_cfg_param.window.time_ms, pipeline_cfg_param.window.trigger_interval_ms);
 //   }
@@ -637,7 +637,7 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 //   auto end_time = std::chrono::high_resolution_clock::now();
 //   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
 //
-//   CANDY_LOG_INFO("TEST", "Configuration test completed duration_ms={} matches={} ",
+//   sageFlow_LOG_INFO("TEST", "Configuration test completed duration_ms={} matches={} ",
 //                  duration.count(), total_matches.load());
 //
 //   // 验证处理完成且无崩溃
@@ -658,4 +658,4 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 // );
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

@@ -9,7 +9,7 @@
 #include <spdlog/fmt/fmt.h>
 #include "utils/logger.h"
 
-namespace candy {
+namespace sageFlow {
 
 ExecutionVertex::ExecutionVertex(const std::shared_ptr<Operator> &op, const size_t index)
   : operator_(op), subtask_index_(index) {
@@ -44,7 +44,7 @@ void ExecutionVertex::join() const {
 }
 
 void ExecutionVertex::run() const {
-  CANDY_LOG_DEBUG("VERTEX", "{} started thread={} ", name_, (size_t)std::hash<std::thread::id>{}(std::this_thread::get_id()));
+  sageFlow_LOG_DEBUG("VERTEX", "{} started thread={} ", name_, (size_t)std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
   auto source_op = dynamic_cast<OutputOperator*>(operator_.get());
   try {
@@ -80,7 +80,7 @@ void ExecutionVertex::run() const {
         } catch (const std::exception& e) {
           int dim = (data.record_ ? data.record_->data_.dim_ : -1);
           uint64_t uid = (data.record_ ? data.record_->uid_ : 0);
-          CANDY_LOG_ERROR("APPLY", "operator={} slot={} dim={} uid={} what={} ", operator_->name, data_opt->slot, dim, uid, e.what());
+          sageFlow_LOG_ERROR("APPLY", "operator={} slot={} dim={} uid={} what={} ", operator_->name, data_opt->slot, dim, uid, e.what());
           throw;
         }
       }
@@ -95,19 +95,19 @@ void ExecutionVertex::run() const {
         } catch (const std::exception& e) {
           int dim = (data.record_ ? data.record_->data_.dim_ : -1);
           uint64_t uid = (data.record_ ? data.record_->uid_ : 0);
-          CANDY_LOG_ERROR("DRAIN", "operator={} slot={} dim={} uid={} what={} ", operator_->name, data_opt->slot, dim, uid, e.what());
+          sageFlow_LOG_ERROR("DRAIN", "operator={} slot={} dim={} uid={} what={} ", operator_->name, data_opt->slot, dim, uid, e.what());
           break; // 排干阶段出现异常不再继续，防止无限重试
         }
       }
     }
   } catch (const std::exception& e) {
-    CANDY_LOG_ERROR("VERTEX", "Exception name={} what={} ", name_, e.what());
+    sageFlow_LOG_ERROR("VERTEX", "Exception name={} what={} ", name_, e.what());
   }
 
   // 关闭算子
   operator_->close();
 
-  CANDY_LOG_INFO("VERTEX", "{} finished", name_);
+  sageFlow_LOG_INFO("VERTEX", "{} finished", name_);
 }
 
 }

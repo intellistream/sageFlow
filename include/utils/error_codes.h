@@ -3,7 +3,7 @@
 
 #include <string>
 
-namespace candy {
+namespace sageFlow {
 
 enum class ErrorCode {
   SUCCESS,
@@ -22,6 +22,6 @@ std::string error_to_string(ErrorCode code) {
   }
 }
 
-} // namespace candy
+} // namespace sageFlow
 
 

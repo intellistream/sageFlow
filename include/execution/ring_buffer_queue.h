@@ -10,7 +10,7 @@
 #include "common/data_types.h"
 #include "execution/iqueue.h"
 
-namespace candy {
+namespace sageFlow {
 // 适用于单生产者单消费者场景，使用环形缓冲区实现
 class RingBufferQueue final : public IQueue {
 public:

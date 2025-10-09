@@ -3,7 +3,7 @@
 
 #include "function/function.h"
 
-namespace candy {
+namespace sageFlow {
 using MapFunc = std::function<void(std::unique_ptr<VectorRecord> &)>;
 
 class MapFunction final : public Function {
@@ -19,4 +19,4 @@ class MapFunction final : public Function {
  private:
   MapFunc map_func_;
 };
-};  // namespace candy
+};  // namespace sageFlow

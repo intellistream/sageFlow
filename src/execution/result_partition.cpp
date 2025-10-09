@@ -4,7 +4,7 @@
 
 #include "execution/result_partition.h"
 
-namespace candy {
+namespace sageFlow {
 void ResultPartition::setup(std::unique_ptr<IPartitioner> p, std::vector<QueuePtr> channels, int slot) {
   partitioner_ = std::move(p);
   channel_slot_map_[slot] = std::move(channels);

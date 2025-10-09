@@ -5,7 +5,7 @@
 #include "common/data_types.h"
 #include "function/function.h"
 
-namespace candy {
+namespace sageFlow {
 
 enum class AggregateType { None, Avg };
 
@@ -19,4 +19,4 @@ class AggregateFunction final : public Function {
  private:
   AggregateType aggregate_type_ = AggregateType::None;
 };
-};  // namespace candy
+};  // namespace sageFlow

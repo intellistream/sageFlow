@@ -7,7 +7,7 @@
 #include "function/function.h"
 #include "operator/operator.h"
 
-namespace candy {
+namespace sageFlow {
 class AggregateOperator final : public Operator {
  public:
   explicit AggregateOperator(std::unique_ptr<Function> &aggregate_func);
@@ -19,4 +19,4 @@ class AggregateOperator final : public Operator {
  private:
   std::unique_ptr<Function> aggregate_func_;
 };
-}  // namespace candy
+}  // namespace sageFlow

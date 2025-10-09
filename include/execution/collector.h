@@ -8,7 +8,7 @@
 #include <functional>
 #include <memory>
 
-namespace candy {
+namespace sageFlow {
 class Collector {
 public:
   // 构造函数接收一个可以发射数据的 lambda 函数
@@ -52,4 +52,4 @@ private:
   std::vector<int> slots_;
 };
 
-} // namespace candy
+} // namespace sageFlow

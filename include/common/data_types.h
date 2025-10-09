@@ -6,7 +6,7 @@
 #include <vector>
 #include <iostream>
 
-namespace candy {
+namespace sageFlow {
 enum DataType {  // NOLINT
   None,
   Int8,
@@ -123,4 +123,4 @@ struct UidAndDist {
   }
 };
 
-}  // namespace candy
+}  // namespace sageFlow

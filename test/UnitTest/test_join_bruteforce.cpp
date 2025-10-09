@@ -11,7 +11,7 @@
 #include "storage/storage_manager.h"
 #include "execution/collector.h"
 
-namespace candy {
+namespace sageFlow {
 namespace test {
 
 class JoinBruteForceTest : public ::testing::Test {
@@ -28,7 +28,7 @@ protected:
 
   void TearDown() override {
     if (::testing::Test::HasFailure()) {
-  CANDY_LOG_WARN("TEST", "BF Test failed. Metrics: WIN={}ns IDX={}ns SIM={}ns ",
+  sageFlow_LOG_WARN("TEST", "BF Test failed. Metrics: WIN={}ns IDX={}ns SIM={}ns ",
          JoinMetrics::instance().window_insert_ns.load(),
          JoinMetrics::instance().index_insert_ns.load(),
          JoinMetrics::instance().similarity_ns.load());
@@ -264,4 +264,4 @@ INSTANTIATE_TEST_SUITE_P(
 );
 
 } // namespace test
-} // namespace candy
+} // namespace sageFlow

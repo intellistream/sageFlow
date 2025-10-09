@@ -7,7 +7,7 @@
 #include "concurrency/concurrency_manager.h"
 #include "operator/operator.h"
 
-namespace candy {
+namespace sageFlow {
 class ITopkOperator final : public Operator {
  public:
   explicit ITopkOperator(std::unique_ptr<Function> &func,
@@ -30,4 +30,4 @@ class ITopkOperator final : public Operator {
   // 多线程改造：添加状态保护的互斥锁
   mutable std::mutex state_mutex_;
 };
-}  // namespace candy
+}  // namespace sageFlow

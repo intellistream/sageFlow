@@ -7,7 +7,7 @@
 #include <vector>
 #include <atomic>
 
-namespace candy {
+namespace sageFlow {
 class Ivf final : public Index {
 public:
   // Constructor
@@ -61,4 +61,4 @@ public:
   void rebuildIfNeeded();
 
 };
-}  // namespace candy
+}  // namespace sageFlow

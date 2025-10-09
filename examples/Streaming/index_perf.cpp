@@ -15,12 +15,12 @@
 #include "stream/data_stream_source/simple_stream_source.h"
 
 using namespace std;    // NOLINT
-using namespace candy;  // NOLINT
+using namespace sageFlow;  // NOLINT
 
-const std::string CANDY_PATH = PROJECT_DIR;
+const std::string sageFlow_PATH = PROJECT_DIR;
 #define CONFIG_DIR "/config/"
 
-namespace candy {
+namespace sageFlow {
 void ValidateConfiguration(const ConfigMap &conf) {
   if (!conf.exist("inputPath") || !conf.exist("outputPath")) {
     throw runtime_error("Missing required configuration keys: inputPath or outputPath.");
@@ -36,7 +36,7 @@ void ValidateConfiguration(const ConfigMap &conf) {
 void SetupAndRunPipeline(const std::string &config_file_path) {
   StreamEnvironment env;
 
-  const auto conf = candy::StreamEnvironment::loadConfiguration(config_file_path);
+  const auto conf = sageFlow::StreamEnvironment::loadConfiguration(config_file_path);
 
   try {
     ValidateConfiguration(conf);
@@ -69,16 +69,16 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
   monitor.StopProfiling();
 }
-}  // namespace candy
+}  // namespace sageFlow
 
 auto main(int argc, char *argv[]) -> int {
-  const std::string default_config_file = CANDY_PATH + CONFIG_DIR + "default_config.toml";
+  const std::string default_config_file = sageFlow_PATH + CONFIG_DIR + "default_config.toml";
 
   string config_file_path;
   if (argc < 2) {
     config_file_path = default_config_file;
   } else {
-    config_file_path = CANDY_PATH + CONFIG_DIR + string(argv[1]);
+    config_file_path = sageFlow_PATH + CONFIG_DIR + string(argv[1]);
   }
 
   try {

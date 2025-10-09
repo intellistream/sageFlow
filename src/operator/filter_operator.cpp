@@ -1,9 +1,9 @@
 #include "operator/filter_operator.h"
 
-candy::FilterOperator::FilterOperator(std::unique_ptr<Function>& filter_func)
+sageFlow::FilterOperator::FilterOperator(std::unique_ptr<Function>& filter_func)
     : Operator(OperatorType::FILTER), filter_func_(std::move(filter_func)) {}
 
-auto candy::FilterOperator::process(Response& data, int slot) -> std::optional<Response> {
+auto sageFlow::FilterOperator::process(Response& data, int slot) -> std::optional<Response> {
   auto resp = filter_func_->Execute(data);
   if (resp.type_ != ResponseType::None) {
     return resp;
@@ -11,7 +11,7 @@ auto candy::FilterOperator::process(Response& data, int slot) -> std::optional<R
   return std::nullopt;
 }
 
-auto candy::FilterOperator::apply(Response&& record, int slot, Collector& collector) -> void {
+auto sageFlow::FilterOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   // 使用filter函数处理数据
   auto resp = filter_func_->Execute(record);
   if (resp.type_ != ResponseType::None) {

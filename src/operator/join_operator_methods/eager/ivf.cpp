@@ -1,7 +1,7 @@
 #include "operator/join_operator_methods/eager/ivf.h"
 #include <vector> // Required for std::vector
 
-namespace candy {
+namespace sageFlow {
 
 // Updated IvfEager constructor
 IvfEager::IvfEager(int left_ivf_index_id,
@@ -142,4 +142,4 @@ std::vector<std::unique_ptr<VectorRecord>> IvfEager::ExecuteLazy(
     return all_results;
 }
 
-} // namespace candy
+} // namespace sageFlow

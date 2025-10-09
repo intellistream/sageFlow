@@ -4,13 +4,13 @@
 
 #include "utils/logger.h"
 
-auto candy::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> void {
+auto sageFlow::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> void {
   if (record == nullptr) {
     throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
   }
   std::unique_lock<std::shared_mutex> lock(map_mutex_);
   const auto uid = record->uid_;
-  CANDY_LOG_DEBUG("STORAGE", "Inserting record uid={} current_size={} ", uid, records_.size());
+  sageFlow_LOG_DEBUG("STORAGE", "Inserting record uid={} current_size={} ", uid, records_.size());
   if (map_.find(uid) != map_.end()) {
     return; // UID 已存在
   }
@@ -20,7 +20,7 @@ auto candy::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> void
   map_.emplace(uid, idx);
 }
 
-// auto candy::StorageManager::insert(std::shared_ptr<VectorRecord> record) -> void {
+// auto sageFlow::StorageManager::insert(std::shared_ptr<VectorRecord> record) -> void {
 //   if (record == nullptr) {
 //     throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
 //   }
@@ -34,7 +34,7 @@ auto candy::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> void
 //   map_.emplace(uid, idx);
 // }
 
-auto candy::StorageManager::erase(const uint64_t vector_id) -> bool {
+auto sageFlow::StorageManager::erase(const uint64_t vector_id) -> bool {
   std::unique_lock<std::shared_mutex> lock(map_mutex_);
   const auto it = map_.find(vector_id);
   if (it == map_.end()) {
@@ -54,7 +54,7 @@ auto candy::StorageManager::erase(const uint64_t vector_id) -> bool {
   return true;
 }
 
-auto candy::StorageManager::getVectorByUid(const uint64_t vector_id) -> std::shared_ptr<const VectorRecord> {
+auto sageFlow::StorageManager::getVectorByUid(const uint64_t vector_id) -> std::shared_ptr<const VectorRecord> {
   std::shared_lock<std::shared_mutex> lock(map_mutex_);
   const auto it = map_.find(vector_id);
   if (it == map_.end()) {
@@ -73,7 +73,7 @@ auto candy::StorageManager::getVectorByUid(const uint64_t vector_id) -> std::sha
   return records_[index];
 }
 
-auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector_ids)
+auto sageFlow::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector_ids)
     -> std::vector<std::shared_ptr<const VectorRecord>> {
   std::vector<std::shared_ptr<const VectorRecord>> records;
   records.reserve(vector_ids.size());
@@ -95,7 +95,7 @@ auto candy::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector
   return records;
 }
 
-auto candy::StorageManager::topk(const VectorRecord& record, int k) const -> std::vector<uint64_t> {
+auto sageFlow::StorageManager::topk(const VectorRecord& record, int k) const -> std::vector<uint64_t> {
   if (engine_ == nullptr) {
     throw std::runtime_error("StorageManager::topk: Compute engine is not set.");
   }
@@ -144,7 +144,7 @@ auto candy::StorageManager::topk(const VectorRecord& record, int k) const -> std
   return final_ids;
 }
 
-auto candy::StorageManager::similarityJoinQuery(const VectorRecord &record, double join_similarity_threshold) const -> std::vector<uint64_t> {
+auto sageFlow::StorageManager::similarityJoinQuery(const VectorRecord &record, double join_similarity_threshold) const -> std::vector<uint64_t> {
   if (engine_ == nullptr) {
     throw std::runtime_error("StorageManager::similarityJoinQuery: Compute engine is not set.");
   }

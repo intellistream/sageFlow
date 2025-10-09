@@ -2,7 +2,7 @@
 #include <vector> // Required for std::vector
 #include <deque>
 
-namespace candy {
+namespace sageFlow {
 
 IvfLazy::IvfLazy(int left_ivf_index_id,
                  int right_ivf_index_id,
@@ -143,4 +143,4 @@ std::vector<std::unique_ptr<VectorRecord>> IvfLazy::ExecuteLazy(
     return all_results;
 }
 
-} // namespace candy
+} // namespace sageFlow

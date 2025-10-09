@@ -9,7 +9,7 @@
 #include <memory>
 #include "common/data_types.h"
 
-namespace candy {
+namespace sageFlow {
 class IPartitioner {
 public:
   virtual ~IPartitioner() = default;
