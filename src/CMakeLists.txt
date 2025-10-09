@@ -59,6 +59,13 @@ target_link_libraries(
         PUBLIC
         externalRuntimeLibs
 )
+if(ENABLE_GPERFTOOLS AND DEFINED SAGE_GPERFTOOLS_LIBS AND SAGE_GPERFTOOLS_LIBS)
+        target_link_libraries(
+                sageflow
+                PRIVATE
+                ${SAGE_GPERFTOOLS_LIBS}
+        )
+endif()
 
 # 安装动态库
 install(TARGETS sageflow
