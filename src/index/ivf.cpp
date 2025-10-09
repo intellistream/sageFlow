@@ -19,7 +19,7 @@ void Ivf::debugDumpStateUnlocked() {
   // 调用方需已持有 global_mutex_ 锁
   size_t total_in_lists = 0;
   for (auto &kv : inverted_lists_) total_in_lists += kv.second.size();
-  CANDY_LOG_WARN("INDEX", "DEBUG_DUMP size_={} total_in_lists={} deleted_uids={} nlists={} attempts={} success={} missing={} miss_in_storage={} miss_not_in_storage={} underflow={} ",
+  sageFlow_LOG_WARN("INDEX", "DEBUG_DUMP size_={} total_in_lists={} deleted_uids={} nlists={} attempts={} success={} missing={} miss_in_storage={} miss_not_in_storage={} underflow={} ",
                  size_.load(), total_in_lists, deleted_uids_.size(), inverted_lists_.size(),
                  erase_attempts_.load(), erase_success_.load(), erase_missing_.load(),
                  erase_missing_in_storage_.load(), erase_missing_not_in_storage_.load(), erase_underflow_.load());
@@ -30,7 +30,7 @@ void Ivf::debugDumpStateUnlocked() {
     std::string sample;
     size_t limit = std::min<size_t>(kv.second.size(), 5);
     for (size_t i = 0; i < limit; ++i) { sample += std::to_string(kv.second[i]); sample.push_back(','); }
-  CANDY_LOG_DEBUG("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
+  sageFlow_LOG_DEBUG("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
     if (++printed >= 5) break;
   }
 }
@@ -45,7 +45,7 @@ Ivf::Ivf(int nlist, double rebuild_threshold, int nprobes)
     try {
       inverted_lists_.reserve(nlist);
     } catch (const std::exception& e) {
-      CANDY_LOG_ERROR("INDEX", "Ivf ctor reserve inverted_lists nlist={} error={} ", nlist, e.what());
+      sageFlow_LOG_ERROR("INDEX", "Ivf ctor reserve inverted_lists nlist={} error={} ", nlist, e.what());
       throw; // 继续抛出维持原有语义
     }
 }
@@ -128,13 +128,13 @@ void Ivf::rebuildClustersInternal() {
   try {
     int logical_size = size_.load(std::memory_order_relaxed);
     if (logical_size < 0) {
-      CANDY_LOG_ERROR("INDEX", "size_ negative={} forcing to 0 before reserve (possible erase of non-existent id)", logical_size);
+      sageFlow_LOG_ERROR("INDEX", "size_ negative={} forcing to 0 before reserve (possible erase of non-existent id)", logical_size);
       logical_size = 0; // 防止转换为 size_t 后变成巨大值
     }
     size_t target = static_cast<size_t>(logical_size) + deleted_uids_.size();
     all_uids_in_index.reserve(target);
   } catch (const std::exception& e) {
-    CANDY_LOG_ERROR("INDEX", "reserve all_uids_in_index target_size={} error={} ",
+    sageFlow_LOG_ERROR("INDEX", "reserve all_uids_in_index target_size={} error={} ",
                     size_.load(std::memory_order_relaxed) + deleted_uids_.size(), e.what());
     throw;
   }
@@ -150,7 +150,7 @@ void Ivf::rebuildClustersInternal() {
   try {
     live_records.reserve(all_uids_in_index.size());
   } catch (const std::exception& e) {
-    CANDY_LOG_ERROR("INDEX", "reserve live_records target_size={} error={} ", all_uids_in_index.size(), e.what());
+    sageFlow_LOG_ERROR("INDEX", "reserve live_records target_size={} error={} ", all_uids_in_index.size(), e.what());
     throw;
   }
 
@@ -186,7 +186,7 @@ void Ivf::rebuildClustersInternal() {
   try {
     centroids_.reserve(actual_clusters);
   } catch (const std::exception& e) {
-    CANDY_LOG_ERROR("INDEX", "reserve centroids actual_clusters={} error={} ", actual_clusters, e.what());
+    sageFlow_LOG_ERROR("INDEX", "reserve centroids actual_clusters={} error={} ", actual_clusters, e.what());
     throw;
   }
 
@@ -254,7 +254,7 @@ void Ivf::rebuildClustersInternal() {
     try {
       new_centroids.reserve(actual_clusters);
     } catch (const std::exception& e) {
-      CANDY_LOG_ERROR("INDEX", "reserve new_centroids actual_clusters={} error={} ", actual_clusters, e.what());
+      sageFlow_LOG_ERROR("INDEX", "reserve new_centroids actual_clusters={} error={} ", actual_clusters, e.what());
       throw;
     }
     for(int i = 0; i < actual_clusters; ++i) {
@@ -308,18 +308,18 @@ void Ivf::rebuildClustersInternal() {
   }
   int logical_size = size_.load(std::memory_order_relaxed);
   if (logical_size < 0 || static_cast<size_t>(logical_size) != actual_total) {
-    CANDY_LOG_WARN("INDEX", "post-rebuild size mismatch logical={} actual={} deleted_uids={} vectors_since_last_rebuild={} ",
+    sageFlow_LOG_WARN("INDEX", "post-rebuild size mismatch logical={} actual={} deleted_uids={} vectors_since_last_rebuild={} ",
                    logical_size, actual_total, deleted_uids_.size(), vectors_since_last_rebuild_.load());
   }
 }
 
 auto Ivf::insert(uint64_t id) -> bool {
   rebuildIfNeeded();
-  CANDY_LOG_DEBUG("INDEX", "start inserting id={} size_before={} ", id, size_.load(std::memory_order_relaxed));
+  sageFlow_LOG_DEBUG("INDEX", "start inserting id={} size_before={} ", id, size_.load(std::memory_order_relaxed));
   // 先从存储取出记录
   auto record = storage_manager_ ? storage_manager_->getVectorByUid(id) : nullptr;
   if (!record) {
-    CANDY_LOG_ERROR("INDEX", "insert id={} failed to fetch from storage ", id);
+    sageFlow_LOG_ERROR("INDEX", "insert id={} failed to fetch from storage ", id);
     return false;
   }
 
@@ -339,7 +339,7 @@ auto Ivf::insert(uint64_t id) -> bool {
         inverted_lists_[0].push_back(id);
         size_.fetch_add(1, std::memory_order_relaxed);
         vectors_since_last_rebuild_.fetch_add(1, std::memory_order_relaxed);
-        CANDY_LOG_DEBUG("INDEX", "initialized centroids with first id={} dim={} lists=1 size_now={} ",
+        sageFlow_LOG_DEBUG("INDEX", "initialized centroids with first id={} dim={} lists=1 size_now={} ",
                              id, record->data_.dim_, size_.load(std::memory_order_relaxed));
         return true;
       }
@@ -353,7 +353,7 @@ auto Ivf::insert(uint64_t id) -> bool {
     std::shared_lock<std::shared_mutex> rlock(global_mutex_);
     rebuild_cv_.wait(rlock, [this]{ return !is_rebuilding_.load(); });
     cluster_idx = assignToCluster(record->data_);
-  CANDY_LOG_DEBUG("INDEX", "inserting id={} assigned_cluster={} size_before={} ", id, cluster_idx, size_.load(std::memory_order_relaxed));
+  sageFlow_LOG_DEBUG("INDEX", "inserting id={} assigned_cluster={} size_before={} ", id, cluster_idx, size_.load(std::memory_order_relaxed));
   }
 
   if (cluster_idx < 0) {
@@ -378,7 +378,7 @@ auto Ivf::erase(uint64_t id) -> bool {
   if (deleted_uids_.find(id) != deleted_uids_.end()) {
     return true;
   }
-  CANDY_LOG_DEBUG("INDEX", "erasing id={} size_before={} ", id, size_.load(std::memory_order_relaxed));
+  sageFlow_LOG_DEBUG("INDEX", "erasing id={} size_before={} ", id, size_.load(std::memory_order_relaxed));
   // 无条件记录删除
   deleted_uids_.insert(id);
 
@@ -452,7 +452,7 @@ auto Ivf::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
       try {
         final_ids.reserve(top_k_results.size());
       } catch (const std::exception& e) {
-        CANDY_LOG_ERROR("INDEX", "reserve final_ids size_hint={} error={} ", top_k_results.size(), e.what());
+        sageFlow_LOG_ERROR("INDEX", "reserve final_ids size_hint={} error={} ", top_k_results.size(), e.what());
         throw;
       }
     while (!top_k_results.empty()) {

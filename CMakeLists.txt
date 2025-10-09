@@ -7,8 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 # 是否启用运行时指标采集代码（通过编译宏控制）。默认开启以保持现有行为。
-option(CANDY_ENABLE_METRICS "Enable metrics instrumentation in join/operator and tests" ON)
-message(STATUS "CANDY_ENABLE_METRICS: ${CANDY_ENABLE_METRICS}")
+option(sageFlow_ENABLE_METRICS "Enable metrics instrumentation in join/operator and tests" ON)
+message(STATUS "sageFlow_ENABLE_METRICS: ${sageFlow_ENABLE_METRICS}")
 
 # 启用测试选项（CLion 识别 gtest 必需）
 option(BUILD_TESTING "Build tests" ON)

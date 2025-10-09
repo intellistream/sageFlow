@@ -16,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       # 限制 CI 运行时日志级别，避免 DEBUG 级别日志过多
-      CANDY_LOG_LEVEL: info
+      sageFlow_LOG_LEVEL: info
     strategy:
       fail-fast: false
       matrix:
@@ -48,8 +48,8 @@ jobs:
           cmake -S . -B build \
             -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
             -DBUILD_TESTING=ON \
-            -DCANDY_ENABLE_METRICS=ON \
-            -DCANDY_BUILD_PYBIND=OFF \
+            -DsageFlow_ENABLE_METRICS=ON \
+            -DsageFlow_BUILD_PYBIND=OFF \
             -DCMAKE_POSITION_INDEPENDENT_CODE=ON
 
       - name: Build

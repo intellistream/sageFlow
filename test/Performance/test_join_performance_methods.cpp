@@ -20,12 +20,12 @@
 #include "test_utils/test_data_adapter.h"
 #include "execution/collector.h"
 
-#ifdef CANDY_ENABLE_METRICS
+#ifdef sageFlow_ENABLE_METRICS
 #include "operator/join_metrics.h"
 #endif
 
 #ifndef PROJECT_DIR
-#define PROJECT_DIR "d:/Share Libary/candyFlow_zero"
+#define PROJECT_DIR "d:/Share Libary/sageFlowFlow_zero"
 #endif
 
 using namespace std;

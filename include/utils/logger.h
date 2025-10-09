@@ -22,13 +22,13 @@ inline std::shared_ptr<spdlog::logger> get_logger() {
     sink->set_color_mode(spdlog::color_mode::always);
     // 使用默认的等级颜色（spdlog 已内置），仅强制启用颜色
 
-    auto lg = std::make_shared<spdlog::logger>("candy", sink);
+    auto lg = std::make_shared<spdlog::logger>("sageFlow", sink);
     // Pattern：时间 线程 等级(带色) [PHASE] seq=N msg
     lg->set_pattern("[%H:%M:%S.%e] [tid=%t] [%^%l%$] %v");
-    // 初始日志等级：从环境变量 CANDY_LOG_LEVEL 读取；若未设置则默认为 info。
+    // 初始日志等级：从环境变量 sageFlow_LOG_LEVEL 读取；若未设置则默认为 info。
     // 注意：不调用 init_log_level()/apply_log_level 以避免静态初始化期间的递归。
     spdlog::level::level_enum initial_lvl = spdlog::level::info;
-    if (const char* env = std::getenv("CANDY_LOG_LEVEL"); env && *env) {
+    if (const char* env = std::getenv("sageFlow_LOG_LEVEL"); env && *env) {
         initial_lvl = sageFlow::parse_log_level(env);
     }
     lg->set_level(initial_lvl);
@@ -43,15 +43,15 @@ inline std::shared_ptr<spdlog::logger> get_logger() {
 // 基础宏：带相位着色 + 递增序号
 // 统一格式：[PHASE] seq=N message
 // 新增 DEBUG 级别，便于将高频诊断从 INFO 下沉
-#define CANDY_LOG_DEBUG(phase, fmt, ...) \
+#define sageFlow_LOG_DEBUG(phase, fmt, ...) \
     get_logger()->debug("[{}] seq={} " fmt, phase, sageFlow::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
-#define CANDY_LOG_INFO(phase, fmt, ...) \
+#define sageFlow_LOG_INFO(phase, fmt, ...) \
     get_logger()->info("[{}] seq={} " fmt, phase, sageFlow::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 
-#define CANDY_LOG_WARN(phase, fmt, ...) \
+#define sageFlow_LOG_WARN(phase, fmt, ...) \
     get_logger()->warn("[{}] seq={} " fmt, phase, sageFlow::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 
-#define CANDY_LOG_ERROR(phase, fmt, ...) \
+#define sageFlow_LOG_ERROR(phase, fmt, ...) \
     get_logger()->error("[{}] seq={} " fmt, phase, sageFlow::g_log_seq.fetch_add(1, std::memory_order_relaxed), ##__VA_ARGS__)
 
 } // namespace sageFlow

@@ -28,7 +28,7 @@ protected:
 
   void TearDown() override {
     if (::testing::Test::HasFailure()) {
-  CANDY_LOG_WARN("TEST", "BF Test failed. Metrics: WIN={}ns IDX={}ns SIM={}ns ",
+  sageFlow_LOG_WARN("TEST", "BF Test failed. Metrics: WIN={}ns IDX={}ns SIM={}ns ",
          JoinMetrics::instance().window_insert_ns.load(),
          JoinMetrics::instance().index_insert_ns.load(),
          JoinMetrics::instance().similarity_ns.load());

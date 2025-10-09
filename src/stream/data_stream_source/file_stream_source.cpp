@@ -23,7 +23,7 @@ void sageFlow::FileStreamSource::Init() {
   std::thread([this]() {
     std::ifstream file(file_path_, std::ios::binary);
     if (!file.is_open()) {
-      CANDY_LOG_ERROR("SOURCE", "open_fail path={} ", file_path_);
+      sageFlow_LOG_ERROR("SOURCE", "open_fail path={} ", file_path_);
       running_ = false;
       return;
     }
@@ -76,7 +76,7 @@ void sageFlow::FileStreamSource::Init() {
             std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - last_data_time)
                 .count();
         if (static_cast<uint64_t>(elapsed) > timeout_ms_) {
-          CANDY_LOG_WARN("SOURCE", "timeout elapsed_ms={} path={} ", elapsed, file_path_);
+          sageFlow_LOG_WARN("SOURCE", "timeout elapsed_ms={} path={} ", elapsed, file_path_);
           break;
         }
       }

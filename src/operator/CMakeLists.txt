@@ -21,10 +21,10 @@ target_link_libraries(
 )
 
 # 打开 join_operator 的数据打桩开关，启用指标采集代码块（可通过顶层选项控制）
-if(CANDY_ENABLE_METRICS)
+if(sageFlow_ENABLE_METRICS)
     target_compile_definitions(
             operator
             PRIVATE
-            CANDY_ENABLE_METRICS=1
+            sageFlow_ENABLE_METRICS=1
     )
 endif()

@@ -183,7 +183,7 @@ void ExecutionGraph::createConnections() {
 }
 
 void ExecutionGraph::start() {
-    CANDY_LOG_INFO("GRAPH", "Starting ExecutionGraph operators={} ", operators_.size());
+    sageFlow_LOG_INFO("GRAPH", "Starting ExecutionGraph operators={} ", operators_.size());
 
     // 启动所有ExecutionVertex
     for (const auto& [op, info] : operator_infos_) {
@@ -192,11 +192,11 @@ void ExecutionGraph::start() {
         }
     }
 
-    CANDY_LOG_INFO("GRAPH", "All ExecutionVertices started");
+    sageFlow_LOG_INFO("GRAPH", "All ExecutionVertices started");
 }
 
 void ExecutionGraph::stop() {
-    CANDY_LOG_INFO("GRAPH", "Stopping ExecutionGraph...");
+    sageFlow_LOG_INFO("GRAPH", "Stopping ExecutionGraph...");
     // 先尝试按拓扑顺序：优先停止 Source(OutputOperator) 以停止生产；
     // 再停止非 Source 以允许其排干剩余数据（ExecutionVertex 内部已有 drain 逻辑）。
     std::vector<std::shared_ptr<Operator>> sources;
@@ -223,7 +223,7 @@ void ExecutionGraph::stop() {
     for (auto &q : all_queues_) {
         if (q) q->stop();
     }
-    CANDY_LOG_INFO("GRAPH", "All ExecutionVertices stopped");
+    sageFlow_LOG_INFO("GRAPH", "All ExecutionVertices stopped");
 }
 
 void ExecutionGraph::join() {
@@ -234,7 +234,7 @@ void ExecutionGraph::join() {
         }
     }
 
-    CANDY_LOG_INFO("GRAPH", "All ExecutionVertices finished");
+    sageFlow_LOG_INFO("GRAPH", "All ExecutionVertices finished");
 }
 
 } // namespace sageFlow

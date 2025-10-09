@@ -10,7 +10,7 @@ auto sageFlow::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> v
   }
   std::unique_lock<std::shared_mutex> lock(map_mutex_);
   const auto uid = record->uid_;
-  CANDY_LOG_DEBUG("STORAGE", "Inserting record uid={} current_size={} ", uid, records_.size());
+  sageFlow_LOG_DEBUG("STORAGE", "Inserting record uid={} current_size={} ", uid, records_.size());
   if (map_.find(uid) != map_.end()) {
     return; // UID 已存在
   }

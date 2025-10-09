@@ -14,7 +14,7 @@ auto sageFlow::SinkOperator::apply(Response&& record, int slot, Collector& colle
   // Sink算子通常是管道的终点，执行sink函数但不向下游发送数据
   auto result = sink_func_->Execute(record);
 
-  CANDY_LOG_DEBUG("SINK", "slot={} processed record uid={} timestamp={} ",
+  sageFlow_LOG_DEBUG("SINK", "slot={} processed record uid={} timestamp={} ",
                  slot,
                  (record.record_ ? record.record_->uid_ : 0),
                  (record.record_ ? record.record_->timestamp_ : 0));

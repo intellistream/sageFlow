@@ -24,11 +24,11 @@ auto StreamEnvironment::execute() -> void {
   }
 
   if (is_running_) {
-  CANDY_LOG_WARN("ENV", "StreamEnvironment already running");
+  sageFlow_LOG_WARN("ENV", "StreamEnvironment already running");
     return;
   }
 
-  CANDY_LOG_INFO("ENV", "Building execution graph streams={} ", streams_.size());
+  sageFlow_LOG_INFO("ENV", "Building execution graph streams={} ", streams_.size());
 
   // 先为每个根源流按顺序分配 slotId，并写入 Stream 上
   int next_slot = 0;
@@ -49,9 +49,9 @@ auto StreamEnvironment::execute() -> void {
   execution_graph_->start();
   is_running_ = true;
 
-  CANDY_LOG_INFO("ENV", "StreamEnvironment started");
+  sageFlow_LOG_INFO("ENV", "StreamEnvironment started");
   
-  // 若配置中存在扁平 key "log.level" 则应用；否则环境变量 CANDY_LOG_LEVEL 覆盖
+  // 若配置中存在扁平 key "log.level" 则应用；否则环境变量 sageFlow_LOG_LEVEL 覆盖
   try {
     if (config_.exist("log.level")) {
       std::string lvl = std::get<std::string>(config_.getValue("log.level"));
@@ -60,7 +60,7 @@ auto StreamEnvironment::execute() -> void {
       init_log_level("");
     }
   } catch(const std::exception &e) {
-    CANDY_LOG_WARN("ENV", "log_level_config_failed what={} ", e.what());
+    sageFlow_LOG_WARN("ENV", "log_level_config_failed what={} ", e.what());
   }
 }
 
@@ -69,7 +69,7 @@ auto StreamEnvironment::stop() -> void {
     return;
   }
 
-  CANDY_LOG_INFO("ENV", "Stopping StreamEnvironment...");
+  sageFlow_LOG_INFO("ENV", "Stopping StreamEnvironment...");
   execution_graph_->stop();
   is_running_ = false;
 }
@@ -78,7 +78,7 @@ auto StreamEnvironment::awaitTermination() -> void {
   // 即使 is_running_ 已变为 false（stop 后），也需要 join，确保线程收敛
   execution_graph_->join();
   is_running_ = false;
-  CANDY_LOG_INFO("ENV", "StreamEnvironment terminated");
+  sageFlow_LOG_INFO("ENV", "StreamEnvironment terminated");
 }
 
 auto StreamEnvironment::setParallelism(size_t parallelism) -> void {
@@ -106,7 +106,7 @@ void StreamEnvironment::reset() {
   planner_ = std::make_shared<Planner>(concurrency_manager_);
   execution_graph_ = std::make_unique<ExecutionGraph>();
   is_running_ = false;
-  CANDY_LOG_INFO("ENV", "StreamEnvironment reset completed");
+  sageFlow_LOG_INFO("ENV", "StreamEnvironment reset completed");
 }
 
 }  // namespace sageFlow

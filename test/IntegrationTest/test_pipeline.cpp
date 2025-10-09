@@ -441,7 +441,7 @@ TEST_F(PipelineConstructionTest, BasicPipelineConstruction) {
       "BasicSink",
       [](std::unique_ptr<VectorRecord>& record) {
         // 简单的打印输出
-  CANDY_LOG_INFO("TEST", "Processing record uid={} ", record->uid_);
+  sageFlow_LOG_INFO("TEST", "Processing record uid={} ", record->uid_);
       }
     ), 1)  // 明确指定Sink并行度为1
   );
@@ -614,7 +614,7 @@ TEST_F(PipelineConstructionTest, CompleteJoinPipelineExecution) {
   // Join结果应该包含满足条件的记录
   EXPECT_GT(test_results_.size(), 0);
 
-  CANDY_LOG_INFO("TEST", "Join pipeline processed records={} ", test_results_.size());
+  sageFlow_LOG_INFO("TEST", "Join pipeline processed records={} ", test_results_.size());
 
   // 验证每个结果都有正确的标记
   for (const auto& record : test_results_) {
@@ -627,7 +627,7 @@ TEST_F(PipelineConstructionTest, CompleteJoinPipelineExecution) {
       EXPECT_GE(float_data[i], 0.0f); // 向量元素应该为正数
     }
 
-  CANDY_LOG_INFO("TEST", "Join result uid={} v0={} ", record->uid_, float_data[0]);
+  sageFlow_LOG_INFO("TEST", "Join result uid={} v0={} ", record->uid_, float_data[0]);
   }
 }
 
@@ -683,7 +683,7 @@ TEST_F(PipelineConstructionTest, JoinParallelismPerformanceTest) {
 
   std::lock_guard<std::mutex> lock(result_mutex_);
 
-  CANDY_LOG_INFO("TEST", "High parallelism join completed duration_ms={} results={} ", duration.count(), test_results_.size());
+  sageFlow_LOG_INFO("TEST", "High parallelism join completed duration_ms={} results={} ", duration.count(), test_results_.size());
 
   // 验证Join效率：应该能找到匹配的记录
   EXPECT_GT(test_results_.size(), 0);

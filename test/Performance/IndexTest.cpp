@@ -4,7 +4,7 @@
 #include <utils/conf_map.h>
 #include <utils/monitoring.h>  // Keep for potential detailed monitoring
 
-#ifdef CANDY_ENABLE_METRICS
+#ifdef sageFlow_ENABLE_METRICS
 #include "operator/join_metrics.h"
 #endif
 
@@ -25,7 +25,7 @@ using namespace std;          // NOLINT
 using namespace sageFlow;        // NOLINT
 using namespace std::chrono;  // NOLINT
 
-const std::string CANDY_PATH = PROJECT_DIR;
+const std::string sageFlow_PATH = PROJECT_DIR;
 #define CONFIG_DIR "/config/"
 
 namespace sageFlow {
@@ -315,13 +315,13 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 
 // Main function remains the same
 auto main(int argc, char *argv[]) -> int {
-  const std::string default_config_file = CANDY_PATH + CONFIG_DIR + "index_test_config.toml";
+  const std::string default_config_file = sageFlow_PATH + CONFIG_DIR + "index_test_config.toml";
 
   string config_file_path;
   if (argc < 2) {
     config_file_path = default_config_file;
   } else {
-    config_file_path = CANDY_PATH + CONFIG_DIR + string(argv[1]);
+    config_file_path = sageFlow_PATH + CONFIG_DIR + string(argv[1]);
   }
 
   try {

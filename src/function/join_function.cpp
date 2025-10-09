@@ -24,7 +24,7 @@ auto sageFlow::JoinFunction::Execute(Response& left, Response& right) -> Respons
       auto out = join_func_(left_record, right_record);
       if (out) return Response{ResponseType::Record, std::move(out)};
     } catch (const std::exception& e) {
-            CANDY_LOG_ERROR("JOIN_FUNC", "left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
+            sageFlow_LOG_ERROR("JOIN_FUNC", "left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
                             (left_record ? left_record->data_.dim_ : -1),
                             (right_record ? right_record->data_.dim_ : -1),
                             (left_record ? left_record->uid_ : 0),

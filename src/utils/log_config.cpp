@@ -11,11 +11,11 @@ void apply_log_level(spdlog::level::level_enum lvl) {
     for (auto &s : lg->sinks()) {
         s->set_level(lvl);
     }
-    CANDY_LOG_INFO("LOG", "log_level_applied level={} ", spdlog::level::to_string_view(lvl));
+    sageFlow_LOG_INFO("LOG", "log_level_applied level={} ", spdlog::level::to_string_view(lvl));
 }
 
 void init_log_level(const std::string &level_from_config) {
-    const char* env = std::getenv("CANDY_LOG_LEVEL");
+    const char* env = std::getenv("sageFlow_LOG_LEVEL");
     std::string chosen = env && *env ? std::string(env) : level_from_config;
     auto lvl = parse_log_level(chosen);
     apply_log_level(lvl);
