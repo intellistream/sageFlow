@@ -29,15 +29,15 @@ target_link_libraries(test_data_support
     sageflow
 )
 
-# 向所有测试目标注入的公共宏定义（基线：PROJECT_DIR；按选项追加 sageFlow_ENABLE_METRICS）
+# 向所有测试目标注入的公共宏定义（基线：PROJECT_DIR；按选项追加 SAGEFLOW_ENABLE_METRICS）
 set(TEST_COMMON_DEFINES 
     PROJECT_DIR="${CMAKE_SOURCE_DIR}"
 )
-if(sageFlow_ENABLE_METRICS)
-    list(APPEND TEST_COMMON_DEFINES sageFlow_ENABLE_METRICS=1)
+if(SAGEFLOW_ENABLE_METRICS)
+    list(APPEND TEST_COMMON_DEFINES SAGEFLOW_ENABLE_METRICS=1)
 endif()
 
-# 让公共库也拥有相同的编译宏（例如 PROJECT_DIR、可选的 sageFlow_ENABLE_METRICS）
+# 让公共库也拥有相同的编译宏（例如 PROJECT_DIR、可选的 SAGEFLOW_ENABLE_METRICS）
 target_compile_definitions(test_data_support PRIVATE ${TEST_COMMON_DEFINES})
 
 # -----------------------------------------------------------------------------
@@ -181,8 +181,8 @@ add_custom_target(run_quick_tests
 
 # 输出说明
 message(STATUS "Test targets registered: UNIT=${ALL_UNIT_TARGETS}; PERF=${ALL_PERF_TARGETS}; INTEGRATION=${ALL_INTEG_TARGETS}")
-if(sageFlow_ENABLE_METRICS)
-    message(STATUS "sageFlow_ENABLE_METRICS enabled for tests to collect performance data")
+if(SAGEFLOW_ENABLE_METRICS)
+    message(STATUS "SAGEFLOW_ENABLE_METRICS enabled for tests to collect performance data")
 else()
-    message(STATUS "sageFlow_ENABLE_METRICS disabled for tests (metrics code excluded)")
+    message(STATUS "SAGEFLOW_ENABLE_METRICS disabled for tests (metrics code excluded)")
 endif()

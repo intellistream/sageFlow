@@ -45,7 +45,7 @@ protected:
 
   void TearDown() override {
     if (::testing::Test::HasFailure()) {
-  sageFlow_LOG_WARN("TEST", "IVF Test failed. Metrics: IDX={}ns CAND={}ns EMITS={} ",
+  SAGEFLOW_LOG_WARN("TEST", "IVF Test failed. Metrics: IDX={}ns CAND={}ns EMITS={} ",
          JoinMetrics::instance().index_insert_ns.load(),
          JoinMetrics::instance().candidate_fetch_ns.load(),
          JoinMetrics::instance().total_emits.load());
@@ -130,7 +130,7 @@ TEST_F(JoinIVFTest, IVFLargeScale) {
   uint64_t end_time = std::chrono::duration_cast<std::chrono::nanoseconds>(
       std::chrono::high_resolution_clock::now().time_since_epoch()).count();
   
-  sageFlow_LOG_INFO("TEST", "IVF LargeScale duration_ms={} expected={} actual={} ", (end_time - start_time) / 1000000, expected_matches.size(), actual_matches.size());
+  SAGEFLOW_LOG_INFO("TEST", "IVF LargeScale duration_ms={} expected={} actual={} ", (end_time - start_time) / 1000000, expected_matches.size(), actual_matches.size());
   
   // 仅验证大规模 pipeline 能正常跑完（不超时不崩溃）
   SUCCEED() << "IVFLargeScale executed without timeout/crash."
@@ -225,7 +225,7 @@ TEST_P(IVFParameterizedTest, ParameterVariations) {
     actual_matches.insert({left_uid, right_uid});
   }
   
-  sageFlow_LOG_INFO("TEST", "Method={} Dim={} Threshold={} Expected={} Actual={} ", method, vector_dim, threshold, expected_matches.size(), actual_matches.size());
+  SAGEFLOW_LOG_INFO("TEST", "Method={} Dim={} Threshold={} Expected={} Actual={} ", method, vector_dim, threshold, expected_matches.size(), actual_matches.size());
   
   // 仅验证参数化场景能正常跑完（不超时不崩溃）
   SUCCEED() << "IVF ParameterVariations executed without timeout/crash."

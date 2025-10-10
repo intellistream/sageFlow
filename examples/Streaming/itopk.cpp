@@ -21,7 +21,7 @@
 using namespace std;    // NOLINT
 using namespace sageFlow;  // NOLINT
 
-const std::string sageFlow_PATH = PROJECT_DIR;
+const std::string SAGEFLOW_PATH = PROJECT_DIR;
 #define CONFIG_DIR "/config/"
 
 namespace sageFlow {
@@ -89,13 +89,13 @@ void SetupAndRunPipeline(const std::string &config_file_path) {
 }  // namespace sageFlow
 
 auto main(int argc, char *argv[]) -> int {
-  const std::string default_config_file = sageFlow_PATH + CONFIG_DIR + "default_config.toml";
+  const std::string default_config_file = SAGEFLOW_PATH + CONFIG_DIR + "default_config.toml";
 
   string config_file_path;
   if (argc < 2) {
     config_file_path = default_config_file;
   } else {
-    config_file_path = sageFlow_PATH + CONFIG_DIR + string(argv[1]);
+    config_file_path = SAGEFLOW_PATH + CONFIG_DIR + string(argv[1]);
   }
 
   try {
