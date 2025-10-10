@@ -7,6 +7,7 @@
 #include <cmath>
 #include "common/data_types.h"
 #include "test_utils/test_data_adapter.h"
+#include "test_utils/data_source/data_source_base.h"
 
 namespace sageFlow { namespace test {
 
@@ -28,11 +29,16 @@ public:
     int64_t time_interval = 100;
   };
   explicit TestDataGenerator(const Config& config);
+  explicit TestDataGenerator(const Config& config, std::shared_ptr<DataSourceBase> data_source);
   std::pair<std::vector<std::unique_ptr<VectorRecord>>, std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>> generateData();
 private:
-  Config config_; std::mt19937 rng_; uint64_t next_uid_ = 1;
+  Config config_; 
+  std::mt19937 rng_; 
+  uint64_t next_uid_ = 1;
+  std::shared_ptr<DataSourceBase> data_source_;
+  
   std::unique_ptr<VectorRecord> createRecord(uint64_t uid, const std::vector<float>& data, int64_t timestamp);
-  std::vector<float> generateRandomVector();
+  std::vector<float> getNextVector();
   std::vector<float> perturbVector(const std::vector<float>& base, double target_similarity);
   double calculateSimilarity(const std::vector<float>& a, const std::vector<float>& b);
 };

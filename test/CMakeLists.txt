@@ -13,6 +13,8 @@ add_library(test_data_support
     test_utils/test_data_generator.cpp
     test_utils/test_config_manager.cpp
     test_utils/dynamic_config.cpp
+    test_utils/data_source/random_data_source.cpp
+    test_utils/data_source/dataset_data_source.cpp
 )
 
 # 头文件路径

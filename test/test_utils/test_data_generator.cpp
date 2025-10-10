@@ -1,10 +1,27 @@
 #include "test_utils/test_data_generator.h"
+#include "test_utils/data_source/random_data_source.h"
 #include <algorithm>
 #include <cmath>
 
 namespace sageFlow { namespace test {
 
-TestDataGenerator::TestDataGenerator(const Config& config) : config_(config), rng_(config.seed) {}
+TestDataGenerator::TestDataGenerator(const Config& config) : config_(config), rng_(config.seed) {
+  // Create default random data source
+  RandomDataSource::Config ds_config;
+  ds_config.vector_dim = config_.vector_dim;
+  ds_config.seed = config_.seed;
+  ds_config.max_vectors = -1;  // Unlimited
+  data_source_ = std::make_shared<RandomDataSource>(ds_config);
+}
+
+TestDataGenerator::TestDataGenerator(const Config& config, std::shared_ptr<DataSourceBase> data_source) 
+    : config_(config), rng_(config.seed), data_source_(std::move(data_source)) {
+  if (!data_source_) {
+    throw std::runtime_error("Data source cannot be null");
+  }
+  // Update config dimension to match data source
+  config_.vector_dim = data_source_->getDimension();
+}
 
 std::pair<std::vector<std::unique_ptr<VectorRecord>>, std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>>
 TestDataGenerator::generateData() {
@@ -12,26 +29,26 @@ TestDataGenerator::generateData() {
   std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash> expected_matches;
   uint64_t uid_counter = next_uid_; int64_t timestamp = config_.base_timestamp;
   for (int i = 0; i < config_.positive_pairs; ++i) {
-    auto base_vector = generateRandomVector(); auto perturbed_vector = perturbVector(base_vector, config_.similarity_threshold + 0.05);
+    auto base_vector = getNextVector(); auto perturbed_vector = perturbVector(base_vector, config_.similarity_threshold + 0.05);
     uint64_t uid1 = uid_counter++; uint64_t uid2 = uid_counter++;
     records.push_back(createRecord(uid1, base_vector, timestamp));
     records.push_back(createRecord(uid2, perturbed_vector, timestamp + config_.time_interval));
     expected_matches.insert({uid1, uid2}); timestamp += config_.time_interval * 2;
   }
   for (int i = 0; i < config_.near_threshold_pairs; ++i) {
-    auto base_vector = generateRandomVector(); double target_sim = config_.similarity_threshold + (i % 2 == 0 ? 0.001 : -0.001);
+    auto base_vector = getNextVector(); double target_sim = config_.similarity_threshold + (i % 2 == 0 ? 0.001 : -0.001);
     auto perturbed_vector = perturbVector(base_vector, target_sim); uint64_t uid1 = uid_counter++; uint64_t uid2 = uid_counter++;
     records.push_back(createRecord(uid1, base_vector, timestamp));
     records.push_back(createRecord(uid2, perturbed_vector, timestamp + config_.time_interval));
     if (target_sim >= config_.similarity_threshold) expected_matches.insert({uid1, uid2}); timestamp += config_.time_interval * 2;
   }
   for (int i = 0; i < config_.negative_pairs; ++i) {
-    auto vec1 = generateRandomVector(); auto vec2 = generateRandomVector(); uint64_t uid1 = uid_counter++; uint64_t uid2 = uid_counter++;
+    auto vec1 = getNextVector(); auto vec2 = getNextVector(); uint64_t uid1 = uid_counter++; uint64_t uid2 = uid_counter++;
     records.push_back(createRecord(uid1, vec1, timestamp));
     records.push_back(createRecord(uid2, vec2, timestamp + config_.time_interval));
     if (calculateSimilarity(vec1, vec2) >= config_.similarity_threshold) expected_matches.insert({uid1, uid2}); timestamp += config_.time_interval * 2;
   }
-  for (int i = 0; i < config_.random_tail; ++i) { auto vec = generateRandomVector(); records.push_back(createRecord(uid_counter++, vec, timestamp)); timestamp += config_.time_interval; }
+  for (int i = 0; i < config_.random_tail; ++i) { auto vec = getNextVector(); records.push_back(createRecord(uid_counter++, vec, timestamp)); timestamp += config_.time_interval; }
   next_uid_ = uid_counter; return {std::move(records), std::move(expected_matches)};
 }
 
@@ -41,11 +58,12 @@ std::unique_ptr<VectorRecord> TestDataGenerator::createRecord(uint64_t uid, cons
   return record;
 }
 
-std::vector<float> TestDataGenerator::generateRandomVector() {
-  std::vector<float> vec(config_.vector_dim); std::normal_distribution<float> dist(0.0f, 1.0f);
-  for (int i = 0; i < config_.vector_dim; ++i) vec[i] = dist(rng_);
-  float norm = 0.0f; for (float v : vec) norm += v*v; norm = std::sqrt(norm);
-  if (norm > 1e-6f) for (float &v : vec) v /= norm; return vec;
+std::vector<float> TestDataGenerator::getNextVector() {
+  if (!data_source_->hasMore()) {
+    // If data source is exhausted, reset it to allow reuse
+    data_source_->reset();
+  }
+  return data_source_->getNextVector();
 }
 
 std::vector<float> TestDataGenerator::perturbVector(const std::vector<float>& base, double target_similarity) {
