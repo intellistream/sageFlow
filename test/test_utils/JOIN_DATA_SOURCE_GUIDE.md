@@ -46,17 +46,39 @@ The Join Data Source Framework provides:
                          │
        ┌─────────────────┼─────────────────┐
        │                 │                 │
-  ┌────▼────┐     ┌──────▼──────┐   ┌─────▼─────┐
-  │Duplicate│     │  Separate   │   │ Generated │
-  │  Mode   │     │   Mode      │   │   Mode    │
-  └─────────┘     └─────────────┘   └───────────┘
+  ┌────▼────┐     ┌──────▼──────┐   ┌─────▼─────────┐
+  │Duplicate│     │  Separate   │   │DataSourceBase │
+  │  Mode   │     │   Mode      │   │ Implementations│
+  └─────────┘     └─────────────┘   └───────────────┘
+                                      • RandomDataSource
+                                      • DatasetDataSource
+                                      • VectorListSource
 ```
+
+## Modes
+
+### Mode 1: Duplicate Mode (Default)
+
+Duplicates a single data source to both left and right streams. This mode:
+- Uses ONE data source for both streams
+- Applies UID offset to distinguish right stream from left
+- Works with ANY DataSourceBase implementation (Random, Dataset, VectorList, etc.)
+- Backward compatible with existing tests
+
+### Mode 2: Separate Mode
+
+Uses different data sources for left and right streams. This mode:
+- Uses TWO independent data sources
+- Allows testing joins with different data distributions
+- Optional UID offset for right stream
+- Requires both sources to have the same vector dimension
+
 
 ## Usage
 
-### Mode 1: Generated (Backward Compatible)
+### Using with TestDataGenerator (Backward Compatible)
 
-This is the default mode that maintains compatibility with existing tests:
+The most common pattern - generate data and duplicate to both streams:
 
 ```cpp
 #include "test_utils/join_test_helper.h"
@@ -70,7 +92,7 @@ config.negative_pairs = 100;
 
 TestDataGenerator generator(config);
 
-// NEW: Use helper to create join streams
+// NEW: Use helper to create join streams (automatically uses Duplicate mode)
 auto [left_records, right_records] = 
     JoinTestHelper::generateJoinStreamsFromGenerator(generator);
 
@@ -83,7 +105,13 @@ for (auto& rec : right_records) {
 }
 ```
 
-### Mode 2: Duplicate from Single Source
+**How it works:**
+1. Generator creates vectors
+2. Vectors are wrapped in a `VectorListSource`
+3. Source is duplicated to both streams in Duplicate mode
+4. UID offset applied to right stream
+
+### Duplicate Mode: From Any Source
 
 Test with a specific dataset or pattern by duplicating one source:
 
@@ -97,7 +125,7 @@ ds_config.file_path = "data/siftsmall/siftsmall_query.fvecs";
 ds_config.expected_dim = 128;
 auto source = std::make_shared<DatasetDataSource>(ds_config);
 
-// Generate join streams from dataset
+// Generate join streams from dataset (Duplicate mode)
 auto [left_records, right_records] = 
     JoinTestHelper::generateJoinStreamsFromSource(source);
 
@@ -105,7 +133,7 @@ auto [left_records, right_records] =
 // Right stream UIDs are offset by default
 ```
 
-### Mode 3: Separate Sources
+### Separate Mode: Different Sources
 
 Test join with different data distributions on each side:
 

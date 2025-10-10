@@ -1,4 +1,5 @@
 #include "test_utils/join_test_helper.h"
+#include "test_utils/data_source/vector_list_source.h"
 
 namespace sageFlow { namespace test {
 
@@ -17,40 +18,9 @@ JoinTestHelper::generateJoinStreamsFromGenerator(
     throw std::runtime_error("No vectors generated from TestDataGenerator");
   }
 
-  // Create a simple wrapper source
-  class VectorListSource : public DataSourceBase {
-  public:
-    explicit VectorListSource(const std::vector<std::vector<float>>& vecs)
-        : vectors_(vecs), index_(0) {}
-    
-    std::vector<float> getNextVector() override {
-      if (index_ >= vectors_.size()) return {};
-      return vectors_[index_++];
-    }
-    
-    int getDimension() const override {
-      return vectors_.empty() ? 0 : static_cast<int>(vectors_[0].size());
-    }
-    
-    bool hasMore() const override {
-      return index_ < vectors_.size();
-    }
-    
-    void reset() override {
-      index_ = 0;
-    }
-    
-    int getTotalCount() const override {
-      return static_cast<int>(vectors_.size());
-    }
-
-  private:
-    std::vector<std::vector<float>> vectors_;
-    size_t index_;
-  };
-
+  // Create a vector list source and use Duplicate mode
   auto source = std::make_shared<VectorListSource>(vectors);
-  auto config = JoinDataSourceFactory::createGenerated(source, apply_uid_offset);
+  auto config = JoinDataSourceFactory::createDuplicated(source, apply_uid_offset);
   JoinDataSourcePair pair(config);
   
   return pair.generateStreams();

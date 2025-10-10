@@ -11,7 +11,7 @@ The test data source framework provides a modular and extensible way to generate
 
 ## Architecture
 
-The framework consists of three main components:
+The framework consists of several data source implementations:
 
 ### 1. DataSourceBase (Abstract Base Class)
 
@@ -53,7 +53,54 @@ config.file_path = "data/siftsmall/siftsmall_query.fvecs";
 config.expected_dim = 128;    // Expected dimension (-1 = auto-detect)
 config.loop = true;           // Loop back to start when reaching end
 
-auto data_source = std::make_shared<DatasetDataSource>(config);
+auto data_source = std::make_shared<DatasetDataSource>(ds_config);
+```
+
+### 4. VectorListSource
+
+Located in: `test/test_utils/data_source/vector_list_source.h`
+
+A simple adapter that wraps an in-memory vector of float vectors. Useful for:
+- Wrapping generated data from TestDataGenerator
+- Testing with small, predefined datasets
+- Creating data sources from computed vectors
+
+**Usage:**
+```cpp
+#include "test_utils/data_source/vector_list_source.h"
+
+// Create from a vector of vectors
+std::vector<std::vector<float>> vectors = {
+    {0.1f, 0.2f, 0.3f},
+    {0.4f, 0.5f, 0.6f},
+    {0.7f, 0.8f, 0.9f}
+};
+
+auto data_source = std::make_shared<VectorListSource>(vectors);
+
+// Use like any other data source
+while (data_source->hasMore()) {
+    auto vec = data_source->getNextVector();
+    // Process vector
+}
+```
+
+**Note:** This is primarily an internal utility used by JoinTestHelper to wrap TestDataGenerator output, but can be used directly if needed.
+
+### 5. JsonDataSource
+
+Located in: `test/test_utils/data_source/json_data_source.h/cpp`
+
+Loads vectors from JSON format files. Useful for debugging and human-readable datasets.
+
+**Configuration:**
+```cpp
+JsonDataSource::Config config;
+config.file_path = "test_data.json";
+config.expected_dim = 128;  // Optional validation
+config.loop = false;         // Whether to loop when reaching end
+
+auto data_source = std::make_shared<JsonDataSource>(config);
 ```
 
 ## Usage

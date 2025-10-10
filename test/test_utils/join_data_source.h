@@ -11,24 +11,24 @@ namespace sageFlow { namespace test {
  * @brief Configuration for join data source pair
  * 
  * Defines how to create left and right data streams for join testing.
- * Supports multiple modes:
- * - Duplicate: Same data source duplicated to both sides
- * - Separate: Different data sources for left and right
- * - Generated: Use TestDataGenerator with optional UID offset
+ * Supports two modes:
+ * - Duplicate: Same data source duplicated to both sides (use single_source)
+ * - Separate: Different data sources for left and right (use left_source and right_source)
+ * 
+ * Both modes can be used with any data source, including those created from generators.
  */
 struct JoinDataSourceConfig {
   enum class Mode {
     Duplicate,    // Duplicate one source to both sides
-    Separate,     // Use two separate sources
-    Generated     // Use generated data (backward compatible)
+    Separate      // Use two separate sources
   };
 
-  Mode mode = Mode::Generated;
+  Mode mode = Mode::Duplicate;
   
-  // For Duplicate mode
+  // For Duplicate mode: use single_source
   std::shared_ptr<DataSourceBase> single_source;
   
-  // For Separate mode  
+  // For Separate mode: use left_source and right_source
   std::shared_ptr<DataSourceBase> left_source;
   std::shared_ptr<DataSourceBase> right_source;
   
@@ -109,16 +109,6 @@ public:
       std::shared_ptr<DataSourceBase> left_source,
       std::shared_ptr<DataSourceBase> right_source,
       bool apply_uid_offset = false);
-
-  /**
-   * @brief Create config using TestDataGenerator (backward compatible)
-   * 
-   * This is the default mode that maintains compatibility with existing tests.
-   * Data is generated once and duplicated to both streams.
-   */
-  static JoinDataSourceConfig createGenerated(
-      std::shared_ptr<DataSourceBase> source,
-      bool apply_uid_offset = true);
 };
 
 }} // namespace sageFlow::test

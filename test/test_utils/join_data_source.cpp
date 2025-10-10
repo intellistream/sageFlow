@@ -9,10 +9,9 @@ JoinDataSourcePair::JoinDataSourcePair(const JoinDataSourceConfig& config)
     : config_(config) {
   
   // Validate configuration
-  if (config_.mode == JoinDataSourceConfig::Mode::Duplicate ||
-      config_.mode == JoinDataSourceConfig::Mode::Generated) {
+  if (config_.mode == JoinDataSourceConfig::Mode::Duplicate) {
     if (!config_.single_source) {
-      throw std::runtime_error("Single source required for Duplicate/Generated mode");
+      throw std::runtime_error("Single source required for Duplicate mode");
     }
   } else if (config_.mode == JoinDataSourceConfig::Mode::Separate) {
     if (!config_.left_source || !config_.right_source) {
@@ -34,8 +33,7 @@ JoinDataSourcePair::generateStreams(size_t max_records) {
   int64_t timestamp = config_.base_timestamp;
   size_t count = 0;
 
-  if (config_.mode == JoinDataSourceConfig::Mode::Duplicate ||
-      config_.mode == JoinDataSourceConfig::Mode::Generated) {
+  if (config_.mode == JoinDataSourceConfig::Mode::Duplicate) {
     // Duplicate mode: generate from single source, duplicate to both sides
     auto& source = config_.single_source;
     source->reset();
@@ -148,16 +146,6 @@ JoinDataSourceConfig JoinDataSourceFactory::createSeparate(
   config.mode = JoinDataSourceConfig::Mode::Separate;
   config.left_source = left_source;
   config.right_source = right_source;
-  config.apply_right_uid_offset = apply_uid_offset;
-  return config;
-}
-
-JoinDataSourceConfig JoinDataSourceFactory::createGenerated(
-    std::shared_ptr<DataSourceBase> source,
-    bool apply_uid_offset) {
-  JoinDataSourceConfig config;
-  config.mode = JoinDataSourceConfig::Mode::Generated;
-  config.single_source = source;
   config.apply_right_uid_offset = apply_uid_offset;
   return config;
 }
