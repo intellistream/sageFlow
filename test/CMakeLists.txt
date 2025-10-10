@@ -18,6 +18,8 @@ add_library(test_data_support
     test_utils/data_source/json_data_source.cpp
     test_utils/data_writer/fvecs_writer.cpp
     test_utils/data_writer/json_writer.cpp
+    test_utils/join_data_source.cpp
+    test_utils/join_test_helper.cpp
 )
 
 # 头文件路径
@@ -72,6 +74,7 @@ set(UNIT_TEST_SPECS
     test_file_stream_source        UnitTest/test_file_stream_source.cpp       120 UNIT
     test_data_source               UnitTest/test_data_source.cpp              120 UNIT
     test_data_persistence          UnitTest/test_data_persistence.cpp         120 UNIT
+    test_join_data_source          UnitTest/test_join_data_source.cpp         120 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)
@@ -148,7 +151,7 @@ endif()
 # 聚合自定义目标
 # -----------------------------------------------------------------------------
 # 仅依赖已创建的测试可执行（未显式依赖 ctest 运行，方便 IDE 构建）
-set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_compute_engine test_file_stream_source test_data_source test_data_persistence)
+set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_compute_engine test_file_stream_source test_data_source test_data_persistence test_join_data_source)
 set(ALL_PERF_TARGETS test_join_perf_scaling test_join_performance_methods test_window_pipeline IndexTest)
 set(ALL_INTEG_TARGETS test_pipeline_basic test_pipeline test_pipeline_execution)
 
