@@ -67,6 +67,7 @@ set(UNIT_TEST_SPECS
     test_join_ivf                  UnitTest/test_join_ivf.cpp                 300 UNIT
     test_compute_engine            UnitTest/test_compute_engine.cpp           180 UNIT
     test_file_stream_source        UnitTest/test_file_stream_source.cpp       120 UNIT
+    test_data_source               UnitTest/test_data_source.cpp              120 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)
@@ -143,7 +144,7 @@ endif()
 # 聚合自定义目标
 # -----------------------------------------------------------------------------
 # 仅依赖已创建的测试可执行（未显式依赖 ctest 运行，方便 IDE 构建）
-set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_compute_engine test_file_stream_source)
+set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_compute_engine test_file_stream_source test_data_source)
 set(ALL_PERF_TARGETS test_join_perf_scaling test_join_performance_methods test_window_pipeline IndexTest)
 set(ALL_INTEG_TARGETS test_pipeline_basic test_pipeline test_pipeline_execution)
 
