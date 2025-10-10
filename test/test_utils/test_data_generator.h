@@ -8,6 +8,7 @@
 #include "common/data_types.h"
 #include "test_utils/test_data_adapter.h"
 #include "test_utils/data_source/data_source_base.h"
+#include "test_utils/data_writer/data_writer_base.h"
 
 namespace sageFlow { namespace test {
 
@@ -31,11 +32,26 @@ public:
   explicit TestDataGenerator(const Config& config);
   explicit TestDataGenerator(const Config& config, std::shared_ptr<DataSourceBase> data_source);
   std::pair<std::vector<std::unique_ptr<VectorRecord>>, std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>> generateData();
+  
+  /**
+   * @brief Save generated vectors to a file using the specified writer
+   * @param file_path Path to the output file
+   * @param writer DataWriter implementation (FvecsWriter, JsonWriter, etc.)
+   * @return true if save was successful
+   */
+  bool saveGeneratedVectors(const std::string& file_path, std::shared_ptr<DataWriterBase> writer);
+
+  /**
+   * @brief Get the last generated vectors (for saving after generation)
+   */
+  std::vector<std::vector<float>> getLastGeneratedVectors() const { return last_generated_vectors_; }
+
 private:
   Config config_; 
   std::mt19937 rng_; 
   uint64_t next_uid_ = 1;
   std::shared_ptr<DataSourceBase> data_source_;
+  std::vector<std::vector<float>> last_generated_vectors_;  // Cache for saving
   
   std::unique_ptr<VectorRecord> createRecord(uint64_t uid, const std::vector<float>& data, int64_t timestamp);
   std::vector<float> getNextVector();

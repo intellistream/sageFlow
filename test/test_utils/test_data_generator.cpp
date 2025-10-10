@@ -27,12 +27,16 @@ std::pair<std::vector<std::unique_ptr<VectorRecord>>, std::unordered_set<std::pa
 TestDataGenerator::generateData() {
   std::vector<std::unique_ptr<VectorRecord>> records;
   std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash> expected_matches;
+  last_generated_vectors_.clear();  // Clear cache for new generation
+  
   uint64_t uid_counter = next_uid_; int64_t timestamp = config_.base_timestamp;
   for (int i = 0; i < config_.positive_pairs; ++i) {
     auto base_vector = getNextVector(); auto perturbed_vector = perturbVector(base_vector, config_.similarity_threshold + 0.05);
     uint64_t uid1 = uid_counter++; uint64_t uid2 = uid_counter++;
     records.push_back(createRecord(uid1, base_vector, timestamp));
     records.push_back(createRecord(uid2, perturbed_vector, timestamp + config_.time_interval));
+    last_generated_vectors_.push_back(base_vector);
+    last_generated_vectors_.push_back(perturbed_vector);
     expected_matches.insert({uid1, uid2}); timestamp += config_.time_interval * 2;
   }
   for (int i = 0; i < config_.near_threshold_pairs; ++i) {
@@ -40,15 +44,24 @@ TestDataGenerator::generateData() {
     auto perturbed_vector = perturbVector(base_vector, target_sim); uint64_t uid1 = uid_counter++; uint64_t uid2 = uid_counter++;
     records.push_back(createRecord(uid1, base_vector, timestamp));
     records.push_back(createRecord(uid2, perturbed_vector, timestamp + config_.time_interval));
+    last_generated_vectors_.push_back(base_vector);
+    last_generated_vectors_.push_back(perturbed_vector);
     if (target_sim >= config_.similarity_threshold) expected_matches.insert({uid1, uid2}); timestamp += config_.time_interval * 2;
   }
   for (int i = 0; i < config_.negative_pairs; ++i) {
     auto vec1 = getNextVector(); auto vec2 = getNextVector(); uint64_t uid1 = uid_counter++; uint64_t uid2 = uid_counter++;
     records.push_back(createRecord(uid1, vec1, timestamp));
     records.push_back(createRecord(uid2, vec2, timestamp + config_.time_interval));
+    last_generated_vectors_.push_back(vec1);
+    last_generated_vectors_.push_back(vec2);
     if (calculateSimilarity(vec1, vec2) >= config_.similarity_threshold) expected_matches.insert({uid1, uid2}); timestamp += config_.time_interval * 2;
   }
-  for (int i = 0; i < config_.random_tail; ++i) { auto vec = getNextVector(); records.push_back(createRecord(uid_counter++, vec, timestamp)); timestamp += config_.time_interval; }
+  for (int i = 0; i < config_.random_tail; ++i) { 
+    auto vec = getNextVector(); 
+    records.push_back(createRecord(uid_counter++, vec, timestamp)); 
+    last_generated_vectors_.push_back(vec);
+    timestamp += config_.time_interval; 
+  }
   next_uid_ = uid_counter; return {std::move(records), std::move(expected_matches)};
 }
 
@@ -113,5 +126,19 @@ BaselineJoinChecker::computeExpectedMatches(const std::vector<std::unique_ptr<Ve
 double BaselineJoinChecker::computeCosineSimilarity(const std::vector<float>& a, const std::vector<float>& b) { double dot=0.0, na=0.0, nb=0.0; for(size_t i=0;i<a.size();++i){ dot+=a[i]*b[i]; na+=a[i]*a[i]; nb+=b[i]*b[i]; } double np = std::sqrt(na*nb); return np>1e-9 ? dot/np : 0.0; }
 
 bool BaselineJoinChecker::areInSameWindow(int64_t ts1, int64_t ts2, int64_t window_size) { return std::abs(ts1-ts2) <= window_size; }
+
+bool TestDataGenerator::saveGeneratedVectors(const std::string& file_path, std::shared_ptr<DataWriterBase> writer) {
+  if (!writer) {
+    std::cerr << "[TestDataGenerator] Error: Writer cannot be null" << std::endl;
+    return false;
+  }
+
+  if (last_generated_vectors_.empty()) {
+    std::cerr << "[TestDataGenerator] Error: No data to save. Call generateData() first." << std::endl;
+    return false;
+  }
+
+  return writer->writeVectors(file_path, last_generated_vectors_, config_.vector_dim);
+}
 
 }} // namespace
