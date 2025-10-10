@@ -20,7 +20,7 @@
 #include "test_utils/test_data_adapter.h"
 #include "execution/collector.h"
 
-#ifdef sageFlow_ENABLE_METRICS
+#ifdef SAGEFLOW_ENABLE_METRICS
 #include "operator/join_metrics.h"
 #endif
 

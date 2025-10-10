@@ -12,12 +12,12 @@ std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteEager(const Vec
     return results;
   }
   auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_);
-  sageFlow_LOG_DEBUG("JOIN_IVF", "eager_query slot={} candidates={} ", query_slot, candidates.size());
+  SAGEFLOW_LOG_DEBUG("JOIN_IVF", "eager_query slot={} candidates={} ", query_slot, candidates.size());
   // LOG输出匹配上的向量和到达向量具体是什么
-  sageFlow_LOG_DEBUG("JOIN_IVF", "eager_query input uid={} ", query_record.uid_);
+  SAGEFLOW_LOG_DEBUG("JOIN_IVF", "eager_query input uid={} ", query_record.uid_);
   for (auto &c : candidates) {
     if (c) {
-  sageFlow_LOG_DEBUG("JOIN_IVF", "eager_query matched candidate uid={} ", c->uid_);
+  SAGEFLOW_LOG_DEBUG("JOIN_IVF", "eager_query matched candidate uid={} ", c->uid_);
     }
   }
   results.reserve(candidates.size());
