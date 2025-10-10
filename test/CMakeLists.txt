@@ -189,3 +189,14 @@ if(sageFlow_ENABLE_METRICS)
 else()
     message(STATUS "sageFlow_ENABLE_METRICS disabled for tests (metrics code excluded)")
 endif()
+
+# -----------------------------------------------------------------------------
+# Optional: Data Source Example (demonstrates the data source framework)
+# -----------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/test_data_source_example.cpp")
+    add_executable(test_data_source_example examples/test_data_source_example.cpp)
+    target_link_libraries(test_data_source_example PRIVATE test_data_support sageflow)
+    target_compile_definitions(test_data_source_example PRIVATE ${TEST_COMMON_DEFINES})
+    target_include_directories(test_data_source_example PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
+    message(STATUS "Added optional example: test_data_source_example")
+endif()
