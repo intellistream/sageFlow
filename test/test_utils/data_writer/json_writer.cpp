@@ -1,7 +1,7 @@
 #include "test_utils/data_writer/json_writer.h"
+#include "utils/logger.h"
 #include <fstream>
 #include <iomanip>
-#include <iostream>
 
 namespace sageFlow { namespace test {
 
@@ -9,22 +9,22 @@ bool JsonWriter::writeVectors(const std::string& file_path,
                               const std::vector<std::vector<float>>& vectors,
                               int dimension) {
   if (vectors.empty()) {
-    std::cerr << "[JsonWriter] Error: No vectors to write" << std::endl;
+    SAGEFLOW_LOG_ERROR("TEST", "[JsonWriter] Error: No vectors to write");
     return false;
   }
 
   // Validate all vectors have the correct dimension
   for (size_t i = 0; i < vectors.size(); ++i) {
     if (static_cast<int>(vectors[i].size()) != dimension) {
-      std::cerr << "[JsonWriter] Error: Vector " << i << " has dimension " 
-                << vectors[i].size() << ", expected " << dimension << std::endl;
+      SAGEFLOW_LOG_ERROR("TEST", "[JsonWriter] Error: Vector {} has dimension {}, expected {}", 
+                         i, vectors[i].size(), dimension);
       return false;
     }
   }
 
   std::ofstream output(file_path);
   if (!output.is_open()) {
-    std::cerr << "[JsonWriter] Error: Cannot open file for writing: " << file_path << std::endl;
+    SAGEFLOW_LOG_ERROR("TEST", "[JsonWriter] Error: Cannot open file for writing: {}", file_path);
     return false;
   }
 
@@ -57,13 +57,12 @@ bool JsonWriter::writeVectors(const std::string& file_path,
     output << "}\n";
 
     output.close();
-    std::cout << "[JsonWriter] Successfully wrote " << vectors.size() 
-              << " vectors of dimension " << dimension 
-              << " to " << file_path << std::endl;
+    SAGEFLOW_LOG_INFO("TEST", "[JsonWriter] Successfully wrote {} vectors of dimension {} to {}", 
+                      vectors.size(), dimension, file_path);
     return true;
 
   } catch (const std::exception& e) {
-    std::cerr << "[JsonWriter] Exception during write: " << e.what() << std::endl;
+    SAGEFLOW_LOG_ERROR("TEST", "[JsonWriter] Exception during write: {}", e.what());
     output.close();
     return false;
   }

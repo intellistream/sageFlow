@@ -1,7 +1,7 @@
 #include "test_utils/data_source/dataset_data_source.h"
+#include "utils/logger.h"
 #include <fstream>
 #include <stdexcept>
-#include <iostream>
 
 namespace sageFlow { namespace test {
 
@@ -63,9 +63,8 @@ void DatasetDataSource::loadVectors() {
     throw std::runtime_error("No vectors loaded from file: " + config_.file_path);
   }
 
-  std::cout << "[DatasetDataSource] Loaded " << vectors_.size() 
-            << " vectors of dimension " << dimension_ 
-            << " from " << config_.file_path << std::endl;
+  SAGEFLOW_LOG_INFO("TEST", "[DatasetDataSource] Loaded {} vectors of dimension {} from {}", 
+                    vectors_.size(), dimension_, config_.file_path);
 }
 
 std::vector<float> DatasetDataSource::getNextVector() {

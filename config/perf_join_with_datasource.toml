@@ -1,0 +1,40 @@
+[[performance_test]]
+# Test with random data source (default)
+name = "perf_join_random"
+methods = ["bruteforce_eager", "ivf_eager"]
+sizes = [4000]
+records_count = 10
+vector_dim = 64
+parallelism = [1,2,4,8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+# Data source configuration
+[performance_test.data_source]
+type = "random"  # Options: "random", "dataset", "json"
+# For random type, no additional config needed (uses seed from above)
+
+[[performance_test]]
+# Test with SIFT dataset
+name = "perf_join_sift"
+methods = ["bruteforce_eager", "ivf_eager"]
+sizes = [1000]  # Number of records to generate from dataset
+records_count = 10
+vector_dim = 128  # SIFT dimension
+parallelism = [1,2,4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.data_source]
+type = "dataset"
+file_path = "data/siftsmall/siftsmall_query.fvecs"
+expected_dim = 128
+loop = true  # Allow reusing vectors if dataset is smaller than needed
+
+log.level = "debug"

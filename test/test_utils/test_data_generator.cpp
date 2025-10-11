@@ -1,5 +1,8 @@
 #include "test_utils/test_data_generator.h"
 #include "test_utils/data_source/random_data_source.h"
+#include "test_utils/data_source/dataset_data_source.h"
+#include "test_utils/data_source/data_source_factory.h"
+#include "utils/logger.h"
 #include <algorithm>
 #include <cmath>
 
@@ -21,6 +24,17 @@ TestDataGenerator::TestDataGenerator(const Config& config, std::shared_ptr<DataS
   }
   // Update config dimension to match data source
   config_.vector_dim = data_source_->getDimension();
+}
+
+TestDataGenerator TestDataGenerator::createFromConfig(const Config& config, const DynamicConfig* data_source_config) {
+  if (!data_source_config) {
+    // No data source config provided, use default random
+    return TestDataGenerator(config);
+  }
+  
+  // Create data source from config
+  auto data_source = DataSourceFactory::createFromConfig(*data_source_config, config.vector_dim, config.seed);
+  return TestDataGenerator(config, data_source);
 }
 
 std::pair<std::vector<std::unique_ptr<VectorRecord>>, std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>>
@@ -129,12 +143,12 @@ bool BaselineJoinChecker::areInSameWindow(int64_t ts1, int64_t ts2, int64_t wind
 
 bool TestDataGenerator::saveGeneratedVectors(const std::string& file_path, std::shared_ptr<DataWriterBase> writer) {
   if (!writer) {
-    std::cerr << "[TestDataGenerator] Error: Writer cannot be null" << std::endl;
+    SAGEFLOW_LOG_ERROR("TEST", "[TestDataGenerator] Error: Writer cannot be null");
     return false;
   }
 
   if (last_generated_vectors_.empty()) {
-    std::cerr << "[TestDataGenerator] Error: No data to save. Call generateData() first." << std::endl;
+    SAGEFLOW_LOG_ERROR("TEST", "[TestDataGenerator] Error: No data to save. Call generateData() first.");
     return false;
   }
 

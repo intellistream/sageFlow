@@ -1,7 +1,7 @@
 #include "test_utils/join_data_source.h"
 #include "test_utils/test_data_adapter.h"
+#include "utils/logger.h"
 #include <stdexcept>
-#include <iostream>
 
 namespace sageFlow { namespace test {
 
@@ -84,8 +84,8 @@ JoinDataSourcePair::generateStreams(size_t max_records) {
     }
   }
 
-  std::cout << "[JoinDataSourcePair] Generated " << left_records.size() 
-            << " left and " << right_records.size() << " right records" << std::endl;
+  SAGEFLOW_LOG_INFO("TEST", "[JoinDataSourcePair] Generated {} left and {} right records", 
+                    left_records.size(), right_records.size());
 
   return {std::move(left_records), std::move(right_records)};
 }

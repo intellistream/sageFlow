@@ -1,7 +1,7 @@
 #include "test_utils/data_writer/fvecs_writer.h"
+#include "utils/logger.h"
 #include <fstream>
 #include <stdexcept>
-#include <iostream>
 
 namespace sageFlow { namespace test {
 
@@ -9,22 +9,22 @@ bool FvecsWriter::writeVectors(const std::string& file_path,
                                const std::vector<std::vector<float>>& vectors,
                                int dimension) {
   if (vectors.empty()) {
-    std::cerr << "[FvecsWriter] Error: No vectors to write" << std::endl;
+    SAGEFLOW_LOG_ERROR("TEST", "[FvecsWriter] Error: No vectors to write");
     return false;
   }
 
   // Validate all vectors have the correct dimension
   for (size_t i = 0; i < vectors.size(); ++i) {
     if (static_cast<int>(vectors[i].size()) != dimension) {
-      std::cerr << "[FvecsWriter] Error: Vector " << i << " has dimension " 
-                << vectors[i].size() << ", expected " << dimension << std::endl;
+      SAGEFLOW_LOG_ERROR("TEST", "[FvecsWriter] Error: Vector {} has dimension {}, expected {}", 
+                         i, vectors[i].size(), dimension);
       return false;
     }
   }
 
   std::ofstream output(file_path, std::ios::binary);
   if (!output.is_open()) {
-    std::cerr << "[FvecsWriter] Error: Cannot open file for writing: " << file_path << std::endl;
+    SAGEFLOW_LOG_ERROR("TEST", "[FvecsWriter] Error: Cannot open file for writing: {}", file_path);
     return false;
   }
 
@@ -39,20 +39,19 @@ bool FvecsWriter::writeVectors(const std::string& file_path,
       output.write(reinterpret_cast<const char*>(vec.data()), dim * sizeof(float));
       
       if (!output.good()) {
-        std::cerr << "[FvecsWriter] Error: Write failed" << std::endl;
+        SAGEFLOW_LOG_ERROR("TEST", "[FvecsWriter] Error: Write failed");
         output.close();
         return false;
       }
     }
 
     output.close();
-    std::cout << "[FvecsWriter] Successfully wrote " << vectors.size() 
-              << " vectors of dimension " << dimension 
-              << " to " << file_path << std::endl;
+    SAGEFLOW_LOG_INFO("TEST", "[FvecsWriter] Successfully wrote {} vectors of dimension {} to {}", 
+                      vectors.size(), dimension, file_path);
     return true;
 
   } catch (const std::exception& e) {
-    std::cerr << "[FvecsWriter] Exception during write: " << e.what() << std::endl;
+    SAGEFLOW_LOG_ERROR("TEST", "[FvecsWriter] Exception during write: {}", e.what());
     output.close();
     return false;
   }

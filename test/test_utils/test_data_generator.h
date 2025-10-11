@@ -9,6 +9,7 @@
 #include "test_utils/test_data_adapter.h"
 #include "test_utils/data_source/data_source_base.h"
 #include "test_utils/data_writer/data_writer_base.h"
+#include "test_utils/dynamic_config.h"
 
 namespace sageFlow { namespace test {
 
@@ -31,6 +32,14 @@ public:
   };
   explicit TestDataGenerator(const Config& config);
   explicit TestDataGenerator(const Config& config, std::shared_ptr<DataSourceBase> data_source);
+  
+  /**
+   * @brief Create TestDataGenerator from configuration with optional data source config
+   * @param config Test data generator configuration
+   * @param data_source_config Optional data source configuration (if empty, uses default random)
+   */
+  static TestDataGenerator createFromConfig(const Config& config, const DynamicConfig* data_source_config = nullptr);
+  
   std::pair<std::vector<std::unique_ptr<VectorRecord>>, std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>> generateData();
   
   /**
