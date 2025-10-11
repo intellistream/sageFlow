@@ -556,30 +556,6 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
 
           auto join_func = createSimpleJoinFunction(sets.vector_dim, win_ms, sets.trig_ms);
 
-
-          TestDataGenerator gen(cfg);
-          auto [records, expected_matches] = gen.generateData();
-
-          // 切分左右流，右侧UID偏移，基于流式管道进行计时（以体现并行度）
-          std::vector<std::unique_ptr<VectorRecord>> left_records;
-          left_records.reserve(records.size());
-          for (auto &r : records) left_records.push_back(std::move(r));
-
-          std::vector<std::unique_ptr<VectorRecord>> right_records;
-          right_records.reserve(left_records.size());
-          constexpr uint64_t kRightUidOffset = 500000;
-          for (auto &lr : left_records) {
-            right_records.push_back(std::make_unique<VectorRecord>(lr->uid_ + kRightUidOffset, lr->timestamp_, lr->data_));
-          }
-
-          // 记录期望输入计数后再 move 到 Source
-          const size_t expected_left = left_records.size();
-          const size_t expected_right = right_records.size();
-          auto left_source = std::make_shared<TestVectorStreamSource>("MSLeft", std::move(left_records));
-          auto right_source = std::make_shared<TestVectorStreamSource>("MSRight", std::move(right_records));
-
-          auto join_func = createSimpleJoinFunction(sets.vector_dim, win_ms, sets.trig_ms);
-
           std::atomic<size_t> match_count{0};
           auto sink_func = std::make_unique<SinkFunction>("MSSink", [&](std::unique_ptr<VectorRecord>& rec){ if (rec) match_count++; });
 
