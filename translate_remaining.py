@@ -1,4 +1,17 @@
-# 数据持久化设计文档
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Script to translate remaining documentation files to Chinese
+"""
+
+def write_file(filename, content):
+    """Write content to file with UTF-8 encoding"""
+    with open(filename, 'w', encoding='utf-8') as f:
+        f.write(content)
+    print(f"Translated: {filename}")
+
+# Translate DATA_PERSISTENCE_DESIGN.md
+data_persistence_design = """# 数据持久化设计文档
 
 ## 概述
 
@@ -372,3 +385,9 @@ public:
 - ✅ 详细的文档
 
 所有功能经过充分测试和验证，可用于生产环境。
+"""
+
+write_file('DATA_PERSISTENCE_DESIGN.md', data_persistence_design)
+
+print("\nCompleted translation of DATA_PERSISTENCE_DESIGN.md")
+
