@@ -95,6 +95,7 @@ set(PERF_TEST_SPECS
     test_join_perf_scaling         Performance/test_join_perf_scaling.cpp     900 PERF
     test_join_performance_methods  Performance/test_join_performance_methods.cpp 900 PERF
     test_window_pipeline           Performance/test_window_pipeline.cpp       600 PERF
+    test_join_datasource_modes     Performance/test_join_datasource_modes.cpp 900 PERF
 )
 
 list(LENGTH PERF_TEST_SPECS _plen)
