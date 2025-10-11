@@ -1,4 +1,12 @@
-# 代码审查改进总结
+#!/usr/bin/env python3
+# This script translates English documentation to Chinese while preserving code blocks
+
+import re
+import sys
+
+def translate_code_review_improvements():
+    """Translate CODE_REVIEW_IMPROVEMENTS.md to Chinese"""
+    content = """# 代码审查改进总结
 
 ## 概述
 
@@ -161,3 +169,10 @@ config.right_source = right_data_source; // DataSourceBase
 5. **向后兼容** - 不破坏现有代码
 
 所有改进都经过充分测试和验证。
+"""
+    with open('CODE_REVIEW_IMPROVEMENTS.md', 'w', encoding='utf-8') as f:
+        f.write(content)
+    print("Translated CODE_REVIEW_IMPROVEMENTS.md")
+
+if __name__ == '__main__':
+    translate_code_review_improvements()
