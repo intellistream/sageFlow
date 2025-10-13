@@ -27,11 +27,14 @@ public:
     static bool loadConfig(const std::string& config_path, const std::string& section, DynamicConfig& config);
     static bool loadConfigs(const std::string& config_path, const std::string& section, std::vector<DynamicConfig>& configs);
     static bool loadRootConfig(const std::string& config_path, DynamicConfig& config);
+    static std::string resolveProjectRelativePath(const std::string& path);
 private:
     static void extractConfig(const toml::table& tbl, DynamicConfig& config, const std::string& prefix = "");
     static ConfigValue convertTomlValue(const toml::node& node);
     static toml::table parseFileWithFallback(const std::string& path);
 };
+
+std::string resolveProjectRelativePath(const std::string& path);
 
 template<typename T>
 T DynamicConfig::get(const std::string& key) const {

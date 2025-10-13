@@ -123,11 +123,12 @@ static std::vector<DataSourceModeConfig> loadDataSourceModeConfigs() {
     mode_config.seed = config.get<int>("seed", 42);
     
     // Data source configuration
-    auto ds_type = config.get<std::string>("data_source.type", "random");
-    mode_config.data_source_type = ds_type;
-    
-    if (ds_type == "dataset") {
-      mode_config.data_source_file_path = config.get<std::string>("data_source.file_path", "");
+  auto ds_type = config.get<std::string>("data_source.type", "random");
+  mode_config.data_source_type = ds_type;
+  mode_config.data_source_file_path = DynamicConfigManager::resolveProjectRelativePath(
+    config.get<std::string>("data_source.file_path", ""));
+
+  if (ds_type == "dataset") {
       mode_config.data_source_expected_dim = config.get<int>("data_source.expected_dim", 128);
       int loop_val = config.get<int>("data_source.loop", 1);
       mode_config.data_source_loop = (loop_val != 0);
@@ -135,8 +136,9 @@ static std::vector<DataSourceModeConfig> loadDataSourceModeConfigs() {
     
     // Storage configuration (for generate_save_load mode)
     if (mode_config.mode == "generate_save_load") {
-      mode_config.storage_format = config.get<std::string>("storage.format", "fvecs");
-      mode_config.storage_file_path = config.get<std::string>("storage.file_path", "test/data/temp_generated.fvecs");
+    mode_config.storage_format = config.get<std::string>("storage.format", "fvecs");
+    mode_config.storage_file_path = DynamicConfigManager::resolveProjectRelativePath(
+      config.get<std::string>("storage.file_path", "test/data/temp_generated.fvecs"));
     }
     
     configs.push_back(mode_config);
@@ -243,7 +245,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   if (mode_config.mode == "generate_save_load") {
     // Mode 1: Generate -> Save -> Load
     SAGEFLOW_LOG_INFO("TEST", "[MODE1] Generate-Save-Load: format={} path={}", 
-                     mode_config.storage_format, mode_config.storage_file_path);
+                      mode_config.storage_format, mode_config.storage_file_path);
     
     // Check if file already exists
     bool file_exists = std::filesystem::exists(mode_config.storage_file_path);

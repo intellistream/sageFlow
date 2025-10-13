@@ -4,6 +4,11 @@ cmake-build-*/
 dist/
 *.egg-info/
 
+# Experiment outputs
+*.png
+*.tsv
+*.otf
+
 # Compiled Object files
 *.slo
 *.lo
