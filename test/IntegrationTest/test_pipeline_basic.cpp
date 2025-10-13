@@ -23,6 +23,7 @@
 #include "test_utils/test_data_generator.h"
 #include "test_utils/test_config_manager.h"
 #include "test_utils/test_data_adapter.h"
+#include "test_utils/join_test_helper.h"
 
 namespace sageFlow {
 namespace test {
@@ -38,7 +39,7 @@ static void wait_until_processed_and_stable(size_t expected_left,
     uint64_t r = JoinMetrics::instance().total_records_right.load();
     if (l >= expected_left && r >= expected_right) break;
     if (std::chrono::steady_clock::now() >= deadline) {
-      sageFlow_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+      SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
       break;
     }
     std::this_thread::sleep_for(5ms);
@@ -206,7 +207,7 @@ TEST_F(MultiThreadPipelineTest, BasicPipelineConstruction) {
   wait_until_stable_only(std::chrono::milliseconds(100), std::chrono::seconds(10));
   EXPECT_NO_THROW(env_->stop()) << "StreamEnvironment stop should not throw";
   EXPECT_NO_THROW(env_->awaitTermination()) << "StreamEnvironment awaitTermination should not throw";
-  sageFlow_LOG_INFO("TEST", "pipeline construction success");
+  SAGEFLOW_LOG_INFO("TEST", "pipeline construction success");
     return;
   }
   // 回退：若配置加载失败，使用默认 join 参数
@@ -225,7 +226,7 @@ TEST_F(MultiThreadPipelineTest, BasicPipelineConstruction) {
   EXPECT_NO_THROW(env_->stop()) << "StreamEnvironment stop should not throw";
   EXPECT_NO_THROW(env_->awaitTermination()) << "StreamEnvironment awaitTermination should not throw";
 
-  sageFlow_LOG_INFO("TEST", "pipeline construction success");
+  SAGEFLOW_LOG_INFO("TEST", "pipeline construction success");
 }
 
 TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
@@ -245,7 +246,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
   auto [base_records, expected_matches] = generator.generateData();
 
   // 打印所有记录信息，便于排查
-  sageFlow_LOG_INFO("TEST", "ParallelJoinConsistency dataset: records={} expected_matches_size={} dim={} ",
+  SAGEFLOW_LOG_INFO("TEST", "ParallelJoinConsistency dataset: records={} expected_matches_size={} dim={} ",
                  base_records.size(), expected_matches.size(), config.vector_dim);
   for (size_t i = 0; i < base_records.size(); ++i) {
     const auto& r = base_records[i];
@@ -256,7 +257,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
       vals += std::to_string(vec[d]);
       if (d + 1 < vec.size()) vals += ",";
     }
-    sageFlow_LOG_INFO("TEST", "rec#{} uid={} ts={} values=[{}] ", i, r->uid_, r->timestamp_, vals);
+    SAGEFLOW_LOG_INFO("TEST", "rec#{} uid={} ts={} values=[{}] ", i, r->uid_, r->timestamp_, vals);
   }
   
   std::vector<std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>> results_by_parallelism;
@@ -267,22 +268,9 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
   // 确保每次循环使用全新执行环境，避免上一次执行残留的队列/线程/索引状态
   if (env_) { env_->reset(); } else { env_ = std::make_shared<StreamEnvironment>(); }
 
-    // 为左右两侧分别复制一份数据
-    std::vector<std::unique_ptr<VectorRecord>> left_records;
-    left_records.reserve(base_records.size());
-    for (const auto& rec : base_records) {
-      left_records.push_back(std::make_unique<VectorRecord>(*rec));
-    }
-    std::vector<std::unique_ptr<VectorRecord>> right_records;
-    right_records.reserve(base_records.size());
-    // 给右侧流的 UID 加偏移，确保左右两侧不共享相同 UID；
-    // 偏移量保持在 <1e6 内，保证 left*1e6 + right 的编码/解码逻辑仍然成立。
-    constexpr uint64_t kRightUidOffset = 500000;
-    for (const auto& rec : base_records) {
-      uint64_t new_uid = rec->uid_ + kRightUidOffset;
-      // 复制数据与时间戳，但使用新的 UID
-      right_records.push_back(std::make_unique<VectorRecord>(new_uid, rec->timestamp_, rec->data_));
-    }
+    // 使用 JoinTestHelper 生成左右流（替代手动复制逻辑）
+    auto [left_records, right_records] = 
+        JoinTestHelper::generateJoinStreamsFromGenerator(generator, true);
 
     JoinMetrics::instance().reset();
 
@@ -346,7 +334,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
     env_->awaitTermination();
 
     results_by_parallelism.push_back(std::move(result_set));
-    sageFlow_LOG_INFO("TEST", "Parallelism {} matches={} ", parallelism, results_by_parallelism.back().size());
+    SAGEFLOW_LOG_INFO("TEST", "Parallelism {} matches={} ", parallelism, results_by_parallelism.back().size());
   }
   
   // 放宽一致性：对参考结果（parallelism=1）与其他并行度计算召回率，仅要求 recall >= 0.5
@@ -361,7 +349,7 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
       size_t hit = 0;
       for (const auto& p : ref) if (cur.count(p)) ++hit;
       double recall = static_cast<double>(hit) / static_cast<double>(ref.size());
-      sageFlow_LOG_INFO("TEST", "Parallelism={} recall={} ref_size={} cur_size={} ", parallelism_levels[i], recall, ref.size(), cur.size());
+      SAGEFLOW_LOG_INFO("TEST", "Parallelism={} recall={} ref_size={} cur_size={} ", parallelism_levels[i], recall, ref.size(), cur.size());
       EXPECT_GE(recall, 0.5) << "Recall below threshold for parallelism=" << parallelism_levels[i];
     }
   }
@@ -429,10 +417,10 @@ TEST_F(MultiThreadPipelineTest, StressTestMultipleRestarts) {
   env_->stop();
   env_->awaitTermination();
     
-  sageFlow_LOG_INFO("TEST", "Restart {} success", restart);
+  SAGEFLOW_LOG_INFO("TEST", "Restart {} success", restart);
   }
   
-  sageFlow_LOG_INFO("TEST", "Stress test restarts completed");
+  SAGEFLOW_LOG_INFO("TEST", "Stress test restarts completed");
 }
 
 TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
@@ -450,19 +438,9 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
   const int high_parallelism = 8;
   JoinMetrics::instance().reset();
 
-  // 为左右两侧分别复制一份数据
-  std::vector<std::unique_ptr<VectorRecord>> left_records;
-  left_records.reserve(records.size());
-  for (const auto& rec : records) {
-    left_records.push_back(std::make_unique<VectorRecord>(*rec));
-  }
-  std::vector<std::unique_ptr<VectorRecord>> right_records;
-  right_records.reserve(records.size());
-  constexpr uint64_t kRightUidOffsetHC = 500000;
-  for (const auto& rec : records) {
-    uint64_t new_uid = rec->uid_ + kRightUidOffsetHC;
-    right_records.push_back(std::make_unique<VectorRecord>(new_uid, rec->timestamp_, rec->data_));
-  }
+  // 使用 JoinTestHelper 生成左右流（替代手动复制逻辑）
+  auto [left_records, right_records] = 
+      JoinTestHelper::generateJoinStreamsFromGenerator(generator, true);
 
   auto left_source = std::make_shared<TestVectorStreamSource>("HC_Left", std::move(left_records));
   auto right_source = std::make_shared<TestVectorStreamSource>("HC_Right", std::move(right_records));
@@ -509,7 +487,7 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
   env_->stop();
   env_->awaitTermination();
 
-  sageFlow_LOG_INFO("TEST", "High concurrency test completed matches={} lock_wait_ms={} ",
+  SAGEFLOW_LOG_INFO("TEST", "High concurrency test completed matches={} lock_wait_ms={} ",
                  sink_count.load(), JoinMetrics::instance().lock_wait_ns.load() / 1000000);
   
   // 验证无死锁且有合理处理量（以产生结果为标志）
@@ -568,7 +546,7 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 //   TestDataGenerator generator(config);
 //   auto [records, expected_matches] = generator.generateData();
 //
-//   sageFlow_LOG_INFO("TEST", "Testing configuration method={} Source={} Join={} Data={} ",
+//   SAGEFLOW_LOG_INFO("TEST", "Testing configuration method={} Source={} Join={} Data={} ",
 //                  method, source_parallelism, join_parallelism, data_size);
 //
 //   // 使用 StreamEnvironment 构建并行流水线
@@ -637,7 +615,7 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
 //   auto end_time = std::chrono::high_resolution_clock::now();
 //   auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
 //
-//   sageFlow_LOG_INFO("TEST", "Configuration test completed duration_ms={} matches={} ",
+//   SAGEFLOW_LOG_INFO("TEST", "Configuration test completed duration_ms={} matches={} ",
 //                  duration.count(), total_matches.load());
 //
 //   // 验证处理完成且无崩溃

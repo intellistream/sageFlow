@@ -19,6 +19,7 @@
 #include "utils/logger.h"
 #include "test_utils/dynamic_config.h"
 #include "utils/log_config.h"
+#include "test_utils/join_test_helper.h"
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -57,7 +58,7 @@ protected:
   std::string metrics_path = "build/metrics/join_perf_" + 
         std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".tsv";
     JoinMetrics::instance().dump_tsv(metrics_path);
-  sageFlow_LOG_INFO("TEST", "Performance metrics saved path={} ", metrics_path);
+  SAGEFLOW_LOG_INFO("TEST", "Performance metrics saved path={} ", metrics_path);
   }
 
   // 创建JoinFunction（使用 test_data_adapter 助手），支持配置维度与窗口
@@ -105,27 +106,27 @@ inline PerfConfigSets loadPerfConfig() {
     // 目前只取第一个配置块，若需要可扩展成多组
     const auto& config = perf_configs.front();
     
-  out.threshold = config.get<double>("similarity_threshold", out.threshold);
-  // 注意：DynamicConfig 将整数优先存为 int，因此这里按 int 读取以避免类型不匹配导致默认值生效
-  // window_time_ms 既支持数组也支持单值
-  {
-    auto win_list = config.get<std::vector<int>>("window_time_ms", std::vector<int>{});
-    if (!win_list.empty()) {
-      out.win_ms_list.clear();
-      out.win_ms_list.reserve(win_list.size());
-      for (int v : win_list) out.win_ms_list.push_back(static_cast<uint64_t>(v));
-    } else {
-      int win_single = config.get<int>("window_time_ms", 2000);
-      out.win_ms_list = { static_cast<uint64_t>(win_single) };
+    out.threshold = config.get<double>("similarity_threshold", out.threshold);
+    // 注意：DynamicConfig 将整数优先存为 int，因此这里按 int 读取以避免类型不匹配导致默认值生效
+    // window_time_ms 既支持数组也支持单值
+    {
+      auto win_list = config.get<std::vector<int>>("window_time_ms", std::vector<int>{});
+      if (!win_list.empty()) {
+        out.win_ms_list.clear();
+        out.win_ms_list.reserve(win_list.size());
+        for (int v : win_list) out.win_ms_list.push_back(static_cast<uint64_t>(v));
+      } else {
+        int win_single = config.get<int>("window_time_ms", 2000);
+        out.win_ms_list = { static_cast<uint64_t>(win_single) };
+      }
     }
-  }
-    
-  auto trigger_ms = config.get<int>("window_trigger_ms", 0);
-  if (trigger_ms > 0) out.trig_ms = static_cast<uint64_t>(trigger_ms);
+      
+    auto trigger_ms = config.get<int>("window_trigger_ms", 0);
+    if (trigger_ms > 0) out.trig_ms = static_cast<uint64_t>(trigger_ms);
     
     out.methods = config.get<std::vector<std::string>>("methods", out.methods);
     out.parallelism = config.get<std::vector<int>>("parallelism", out.parallelism);
-  out.vector_dim = config.get<int>("vector_dim", out.vector_dim);
+    out.vector_dim = config.get<int>("vector_dim", out.vector_dim);
     // 读取 time_interval（可选）
     out.time_interval_ms = config.get<int>("time_interval", static_cast<int>(out.time_interval_ms));
     
@@ -146,7 +147,7 @@ inline PerfConfigSets loadPerfConfig() {
     for (size_t i=0;i<out.win_ms_list.size();++i){ if(i) ss<<","; ss<<out.win_ms_list[i]; }
     ss<<"] trig_ms="<<out.trig_ms<<" vector_dim="<<out.vector_dim
       <<" time_interval_ms="<<out.time_interval_ms;
-    sageFlow_LOG_INFO("TEST", "[CONFIG] {}", ss.str());
+    SAGEFLOW_LOG_INFO("TEST", "[CONFIG] {}", ss.str());
   }
   // 同时检查全局配置中的日志级别设置
   DynamicConfig global_config;
@@ -242,15 +243,15 @@ protected:
   std::unique_ptr<Function> createSimpleJoinFunction() {
     auto join_func_lambda = [](std::unique_ptr<VectorRecord>& left, 
                               std::unique_ptr<VectorRecord>& right) -> std::unique_ptr<VectorRecord> {
-  auto lv = extractFloatVector(*left);
-  auto rv = extractFloatVector(*right);
-  std::vector<float> out;
-  out.reserve(lv.size() + rv.size());
-  out.insert(out.end(), lv.begin(), lv.end());
-  out.insert(out.end(), rv.begin(), rv.end());
-  uint64_t id = left->uid_ * 1000000 + right->uid_;
-  int64_t ts = std::max(left->timestamp_, right->timestamp_);
-  return createVectorRecord(id, ts, out);
+      auto lv = extractFloatVector(*left);
+      auto rv = extractFloatVector(*right);
+      std::vector<float> out;
+      out.reserve(lv.size() + rv.size());
+      out.insert(out.end(), lv.begin(), lv.end());
+      out.insert(out.end(), rv.begin(), rv.end());
+      uint64_t id = left->uid_ * 1000000 + right->uid_;
+      int64_t ts = std::max(left->timestamp_, right->timestamp_);
+      return createVectorRecord(id, ts, out);
     };
     
     return std::make_unique<JoinFunction>("SimpleJoin", join_func_lambda, 128);
@@ -272,7 +273,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   }
 
   // 开始前打印本轮参数（方法/规模/并行度）
-  sageFlow_LOG_INFO("TEST", "[BEGIN] method={} size={} parallelism={} ", method, data_size, parallelism);
+  SAGEFLOW_LOG_INFO("TEST", "[BEGIN] method={} size={} parallelism={} ", method, data_size, parallelism);
 
   static PerfConfigSets g_sets_for_dim = loadPerfConfig();
   TestDataGenerator::Config config; config.vector_dim = g_sets_for_dim.vector_dim; config.similarity_threshold = 0.8;
@@ -304,7 +305,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   uint64_t trig_ms = g_sets.trig_ms; double threshold_override = g_sets.threshold;
 
   // 打印本轮的窗口/阈值等关键参数
-  sageFlow_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} time_interval_ms={} ", threshold_override, win_ms, trig_ms, g_sets.time_interval_ms);
+  SAGEFLOW_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} time_interval_ms={} ", threshold_override, win_ms, trig_ms, g_sets.time_interval_ms);
 
   // 构建环境与 Source
   StreamEnvironment env;
@@ -380,7 +381,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
       uint64_t r = JoinMetrics::instance().total_records_right.load();
       if (l >= expected_left && r >= expected_right) break;
       if (std::chrono::steady_clock::now() >= deadline) {
-        sageFlow_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+        SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
         break;
       }
       std::this_thread::sleep_for(5ms);
@@ -408,11 +409,11 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   // 精准匹配统计
   size_t match_count = 0;
   for (auto ap : actual_pairs) {
-    // sageFlow_LOG_INFO("TEST", "  Actual match: L={} R={} ", ap.first, ap.second);
+    // SAGEFLOW_LOG_INFO("TEST", "  Actual match: L={} R={} ", ap.first, ap.second);
     if (expected_matches.count(ap)) match_count++;
   }
   for (auto ep : expected_matches) {
-    // sageFlow_LOG_INFO("TEST", "  Expected match: L={} R={} ", ep.first, ep.second);
+    // SAGEFLOW_LOG_INFO("TESRT", "  Expected match: L={} R={} ", ep.first, ep.second);
   }
 
   double recall = expected_matches.empty() ? 1.0 : static_cast<double>(match_count) / static_cast<double>(expected_matches.size());
@@ -420,7 +421,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   double precision = static_cast<double>(match_count)/static_cast<double>(actual_pairs.size());
   double f1 = (precision+recall)>0 ? 2*precision*recall/(precision+recall):0.0;
 
-  sageFlow_LOG_INFO("TEST", "Method={} Size={} Parallelism={} time_ms={} matches={} expected={} recall={} precision={} f1={} win_ms={} trig_ms={} ",
+  SAGEFLOW_LOG_INFO("TEST", "Method={} Size={} Parallelism={} time_ms={} matches={} expected={} recall={} precision={} f1={} win_ms={} trig_ms={} ",
                  method, data_size, parallelism, duration.count(), match_count, expected_matches.size(), recall, precision, f1, win_ms, trig_ms);
 
   // 将结果追加写入报告
@@ -438,7 +439,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
     bool new_file = !std::filesystem::exists(report_path);
     std::ofstream ofs(report_path, std::ios::app);
     if (!ofs.is_open()) {
-      sageFlow_LOG_WARN("TEST", "[REPORT] cannot open {} for write", report_path);
+      SAGEFLOW_LOG_WARN("TEST", "[REPORT] cannot open {} for write", report_path);
       return; // 放弃写报告，但不影响测试断言
     }
     if (new_file) {
@@ -475,9 +476,9 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
     << JoinMetrics::instance().candidate_fetch_ns.load() << '\t'
         << input_tput_rps << '\t' << output_tput_rps << '\t' << avg_apply_ms << '\t' << avg_e2e_ms << '\n';
   ofs.flush();
-    sageFlow_LOG_INFO("TEST", "[REPORT] appended to {}", report_path);
+    SAGEFLOW_LOG_INFO("TEST", "[REPORT] appended to {}", report_path);
   } catch(const std::exception &e) {
-    sageFlow_LOG_WARN("TEST", "write_report_failed what={} ", e.what());
+    SAGEFLOW_LOG_WARN("TEST", "write_report_failed what={} ", e.what());
   }
 
   // 基本性能与锁争用检测
@@ -501,7 +502,7 @@ static std::vector<PerfCaseParam> buildParams() {
       for (auto par : sets.parallelism)
         for (auto win : sets.win_ms_list)
         {
-          sageFlow_LOG_INFO("TEST", "[PARAMGEN] method={} size={} parallelism={} win_ms={} ", m, sz, par, win);
+          SAGEFLOW_LOG_INFO("TEST", "[PARAMGEN] method={} size={} parallelism={} win_ms={} ", m, sz, par, win);
           params.push_back({m, sz, par, win});
         }
   return params;
@@ -517,100 +518,92 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
   for (auto data_size : sets.sizes) {
     for (auto par : sets.parallelism) {
       for (auto win_ms : sets.win_ms_list) {
-        sageFlow_LOG_INFO("TEST", "[BEGIN] MethodSpeedComparison size={} parallelism={} win_ms={} ", data_size, par, win_ms);
-        sageFlow_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} ", sets.threshold, win_ms, sets.trig_ms);
+        SAGEFLOW_LOG_INFO("TEST", "[BEGIN] MethodSpeedComparison size={} parallelism={} win_ms={} ", data_size, par, win_ms);
+        SAGEFLOW_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} ", sets.threshold, win_ms, sets.trig_ms);
 
-      std::vector<std::pair<std::string, int64_t>> method_times;
+        std::vector<std::pair<std::string, int64_t>> method_times;
 
-      for (const auto& method : sets.methods) {
-        // 为当前方法生成确定性数据（按 data_size 严格对齐）
-  TestDataGenerator::Config cfg; cfg.vector_dim = sets.vector_dim; cfg.similarity_threshold = sets.threshold; cfg.seed = 42; cfg.time_interval = sets.time_interval_ms;
-        {
-          int target_pos = static_cast<int>(data_size * 0.10);
-          int target_near = 0; // 可按需开启近邻样本
-          int target_neg = static_cast<int>(data_size * 0.60);
-          int pos_pairs = target_pos / 2;
-          int near_pairs = target_near / 2;
-          int neg_pairs = target_neg / 2;
-          int used = 2*pos_pairs + 2*near_pairs + 2*neg_pairs;
-          int tail = std::max(0, data_size - used);
-          cfg.positive_pairs = pos_pairs;
-          cfg.near_threshold_pairs = near_pairs;
-          cfg.negative_pairs = neg_pairs;
-          cfg.random_tail = tail;
-        }
-
-        TestDataGenerator gen(cfg);
-        auto [records, expected_matches] = gen.generateData();
-
-        // 切分左右流，右侧UID偏移，基于流式管道进行计时（以体现并行度）
-        std::vector<std::unique_ptr<VectorRecord>> left_records;
-        left_records.reserve(records.size());
-        for (auto &r : records) left_records.push_back(std::move(r));
-
-        std::vector<std::unique_ptr<VectorRecord>> right_records;
-        right_records.reserve(left_records.size());
-        constexpr uint64_t kRightUidOffset = 500000;
-        for (auto &lr : left_records) {
-          right_records.push_back(std::make_unique<VectorRecord>(lr->uid_ + kRightUidOffset, lr->timestamp_, lr->data_));
-        }
-
-  // 记录期望输入计数后再 move 到 Source
-  const size_t expected_left = left_records.size();
-  const size_t expected_right = right_records.size();
-  auto left_source = std::make_shared<TestVectorStreamSource>("MSLeft", std::move(left_records));
-  auto right_source = std::make_shared<TestVectorStreamSource>("MSRight", std::move(right_records));
-
-  auto join_func = createSimpleJoinFunction(sets.vector_dim, win_ms, sets.trig_ms);
-
-        std::atomic<size_t> match_count{0};
-        auto sink_func = std::make_unique<SinkFunction>("MSSink", [&](std::unique_ptr<VectorRecord>& rec){ if (rec) match_count++; });
-
-        StreamEnvironment env;
-        JoinMetrics::instance().reset();
-
-  left_source->join(right_source, std::move(join_func), method, sets.threshold, (size_t)par)
-                   ->writeSink(std::move(sink_func), 1);
-        env.addStream(left_source);
-        env.addStream(right_source);
-
-        auto start = std::chrono::high_resolution_clock::now();
-        env.execute();
-        // 等待直到 JoinOperator 消费完所有输入（以指标计数为准）
-        {
-          using namespace std::chrono_literals;
-          const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
-          for (;;) {
-            uint64_t l = JoinMetrics::instance().total_records_left.load();
-            uint64_t r = JoinMetrics::instance().total_records_right.load();
-            if (l >= expected_left && r >= expected_right) break;
-            if (std::chrono::steady_clock::now() >= deadline) {
-              sageFlow_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
-              break;
-            }
-            std::this_thread::sleep_for(5ms);
+        for (const auto& method : sets.methods) {
+          // 为当前方法生成确定性数据（按 data_size 严格对齐）
+          TestDataGenerator::Config cfg; cfg.vector_dim = sets.vector_dim; cfg.similarity_threshold = sets.threshold; cfg.seed = 42; cfg.time_interval = sets.time_interval_ms;
+          {
+            int target_pos = static_cast<int>(data_size * 0.10);
+            int target_near = 0; // 可按需开启近邻样本
+            int target_neg = static_cast<int>(data_size * 0.60);
+            int pos_pairs = target_pos / 2;
+            int near_pairs = target_near / 2;
+            int neg_pairs = target_neg / 2;
+            int used = 2*pos_pairs + 2*near_pairs + 2*neg_pairs;
+            int tail = std::max(0, data_size - used);
+            cfg.positive_pairs = pos_pairs;
+            cfg.near_threshold_pairs = near_pairs;
+            cfg.negative_pairs = neg_pairs;
+            cfg.random_tail = tail;
           }
+
+          TestDataGenerator gen(cfg);
+          auto [records, expected_matches] = gen.generateData();
+
+          // 使用 JoinTestHelper 生成左右流（替代手动复制逻辑）
+          auto [left_records, right_records] = 
+              JoinTestHelper::generateJoinStreamsFromGenerator(gen, true);
+
+          // 记录期望输入计数后再 move 到 Source
+          const size_t expected_left = left_records.size();
+          const size_t expected_right = right_records.size();
+          auto left_source = std::make_shared<TestVectorStreamSource>("MSLeft", std::move(left_records));
+          auto right_source = std::make_shared<TestVectorStreamSource>("MSRight", std::move(right_records));
+
+          auto join_func = createSimpleJoinFunction(sets.vector_dim, win_ms, sets.trig_ms);
+
+          std::atomic<size_t> match_count{0};
+          auto sink_func = std::make_unique<SinkFunction>("MSSink", [&](std::unique_ptr<VectorRecord>& rec){ if (rec) match_count++; });
+
+          StreamEnvironment env;
+          JoinMetrics::instance().reset();
+
+          left_source->join(right_source, std::move(join_func), method, sets.threshold, (size_t)par)
+                    ->writeSink(std::move(sink_func), 1);
+          env.addStream(left_source);
+          env.addStream(right_source);
+
+          auto start = std::chrono::high_resolution_clock::now();
+          env.execute();
+          // 等待直到 JoinOperator 消费完所有输入（以指标计数为准）
+          {
+            using namespace std::chrono_literals;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            for (;;) {
+              uint64_t l = JoinMetrics::instance().total_records_left.load();
+              uint64_t r = JoinMetrics::instance().total_records_right.load();
+              if (l >= expected_left && r >= expected_right) break;
+              if (std::chrono::steady_clock::now() >= deadline) {
+                SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+                break;
+              }
+              std::this_thread::sleep_for(5ms);
+            }
+          }
+          env.stop();
+          env.awaitTermination();
+          auto end = std::chrono::high_resolution_clock::now();
+          auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
+
+          method_times.emplace_back(method, duration.count());
+          SAGEFLOW_LOG_INFO("TEST", "Method={} Size={} Par={} time_ms={} matches={} win_ms={} trig_ms={} ",
+            method, data_size, par, duration.count(), (size_t)match_count.load(), win_ms, sets.trig_ms);
         }
-        env.stop();
-        env.awaitTermination();
-        auto end = std::chrono::high_resolution_clock::now();
-        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
-  method_times.emplace_back(method, duration.count());
-  sageFlow_LOG_INFO("TEST", "Method={} Size={} Par={} time_ms={} matches={} win_ms={} trig_ms={} ",
-           method, data_size, par, duration.count(), (size_t)match_count.load(), win_ms, sets.trig_ms);
-      }
+        // 验证：在较大规模（>=5000）下 IVF 应当快于 Bruteforce（放宽倍数关系以避免偶然波动）
+        auto bruteforce_time = std::find_if(method_times.begin(), method_times.end(),
+            [](const auto& p) { return p.first == "bruteforce_eager"; });
+        auto ivf_time = std::find_if(method_times.begin(), method_times.end(),
+            [](const auto& p) { return p.first == "ivf_eager"; });
 
-      // 验证：在较大规模（>=5000）下 IVF 应当快于 Bruteforce（放宽倍数关系以避免偶然波动）
-      auto bruteforce_time = std::find_if(method_times.begin(), method_times.end(),
-          [](const auto& p) { return p.first == "bruteforce_eager"; });
-      auto ivf_time = std::find_if(method_times.begin(), method_times.end(),
-          [](const auto& p) { return p.first == "ivf_eager"; });
-
-      if (data_size >= 5000 && bruteforce_time != method_times.end() && ivf_time != method_times.end()) {
-        EXPECT_LT(ivf_time->second * 2, bruteforce_time->second)
-          << "IVF should be faster than BruteForce for large datasets (size=" << data_size << ", par=" << par << ")";
-      }
+        if (data_size >= 5000 && bruteforce_time != method_times.end() && ivf_time != method_times.end()) {
+          EXPECT_LT(ivf_time->second * 2, bruteforce_time->second)
+            << "IVF should be faster than BruteForce for large datasets (size=" << data_size << ", par=" << par << ")";
+        }
       }
     }
   }

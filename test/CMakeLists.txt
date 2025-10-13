@@ -13,6 +13,13 @@ add_library(test_data_support
     test_utils/test_data_generator.cpp
     test_utils/test_config_manager.cpp
     test_utils/dynamic_config.cpp
+    test_utils/data_source/random_data_source.cpp
+    test_utils/data_source/dataset_data_source.cpp
+    test_utils/data_source/json_data_source.cpp
+    test_utils/data_writer/fvecs_writer.cpp
+    test_utils/data_writer/json_writer.cpp
+    test_utils/join_data_source.cpp
+    test_utils/join_test_helper.cpp
 )
 
 # 头文件路径
@@ -29,15 +36,15 @@ target_link_libraries(test_data_support
     sageflow
 )
 
-# 向所有测试目标注入的公共宏定义（基线：PROJECT_DIR；按选项追加 sageFlow_ENABLE_METRICS）
+# 向所有测试目标注入的公共宏定义（基线：PROJECT_DIR；按选项追加 SAGEFLOW_ENABLE_METRICS）
 set(TEST_COMMON_DEFINES 
     PROJECT_DIR="${CMAKE_SOURCE_DIR}"
 )
-if(sageFlow_ENABLE_METRICS)
-    list(APPEND TEST_COMMON_DEFINES sageFlow_ENABLE_METRICS=1)
+if(SAGEFLOW_ENABLE_METRICS)
+    list(APPEND TEST_COMMON_DEFINES SAGEFLOW_ENABLE_METRICS=1)
 endif()
 
-# 让公共库也拥有相同的编译宏（例如 PROJECT_DIR、可选的 sageFlow_ENABLE_METRICS）
+# 让公共库也拥有相同的编译宏（例如 PROJECT_DIR、可选的 SAGEFLOW_ENABLE_METRICS）
 target_compile_definitions(test_data_support PRIVATE ${TEST_COMMON_DEFINES})
 
 # -----------------------------------------------------------------------------
@@ -65,6 +72,9 @@ set(UNIT_TEST_SPECS
     test_join_ivf                  UnitTest/test_join_ivf.cpp                 300 UNIT
     test_compute_engine            UnitTest/test_compute_engine.cpp           180 UNIT
     test_file_stream_source        UnitTest/test_file_stream_source.cpp       120 UNIT
+    test_data_source               UnitTest/test_data_source.cpp              120 UNIT
+    test_data_persistence          UnitTest/test_data_persistence.cpp         120 UNIT
+    test_join_data_source          UnitTest/test_join_data_source.cpp         120 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)
@@ -85,6 +95,7 @@ set(PERF_TEST_SPECS
     test_join_perf_scaling         Performance/test_join_perf_scaling.cpp     900 PERF
     test_join_performance_methods  Performance/test_join_performance_methods.cpp 900 PERF
     test_window_pipeline           Performance/test_window_pipeline.cpp       600 PERF
+    test_join_datasource_modes     Performance/test_join_datasource_modes.cpp 900 PERF
 )
 
 list(LENGTH PERF_TEST_SPECS _plen)
@@ -141,7 +152,7 @@ endif()
 # 聚合自定义目标
 # -----------------------------------------------------------------------------
 # 仅依赖已创建的测试可执行（未显式依赖 ctest 运行，方便 IDE 构建）
-set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_compute_engine test_file_stream_source)
+set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_compute_engine test_file_stream_source test_data_source test_data_persistence test_join_data_source)
 set(ALL_PERF_TARGETS test_join_perf_scaling test_join_performance_methods test_window_pipeline IndexTest)
 set(ALL_INTEG_TARGETS test_pipeline_basic test_pipeline test_pipeline_execution)
 
@@ -181,8 +192,30 @@ add_custom_target(run_quick_tests
 
 # 输出说明
 message(STATUS "Test targets registered: UNIT=${ALL_UNIT_TARGETS}; PERF=${ALL_PERF_TARGETS}; INTEGRATION=${ALL_INTEG_TARGETS}")
-if(sageFlow_ENABLE_METRICS)
-    message(STATUS "sageFlow_ENABLE_METRICS enabled for tests to collect performance data")
+if(SAGEFLOW_ENABLE_METRICS)
+    message(STATUS "SAGEFLOW_ENABLE_METRICS enabled for tests to collect performance data")
 else()
-    message(STATUS "sageFlow_ENABLE_METRICS disabled for tests (metrics code excluded)")
+    message(STATUS "SAGEFLOW_ENABLE_METRICS disabled for tests (metrics code excluded)")
+endif()
+
+# -----------------------------------------------------------------------------
+# Optional: Data Source Example (demonstrates the data source framework)
+# -----------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/test_data_source_example.cpp")
+    add_executable(test_data_source_example examples/test_data_source_example.cpp)
+    target_link_libraries(test_data_source_example PRIVATE test_data_support sageflow)
+    target_compile_definitions(test_data_source_example PRIVATE ${TEST_COMMON_DEFINES})
+    target_include_directories(test_data_source_example PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
+    message(STATUS "Added optional example: test_data_source_example")
+endif()
+
+# -----------------------------------------------------------------------------
+# Optional: Data Persistence Example (demonstrates save/load functionality)
+# -----------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/data_persistence_example.cpp")
+    add_executable(data_persistence_example examples/data_persistence_example.cpp)
+    target_link_libraries(data_persistence_example PRIVATE test_data_support sageflow)
+    target_compile_definitions(data_persistence_example PRIVATE ${TEST_COMMON_DEFINES})
+    target_include_directories(data_persistence_example PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
+    message(STATUS "Added optional example: data_persistence_example")
 endif()
