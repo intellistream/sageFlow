@@ -36,6 +36,29 @@ toml::table DynamicConfigManager::parseFileWithFallback(const std::string& path)
 	throw std::runtime_error("Failed to open config: "+path);
 }
 
+std::string resolveProjectRelativePath(const std::string& path) {
+	if (path.empty()) {
+		return path;
+	}
+
+	std::filesystem::path fs_path(path);
+	if (fs_path.is_absolute()) {
+		return fs_path.lexically_normal().string();
+	}
+
+	std::filesystem::path base_path;
+#ifdef PROJECT_DIR
+	base_path = std::filesystem::path(PROJECT_DIR);
+#else
+	base_path = std::filesystem::current_path();
+#endif
+	return (base_path / fs_path).lexically_normal().string();
+}
+
+std::string DynamicConfigManager::resolveProjectRelativePath(const std::string& path) {
+	return sageFlow::test::resolveProjectRelativePath(path);
+}
+
 ConfigValue DynamicConfigManager::convertTomlValue(const toml::node& node) {
 	if (auto v=node.value<int>()) return *v;
 	if (auto v=node.value<int64_t>()) return *v;
