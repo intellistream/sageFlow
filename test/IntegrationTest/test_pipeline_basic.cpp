@@ -23,6 +23,7 @@
 #include "test_utils/test_data_generator.h"
 #include "test_utils/test_config_manager.h"
 #include "test_utils/test_data_adapter.h"
+#include "test_utils/join_test_helper.h"
 
 namespace sageFlow {
 namespace test {
@@ -267,22 +268,9 @@ TEST_F(MultiThreadPipelineTest, ParallelJoinConsistency) {
   // 确保每次循环使用全新执行环境，避免上一次执行残留的队列/线程/索引状态
   if (env_) { env_->reset(); } else { env_ = std::make_shared<StreamEnvironment>(); }
 
-    // 为左右两侧分别复制一份数据
-    std::vector<std::unique_ptr<VectorRecord>> left_records;
-    left_records.reserve(base_records.size());
-    for (const auto& rec : base_records) {
-      left_records.push_back(std::make_unique<VectorRecord>(*rec));
-    }
-    std::vector<std::unique_ptr<VectorRecord>> right_records;
-    right_records.reserve(base_records.size());
-    // 给右侧流的 UID 加偏移，确保左右两侧不共享相同 UID；
-    // 偏移量保持在 <1e6 内，保证 left*1e6 + right 的编码/解码逻辑仍然成立。
-    constexpr uint64_t kRightUidOffset = 500000;
-    for (const auto& rec : base_records) {
-      uint64_t new_uid = rec->uid_ + kRightUidOffset;
-      // 复制数据与时间戳，但使用新的 UID
-      right_records.push_back(std::make_unique<VectorRecord>(new_uid, rec->timestamp_, rec->data_));
-    }
+    // 使用 JoinTestHelper 生成左右流（替代手动复制逻辑）
+    auto [left_records, right_records] = 
+        JoinTestHelper::generateJoinStreamsFromGenerator(generator, true);
 
     JoinMetrics::instance().reset();
 
@@ -450,19 +438,9 @@ TEST_F(MultiThreadPipelineTest, HighConcurrencyDeadlockTest) {
   const int high_parallelism = 8;
   JoinMetrics::instance().reset();
 
-  // 为左右两侧分别复制一份数据
-  std::vector<std::unique_ptr<VectorRecord>> left_records;
-  left_records.reserve(records.size());
-  for (const auto& rec : records) {
-    left_records.push_back(std::make_unique<VectorRecord>(*rec));
-  }
-  std::vector<std::unique_ptr<VectorRecord>> right_records;
-  right_records.reserve(records.size());
-  constexpr uint64_t kRightUidOffsetHC = 500000;
-  for (const auto& rec : records) {
-    uint64_t new_uid = rec->uid_ + kRightUidOffsetHC;
-    right_records.push_back(std::make_unique<VectorRecord>(new_uid, rec->timestamp_, rec->data_));
-  }
+  // 使用 JoinTestHelper 生成左右流（替代手动复制逻辑）
+  auto [left_records, right_records] = 
+      JoinTestHelper::generateJoinStreamsFromGenerator(generator, true);
 
   auto left_source = std::make_shared<TestVectorStreamSource>("HC_Left", std::move(left_records));
   auto right_source = std::make_shared<TestVectorStreamSource>("HC_Right", std::move(right_records));

@@ -19,6 +19,7 @@
 #include "utils/logger.h"
 #include "test_utils/dynamic_config.h"
 #include "utils/log_config.h"
+#include "test_utils/join_test_helper.h"
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -543,17 +544,9 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
           TestDataGenerator gen(cfg);
           auto [records, expected_matches] = gen.generateData();
 
-          // 切分左右流，右侧UID偏移，基于流式管道进行计时（以体现并行度）
-          std::vector<std::unique_ptr<VectorRecord>> left_records;
-          left_records.reserve(records.size());
-          for (auto &r : records) left_records.push_back(std::move(r));
-
-          std::vector<std::unique_ptr<VectorRecord>> right_records;
-          right_records.reserve(left_records.size());
-          constexpr uint64_t kRightUidOffset = 500000;
-          for (auto &lr : left_records) {
-            right_records.push_back(std::make_unique<VectorRecord>(lr->uid_ + kRightUidOffset, lr->timestamp_, lr->data_));
-          }
+          // 使用 JoinTestHelper 生成左右流（替代手动复制逻辑）
+          auto [left_records, right_records] = 
+              JoinTestHelper::generateJoinStreamsFromGenerator(gen, true);
 
           // 记录期望输入计数后再 move 到 Source
           const size_t expected_left = left_records.size();
