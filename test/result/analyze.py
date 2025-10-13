@@ -223,12 +223,18 @@ def make_grouped_stacked_multi(parts: list, title: str, out_path: Path):
     plt.close(fig)
 
 def main():
+    # Use paths relative to the script's location for portability
+    script_dir = Path(__file__).resolve().parent
+    project_root = script_dir.parent.parent  # Adjust as needed for your project structure
+    default_input = project_root / "test" / "result" / "perf_report.tsv"
+    default_outdir = project_root / "test" / "result" / "plots"
+
     parser = argparse.ArgumentParser(description="生成 size=4000 的分组柱状图（耗时/吞吐量）")
     parser.add_argument("--input", "-i", type=str,
-                        default="/root/candyFlow_zero/test/result/perf_report.tsv",
+                        default=str(default_input),
                         help="perf_report.tsv 文件路径")
     parser.add_argument("--outdir", "-o", type=str,
-                        default="/root/candyFlow_zero/test/result/plots",
+                        default=str(default_outdir),
                         help="输出图片目录")
     args = parser.parse_args()
 
