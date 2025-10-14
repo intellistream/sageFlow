@@ -20,9 +20,9 @@ void Ivf::debugDumpStateUnlocked() {
   size_t total_in_lists = 0;
   for (auto &kv : inverted_lists_) total_in_lists += kv.second.size();
   SAGEFLOW_LOG_WARN("INDEX", "DEBUG_DUMP size_={} total_in_lists={} deleted_uids={} nlists={} attempts={} success={} missing={} miss_in_storage={} miss_not_in_storage={} underflow={} ",
-                 size_.load(), total_in_lists, deleted_uids_.size(), inverted_lists_.size(),
-                 erase_attempts_.load(), erase_success_.load(), erase_missing_.load(),
-                 erase_missing_in_storage_.load(), erase_missing_not_in_storage_.load(), erase_underflow_.load());
+                    size_.load(), total_in_lists, deleted_uids_.size(), inverted_lists_.size(),
+                    erase_attempts_.load(), erase_success_.load(), erase_missing_.load(),
+                    erase_missing_in_storage_.load(), erase_missing_not_in_storage_.load(), erase_underflow_.load());
   // 采样输出前几个非空列表的部分内容
   int printed = 0;
   for (auto &kv : inverted_lists_) {
@@ -30,7 +30,7 @@ void Ivf::debugDumpStateUnlocked() {
     std::string sample;
     size_t limit = std::min<size_t>(kv.second.size(), 5);
     for (size_t i = 0; i < limit; ++i) { sample += std::to_string(kv.second[i]); sample.push_back(','); }
-  SAGEFLOW_LOG_DEBUG("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
+    SAGEFLOW_LOG_DEBUG("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
     if (++printed >= 5) break;
   }
 }

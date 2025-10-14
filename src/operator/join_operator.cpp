@@ -69,28 +69,31 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         if (createIndexPair(IndexType::IVF, "join_ivf")) {
             use_index_ = true;
             join_method_ = std::make_unique<IvfJoinMethod>(left_index_id_, right_index_id_,
-                                                 join_similarity_threshold_, concurrency_manager_);
+                                                           join_similarity_threshold_, concurrency_manager_);
         } else {
             index_kind_ = InternalIndexKind::NONE;
             use_index_ = false;
-            join_method_ = std::make_unique<BruteForceJoinMethod>(-1, -1, join_similarity_threshold_, concurrency_manager_);
+            join_method_ = std::make_unique<BruteForceJoinMethod>(
+              -1, -1, join_similarity_threshold_, concurrency_manager_);
         }
     } else if (algo == "bruteforce" || algo == "bf" ) {
         index_kind_ = InternalIndexKind::BRUTEFORCE;
         if (createIndexPair(IndexType::BruteForce, "join_bf")) {
             use_index_ = true;
             join_method_ = std::make_unique<BruteForceJoinMethod>(left_index_id_, right_index_id_,
-                                                        join_similarity_threshold_, concurrency_manager_);
+                                                                  join_similarity_threshold_, concurrency_manager_);
         } else {
             index_kind_ = InternalIndexKind::NONE;
             use_index_ = false;
-            join_method_ = std::make_unique<BruteForceJoinMethod>(-1, -1, join_similarity_threshold_, concurrency_manager_);
+            join_method_ = std::make_unique<BruteForceJoinMethod>(
+              -1, -1, join_similarity_threshold_, concurrency_manager_);
         }
     } else {
         index_kind_ = InternalIndexKind::NONE;
         use_index_ = false;
         is_eager_ = false;
-        join_method_ = std::make_unique<BruteForceJoinMethod>(-1, -1, join_similarity_threshold_, concurrency_manager_);
+        join_method_ = std::make_unique<BruteForceJoinMethod>(
+          -1, -1, join_similarity_threshold_, concurrency_manager_);
     }
 }
 
