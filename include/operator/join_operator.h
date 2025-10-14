@@ -41,6 +41,7 @@ namespace sageFlow {
 
     void initializeIVFIndexes(int nlist, double rebuild_threshold, int nprobes); // 保留现有接口（暂未用到额外参数）
     bool createIndexPair(IndexType type, const std::string& prefix);
+    bool createIndexPair(IndexType type, const std::string& prefix, const IndexParameters& params);
 
     // 线程安全的窗口更新方法（容器改为 deque）
     auto updateSideThreadSafe(

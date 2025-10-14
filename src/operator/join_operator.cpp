@@ -9,6 +9,7 @@
 #include <cassert>
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 
 #include "utils/logger.h"
 
@@ -25,6 +26,13 @@ bool JoinOperator::createIndexPair(IndexType type, const std::string& prefix) {
     if (!concurrency_manager_) return false;
     left_index_id_ = concurrency_manager_->create_index(prefix + "_left", type, join_func_->getDim());
     right_index_id_ = concurrency_manager_->create_index(prefix + "_right", type, join_func_->getDim());
+    return left_index_id_ != -1 && right_index_id_ != -1;
+}
+
+bool JoinOperator::createIndexPair(IndexType type, const std::string& prefix, const IndexParameters& params) {
+    if (!concurrency_manager_) return false;
+    left_index_id_ = concurrency_manager_->create_index(prefix + "_left", type, join_func_->getDim(), params);
+    right_index_id_ = concurrency_manager_->create_index(prefix + "_right", type, join_func_->getDim(), params);
     return left_index_id_ != -1 && right_index_id_ != -1;
 }
 
@@ -66,7 +74,23 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
 
     if (algo == "ivf") {
         index_kind_ = InternalIndexKind::IVF;
-        if (createIndexPair(IndexType::IVF, "join_ivf")) {
+        // Calculate IVF parameters based on window size
+        // nlist = 4 * sqrt(window_size/step_size), rebuild_threshold = 1.5, nprobes = 10
+        int64_t window_size = join_func_->getWindowSize();
+        int64_t step_size = join_func_->getStepSize();
+        // Calculate actual vector count in window
+        int64_t vector_count = (step_size > 0) ? (window_size / step_size) : window_size;
+        int nlist = static_cast<int>(4.0 * std::sqrt(static_cast<double>(vector_count)));
+        // Ensure nlist is at least 1
+        if (nlist < 1) nlist = 1;
+        
+        IVFParameters ivf_params{
+            .nlist = nlist,
+            .rebuild_threshold = 1.5,
+            .nprobes = 10
+        };
+        
+        if (createIndexPair(IndexType::IVF, "join_ivf", ivf_params)) {
             use_index_ = true;
             join_method_ = std::make_unique<IvfJoinMethod>(left_index_id_, right_index_id_,
                                                            join_similarity_threshold_, concurrency_manager_);

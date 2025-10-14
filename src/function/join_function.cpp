@@ -52,3 +52,11 @@ auto sageFlow::JoinFunction::setWindow(int64_t windowsize, int64_t stepsize) -> 
   threadSafeWindowL.setWindow(windowsize, stepsize);
   threadSafeWindowR.setWindow(windowsize, stepsize);
 }
+
+auto sageFlow::JoinFunction::getWindowSize() const -> int64_t {
+  return threadSafeWindowL.getWindowSize();
+}
+
+auto sageFlow::JoinFunction::getStepSize() const -> int64_t {
+  return threadSafeWindowL.getStepSize();
+}
