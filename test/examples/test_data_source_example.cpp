@@ -115,23 +115,6 @@ void example_test_data_generator_with_dataset() {
     }
 }
 
-void example_backward_compatibility() {
-    std::cout << "\n=== Example 4: Backward Compatibility ===" << std::endl;
-    
-    // Old way - still works!
-    TestDataGenerator::Config config;
-    config.vector_dim = 64;
-    config.positive_pairs = 10;
-    config.negative_pairs = 10;
-    config.random_tail = 20;
-    
-    TestDataGenerator generator(config);
-    auto [records, expected_matches] = generator.generateData();
-    
-    std::cout << "Generated " << records.size() << " records (old way)" << std::endl;
-    std::cout << "Expected matches: " << expected_matches.size() << std::endl;
-}
-
 int main() {
     std::cout << "Data Source Framework Examples" << std::endl;
     std::cout << "===============================" << std::endl;
@@ -139,7 +122,6 @@ int main() {
     example_random_data_source();
     example_dataset_data_source();
     example_test_data_generator_with_dataset();
-    example_backward_compatibility();
     
     std::cout << "\nAll examples completed!" << std::endl;
     return 0;
