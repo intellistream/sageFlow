@@ -37,9 +37,14 @@ static void wait_until_processed_and_stable(size_t expected_left,
   for (;;) {
     uint64_t l = JoinMetrics::instance().total_records_left.load();
     uint64_t r = JoinMetrics::instance().total_records_right.load();
-    if (l >= expected_left && r >= expected_right) break;
+    uint64_t completed_left = JoinMetrics::instance().window_records_left_completed.load();
+    uint64_t completed_right = JoinMetrics::instance().window_records_right_completed.load();
+    if (l >= expected_left && r >= expected_right &&
+        completed_left >= expected_left && completed_right >= expected_right) break;
     if (std::chrono::steady_clock::now() >= deadline) {
-      SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+      SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{} completed={}/{}|{}/{}",
+                        l, expected_left, r, expected_right,
+                        completed_left, expected_left, completed_right, expected_right);
       break;
     }
     std::this_thread::sleep_for(5ms);

@@ -225,7 +225,7 @@ protected:
     std::filesystem::create_directories("build/metrics");
     std::string metrics_path = "build/metrics/join_datasource_modes_" + 
           std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".tsv";
-    JoinMetrics::instance().dump_tsv(metrics_path);
+    JoinMetrics::instance().dump_tsv(DynamicConfigManager::resolveProjectRelativePath(metrics_path));
     SAGEFLOW_LOG_INFO("TEST", "Performance metrics saved to {}", metrics_path);
   }
 
@@ -365,6 +365,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   std::vector<std::unique_ptr<VectorRecord>> right_records;
   right_records.reserve(left_records.size());
   constexpr uint64_t kRightUidOffset = 500000;
+  constexpr uint64_t kModuloBase = 1000000ULL;
   for (auto& lr : left_records) {
     right_records.push_back(std::make_unique<VectorRecord>(lr->uid_ + kRightUidOffset, lr->timestamp_, lr->data_));
   }
@@ -372,8 +373,10 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   const size_t expected_left = left_records.size();
   const size_t expected_right = right_records.size();
   
-  // Compute expected matches
-  auto expected_matches = computeExpectedPairsByTraversal(left_records, right_records, mode_config.threshold, win_ms);
+  // Compute expected matches - use consistent UID mapping
+  auto expected_matches =
+    computeExpectedPairsByTraversal(left_records, right_records, mode_config.threshold, win_ms, 0.1, kModuloBase);
+  const uint64_t expected_emit_count = static_cast<uint64_t>(expected_matches.size());
   
   // Create stream sources
   auto left_source = std::make_shared<TestVectorStreamSource>("DataModeLeft", std::move(left_records));
@@ -394,7 +397,8 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
         int64_t ts = std::max(left->timestamp_, right->timestamp_);
         return createVectorRecord(id, ts, out);
     }, mode_config.vector_dim);
-  join_func->setWindow(win_ms, mode_config.trig_ms);
+  uint64_t trigger_interval = static_cast<uint64_t>(std::max<int64_t>(mode_config.time_interval_ms, 1));
+  join_func->setWindow(win_ms, trigger_interval);
   
   // Collect matches
   std::mutex match_mutex;
@@ -409,7 +413,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   });
   
   // Build pipeline
-  left_source->join(right_source, std::move(join_func), method, mode_config.threshold, (size_t)parallelism)
+  left_source->join(right_source, std::move(join_func), method, mode_config.threshold, static_cast<size_t>(parallelism))
              ->writeSink(std::move(sink_func), 1);
   
   // Execute
@@ -424,30 +428,71 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   // Wait for completion
   {
     using namespace std::chrono_literals;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(600);
+    bool timed_out = false;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1000);
+    // For eager join, we only need to wait for inputs to be processed
+    // Windows won't drain fully until window time passes after last record
+    bool is_eager_method = (method.find("eager") != std::string::npos);
     for (;;) {
       uint64_t l = JoinMetrics::instance().total_records_left.load();
       uint64_t r = JoinMetrics::instance().total_records_right.load();
-      if (l >= expected_left && r >= expected_right) break;
+      uint64_t emitted = JoinMetrics::instance().total_emits.load();
+      uint64_t completed_left = JoinMetrics::instance().window_records_left_completed.load();
+      uint64_t completed_right = JoinMetrics::instance().window_records_right_completed.load();
+      bool inputs_drained = (l >= expected_left && r >= expected_right);
+      bool windows_drained = (completed_left >= expected_left && completed_right >= expected_right);
+      // For eager methods, just check if inputs are drained and output has stabilized
+      if (is_eager_method) {
+        if (inputs_drained) {
+          std::this_thread::sleep_for(10s);
+          uint64_t emitted_after_wait = JoinMetrics::instance().total_emits.load();
+          if (emitted_after_wait == emitted) {
+            // Output has stabilized, we're done
+            break;
+          }
+        }
+      } else {
+        // For lazy methods, wait for windows to drain
+        if (inputs_drained && windows_drained) {
+          std::this_thread::sleep_for(500ms);
+          break;
+        }
+      }
       if (std::chrono::steady_clock::now() >= deadline) {
-        SAGEFLOW_LOG_WARN("TEST", "Timeout waiting for processing: left={}/{} right={}/{}", l, expected_left, r, expected_right);
+        timed_out = true;
+        SAGEFLOW_LOG_WARN("TEST", "Timeout waiting for processing: left={}/{} right={}/{} completed={}/{}|{}/{} emitted={}/{}",
+                          l, expected_left, r, expected_right,
+                          completed_left, expected_left, completed_right, expected_right,
+                          emitted, expected_emit_count);
         break;
       }
       std::this_thread::sleep_for(5ms);
     }
-    
-    // Wait for output stabilization
-    const auto stable_window = 50ms;
-    const auto max_wait = std::chrono::seconds(5);
-    uint64_t last = JoinMetrics::instance().total_emits.load();
-    auto stable_since = std::chrono::steady_clock::now();
-    auto end_by = std::chrono::steady_clock::now() + max_wait;
-    while (std::chrono::steady_clock::now() < end_by) {
-      std::this_thread::sleep_for(5ms);
-      uint64_t cur = JoinMetrics::instance().total_emits.load();
-      if (cur != last) { last = cur; stable_since = std::chrono::steady_clock::now(); }
-      if (std::chrono::steady_clock::now() - stable_since >= stable_window) break;
+
+    if (!timed_out) {
+      // Wait for output stabilization
+      const auto stable_window = 50ms;
+      const auto max_wait = std::chrono::seconds(5);
+      uint64_t last = JoinMetrics::instance().total_emits.load();
+      auto stable_since = std::chrono::steady_clock::now();
+      auto end_by = std::chrono::steady_clock::now() + max_wait;
+      while (std::chrono::steady_clock::now() < end_by) {
+        std::this_thread::sleep_for(5ms);
+        uint64_t cur = JoinMetrics::instance().total_emits.load();
+        if (cur != last) { last = cur; stable_since = std::chrono::steady_clock::now(); }
+        if (std::chrono::steady_clock::now() - stable_since >= stable_window) break;
+      }
     }
+  uint64_t final_left = JoinMetrics::instance().total_records_left.load();
+  uint64_t final_right = JoinMetrics::instance().total_records_right.load();
+  uint64_t final_completed_left = JoinMetrics::instance().window_records_left_completed.load();
+  uint64_t final_completed_right = JoinMetrics::instance().window_records_right_completed.load();
+  uint64_t final_emitted = JoinMetrics::instance().total_emits.load();
+  EXPECT_FALSE(timed_out) << "Join pipeline did not drain within 1000s: processed left=" << final_left
+              << "/" << expected_left << " right=" << final_right << "/" << expected_right
+              << " completed_left=" << final_completed_left << "/" << expected_left
+              << " completed_right=" << final_completed_right << "/" << expected_right
+              << " emitted=" << final_emitted << "/" << expected_emit_count;
   }
   
   env.stop();
@@ -461,13 +506,15 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
     if (expected_matches.count(ap)) match_count++;
   }
   
-  double recall = expected_matches.empty() ? 1.0 : static_cast<double>(match_count) / static_cast<double>(expected_matches.size());
-  double precision = actual_pairs.empty() ? 0.0 : static_cast<double>(match_count) / static_cast<double>(actual_pairs.size());
+  double recall =
+    expected_matches.empty() ? 1.0 : static_cast<double>(match_count) / static_cast<double>(expected_matches.size());
+  double precision =
+    actual_pairs.empty() ? 0.0 : static_cast<double>(match_count) / static_cast<double>(actual_pairs.size());
   double f1 = (precision + recall) > 0 ? 2 * precision * recall / (precision + recall) : 0.0;
   
   SAGEFLOW_LOG_INFO("TEST", "Result: name={} mode={} method={} size={} parallelism={} time_ms={} matches={}/{} recall={:.3f} precision={:.3f} f1={:.3f}",
-                   mode_config.name, mode_config.mode, method, data_size, parallelism, duration.count(), 
-                   match_count, expected_matches.size(), recall, precision, f1);
+                    mode_config.name, mode_config.mode, method, data_size, parallelism, duration.count(),
+                    match_count, expected_matches.size(), recall, precision, f1);
   
   // Write to report file
   try {

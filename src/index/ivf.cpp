@@ -491,18 +491,23 @@ auto Ivf::query_for_join(const VectorRecord &record, double join_similarity_thre
   while (!probe_indices.empty()) {
     auto cluster_idx = probe_indices.top().second;
     probe_indices.pop();
-    std::shared_lock<std::shared_mutex> list_lock(list_mutexes_[cluster_idx]);
-  if (inverted_lists_.find(cluster_idx) != inverted_lists_.end()) {
-      const auto& candidate_ids = inverted_lists_.at(cluster_idx);
-      for (const auto& id_val : candidate_ids) {
-  if (local_deleted_uids.find(id_val) != local_deleted_uids.end()) {
-          continue;
-        }
-        if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
-          double similarity = storage_manager_->engine_->Similarity(record.data_, candidate->data_);
-          if (similarity - join_similarity_threshold > epsilon) {
-            results.emplace_back(id_val);
-          }
+    // Copy the candidate list under lock to avoid race condition
+    std::vector<uint64_t> candidate_ids_copy;
+    {
+      std::shared_lock<std::shared_mutex> list_lock(list_mutexes_[cluster_idx]);
+      if (inverted_lists_.find(cluster_idx) != inverted_lists_.end()) {
+        candidate_ids_copy = inverted_lists_.at(cluster_idx);
+      }
+    }
+    // Process candidates without holding the lock
+    for (const auto& id_val : candidate_ids_copy) {
+      if (local_deleted_uids.find(id_val) != local_deleted_uids.end()) {
+        continue;
+      }
+      if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
+        double similarity = storage_manager_->engine_->Similarity(record.data_, candidate->data_);
+        if (similarity - join_similarity_threshold > epsilon) {
+          results.emplace_back(id_val);
         }
       }
     }

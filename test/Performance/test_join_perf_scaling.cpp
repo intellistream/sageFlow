@@ -62,7 +62,7 @@ protected:
   }
 
   // 创建JoinFunction（使用 test_data_adapter 助手），支持配置维度与窗口
-  std::unique_ptr<JoinFunction> createSimpleJoinFunction(int vector_dim, uint64_t win_ms, uint64_t trig_ms) {
+  std::unique_ptr<JoinFunction> createSimpleJoinFunction(int vector_dim, uint64_t win_ms, uint64_t trigger_interval_ms) {
     auto join_func_lambda = [](std::unique_ptr<VectorRecord>& left, 
                               std::unique_ptr<VectorRecord>& right) -> std::unique_ptr<VectorRecord> {
       auto lv = extractFloatVector(*left);
@@ -76,7 +76,7 @@ protected:
       return createVectorRecord(id, ts, out);
     };
     auto jf = std::make_unique<JoinFunction>("SimpleJoin", join_func_lambda, vector_dim);
-    jf->setWindow(win_ms, trig_ms);
+  jf->setWindow(win_ms, trigger_interval_ms);
     return jf;
   }
 
@@ -302,10 +302,12 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
 
   // 仅使用 perf_join.toml 的窗口与阈值配置（不再读取其他 toml）
   static PerfConfigSets g_sets = loadPerfConfig();
-  uint64_t trig_ms = g_sets.trig_ms; double threshold_override = g_sets.threshold;
+  uint64_t trigger_interval_ms = static_cast<uint64_t>(std::max<int64_t>(g_sets.time_interval_ms, 1));
+  double threshold_override = g_sets.threshold;
 
   // 打印本轮的窗口/阈值等关键参数
-  SAGEFLOW_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} time_interval_ms={} ", threshold_override, win_ms, trig_ms, g_sets.time_interval_ms);
+  SAGEFLOW_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trigger_interval_ms={} (time_interval_ms={}) ",
+                   threshold_override, win_ms, trigger_interval_ms, g_sets.time_interval_ms);
 
   // 构建环境与 Source
   StreamEnvironment env;
@@ -348,7 +350,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
         int64_t ts = std::max(left->timestamp_, right->timestamp_);
         return createVectorRecord(id, ts, out);
     }, g_sets.vector_dim);
-  join_func->setWindow(win_ms, trig_ms);
+  join_func->setWindow(win_ms, trigger_interval_ms);
 
   // pipeline 构建
   // 收集实际匹配对用于精准 recall
@@ -375,19 +377,26 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   // 等待直到 JoinOperator 消费完所有输入（以指标计数为准），避免固定时间等待
   {
     using namespace std::chrono_literals;
+    bool timed_out = false;
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(800); // 最长等待 800s
     for (;;) {
-      uint64_t l = JoinMetrics::instance().total_records_left.load();
-      uint64_t r = JoinMetrics::instance().total_records_right.load();
-      if (l >= expected_left && r >= expected_right) break;
+    uint64_t l = JoinMetrics::instance().total_records_left.load();
+    uint64_t r = JoinMetrics::instance().total_records_right.load();
+    uint64_t completed_left = JoinMetrics::instance().window_records_left_completed.load();
+    uint64_t completed_right = JoinMetrics::instance().window_records_right_completed.load();
+    if (l >= expected_left && r >= expected_right &&
+      completed_left >= expected_left && completed_right >= expected_right) break;
       if (std::chrono::steady_clock::now() >= deadline) {
-        SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+        timed_out = true;
+        SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{} completed={}/{}|{}/{}",
+                          l, expected_left, r, expected_right,
+                          completed_left, expected_left, completed_right, expected_right);
         break;
       }
       std::this_thread::sleep_for(5ms);
     }
     // 再等待输出稳定（total_emits 在短时间窗口内不再增长），避免在有在途计算时过早 stop
-    {
+    if (!timed_out) {
       const auto stable_window = 50ms; // 连续 50ms 无增长视为稳定
       const auto max_wait = std::chrono::seconds(5);
       uint64_t last = JoinMetrics::instance().total_emits.load();
@@ -400,6 +409,14 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
         if (std::chrono::steady_clock::now() - stable_since >= stable_window) break;
       }
     }
+  uint64_t final_left = JoinMetrics::instance().total_records_left.load();
+  uint64_t final_right = JoinMetrics::instance().total_records_right.load();
+  uint64_t final_completed_left = JoinMetrics::instance().window_records_left_completed.load();
+  uint64_t final_completed_right = JoinMetrics::instance().window_records_right_completed.load();
+    EXPECT_FALSE(timed_out) << "Join pipeline did not drain within 800s: processed left=" << final_left
+              << "/" << expected_left << " right=" << final_right << "/" << expected_right
+              << " completed_left=" << final_completed_left << "/" << expected_left
+              << " completed_right=" << final_completed_right << "/" << expected_right;
   }
   env.stop();
   env.awaitTermination();
@@ -421,8 +438,8 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
   double precision = static_cast<double>(match_count)/static_cast<double>(actual_pairs.size());
   double f1 = (precision+recall)>0 ? 2*precision*recall/(precision+recall):0.0;
 
-  SAGEFLOW_LOG_INFO("TEST", "Method={} Size={} Parallelism={} time_ms={} matches={} expected={} recall={} precision={} f1={} win_ms={} trig_ms={} ",
-                 method, data_size, parallelism, duration.count(), match_count, expected_matches.size(), recall, precision, f1, win_ms, trig_ms);
+  SAGEFLOW_LOG_INFO("TEST", "Method={} Size={} Parallelism={} time_ms={} matches={} expected={} recall={} precision={} f1={} win_ms={} trigger_interval_ms={} ",
+                 method, data_size, parallelism, duration.count(), match_count, expected_matches.size(), recall, precision, f1, win_ms, trigger_interval_ms);
 
   // 将结果追加写入报告
   try {
@@ -443,7 +460,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
       return; // 放弃写报告，但不影响测试断言
     }
     if (new_file) {
-      ofs << "method\tsize\tparallelism\ttime_ms\tmatches\texpected\trecall\tprecision\tf1\twin_ms\ttrig_ms\t"
+  ofs << "method\tsize\tparallelism\ttime_ms\tmatches\texpected\trecall\tprecision\tf1\twin_ms\ttrigger_interval_ms\t"
              "lock_wait_ms\twindow_ns\tindex_ns\tsim_ns\tjoinF_ns\temit_ns\tcandidate_fetch_ns\t"
              "input_tput_rps\toutput_tput_rps\tavg_apply_ms\tavg_e2e_ms\n";
     }
@@ -467,7 +484,7 @@ TEST_P(JoinScalingTest, PerformanceScaling) {
     }
     ofs << method << '\t' << data_size << '\t' << parallelism << '\t' << duration.count() << '\t'
         << match_count << '\t' << expected_matches.size() << '\t' << recall << '\t' << precision << '\t' << f1 << '\t'
-        << win_ms << '\t' << trig_ms << '\t' << lock_wait_ms << '\t'
+  << win_ms << '\t' << trigger_interval_ms << '\t' << lock_wait_ms << '\t'
         << JoinMetrics::instance().window_insert_ns.load() << '\t'
         << JoinMetrics::instance().index_insert_ns.load() << '\t'
         << JoinMetrics::instance().similarity_ns.load() << '\t'
@@ -514,12 +531,14 @@ INSTANTIATE_TEST_SUITE_P(JoinPerformanceTests, JoinScalingTest,
 TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
   // 从配置读取 sizes、parallelism、methods 以及窗口与阈值
   auto sets = loadPerfConfig();
+  uint64_t trigger_interval_ms = static_cast<uint64_t>(std::max<int64_t>(sets.time_interval_ms, 1));
 
   for (auto data_size : sets.sizes) {
     for (auto par : sets.parallelism) {
       for (auto win_ms : sets.win_ms_list) {
-        SAGEFLOW_LOG_INFO("TEST", "[BEGIN] MethodSpeedComparison size={} parallelism={} win_ms={} ", data_size, par, win_ms);
-        SAGEFLOW_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trig_ms={} ", sets.threshold, win_ms, sets.trig_ms);
+  SAGEFLOW_LOG_INFO("TEST", "[BEGIN] MethodSpeedComparison size={} parallelism={} win_ms={} ", data_size, par, win_ms);
+  SAGEFLOW_LOG_INFO("TEST", "[PARAM] threshold={} win_ms={} trigger_interval_ms={} (time_interval_ms={}) ",
+        sets.threshold, win_ms, trigger_interval_ms, sets.time_interval_ms);
 
         std::vector<std::pair<std::string, int64_t>> method_times;
 
@@ -554,7 +573,7 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
           auto left_source = std::make_shared<TestVectorStreamSource>("MSLeft", std::move(left_records));
           auto right_source = std::make_shared<TestVectorStreamSource>("MSRight", std::move(right_records));
 
-          auto join_func = createSimpleJoinFunction(sets.vector_dim, win_ms, sets.trig_ms);
+          auto join_func = createSimpleJoinFunction(sets.vector_dim, win_ms, trigger_interval_ms);
 
           std::atomic<size_t> match_count{0};
           auto sink_func = std::make_unique<SinkFunction>("MSSink", [&](std::unique_ptr<VectorRecord>& rec){ if (rec) match_count++; });
@@ -576,9 +595,14 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
             for (;;) {
               uint64_t l = JoinMetrics::instance().total_records_left.load();
               uint64_t r = JoinMetrics::instance().total_records_right.load();
-              if (l >= expected_left && r >= expected_right) break;
+              uint64_t completed_left = JoinMetrics::instance().window_records_left_completed.load();
+              uint64_t completed_right = JoinMetrics::instance().window_records_right_completed.load();
+              if (l >= expected_left && r >= expected_right &&
+                  completed_left >= expected_left && completed_right >= expected_right) break;
               if (std::chrono::steady_clock::now() >= deadline) {
-                SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{}", l, expected_left, r, expected_right);
+                SAGEFLOW_LOG_WARN("TEST", "wait_for_processed timeout l={}/{} r={}/{} completed={}/{}|{}/{}",
+                                  l, expected_left, r, expected_right,
+                                  completed_left, expected_left, completed_right, expected_right);
                 break;
               }
               std::this_thread::sleep_for(5ms);
@@ -590,8 +614,8 @@ TEST_F(JoinPerformanceTest, MethodSpeedComparison) {
           auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
           method_times.emplace_back(method, duration.count());
-          SAGEFLOW_LOG_INFO("TEST", "Method={} Size={} Par={} time_ms={} matches={} win_ms={} trig_ms={} ",
-            method, data_size, par, duration.count(), (size_t)match_count.load(), win_ms, sets.trig_ms);
+          SAGEFLOW_LOG_INFO("TEST", "Method={} Size={} Par={} time_ms={} matches={} win_ms={} trigger_interval_ms={} ",
+            method, data_size, par, duration.count(), (size_t)match_count.load(), win_ms, trigger_interval_ms);
         }
 
         // 验证：在较大规模（>=5000）下 IVF 应当快于 Bruteforce（放宽倍数关系以避免偶然波动）
