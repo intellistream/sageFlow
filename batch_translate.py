@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 
 # Helper function to write translated content
 def write_translation(filename, content):

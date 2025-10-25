@@ -1,17 +1,17 @@
 import argparse
-from pathlib import Path
 import urllib.request
-import os
+from pathlib import Path
 
 import matplotlib
+
 # 必须在导入 pyplot 前设置无显卡后端
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 from matplotlib import font_manager as fm
 from matplotlib.font_manager import FontProperties
 from matplotlib.patches import Patch
-import pandas as pd
-import numpy as np
 
 PARALLELISM_ORDER = [1, 2, 4, 8, 16, 32, 40]
 METHOD_ORDER = ["ivf_eager", "bruteforce_eager"]
@@ -179,7 +179,7 @@ def make_grouped_stacked_multi(parts: list, title: str, out_path: Path):
     if not parts:
         return
     methods = [c for c in METHOD_ORDER if c in parts[0][1].columns]
-    x_index = parts[0][1].index
+    parts[0][1].index
     for i in range(len(parts)):
         parts[i] = (parts[i][0], parts[i][1].reindex(index=PARALLELISM_ORDER).reindex(columns=methods), parts[i][2])
 
