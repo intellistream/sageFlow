@@ -688,8 +688,8 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
         for (auto &p : local_return_pool) {
             Response out{ResponseType::Record, std::move(p.second)};
             collector.collect(std::make_unique<Response>(std::move(out)), p.first);
-            JoinMetrics::instance().total_emits.fetch_add(1,std::memory_order_relaxed);
 #ifdef SAGEFLOW_ENABLE_METRICS
+            JoinMetrics::instance().total_emits.fetch_add(1,std::memory_order_relaxed);
             // 端到端延迟：从 apply 进入到对应结果发射的时长（按每条结果计）
             const uint64_t now_ns = ScopedAccumulateAtomic::now_ns();
             JoinMetrics::instance().e2e_latency_ns.fetch_add(now_ns - apply_enter_ns, std::memory_order_relaxed);
