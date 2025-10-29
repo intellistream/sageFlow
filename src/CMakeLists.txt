@@ -68,8 +68,19 @@ if(ENABLE_GPERFTOOLS AND DEFINED SAGE_GPERFTOOLS_LIBS AND SAGE_GPERFTOOLS_LIBS)
 endif()
 
 # 安装动态库
-install(TARGETS sageflow
-        LIBRARY DESTINATION lib
-        ARCHIVE DESTINATION lib
-        RUNTIME DESTINATION bin
-)
+# 条件化安装：支持 SKBUILD (Python 包构建) 和独立 C++ 构建
+if(DEFINED SKBUILD_PLATLIB_DIR)
+    # Python 包构建模式：安装到源码树 (与 Python 扩展同目录)
+    install(TARGETS sageflow
+            LIBRARY DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/../python
+            ARCHIVE DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/../python
+            RUNTIME DESTINATION ${CMAKE_CURRENT_SOURCE_DIR}/../python
+    )
+else()
+    # 独立 C++ 构建模式：标准安装路径
+    install(TARGETS sageflow
+            LIBRARY DESTINATION lib
+            ARCHIVE DESTINATION lib
+            RUNTIME DESTINATION bin
+    )
+endif()
