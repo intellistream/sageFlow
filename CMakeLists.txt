@@ -75,6 +75,20 @@ if(ENABLE_GPERFTOOLS)
 endif()
 
 add_subdirectory(src)
-add_subdirectory(test)
-add_subdirectory(examples)
+
+# 只在需要时添加测试和示例（避免循环依赖问题）
+if(BUILD_TESTS)
+    add_subdirectory(test)
+    add_subdirectory(examples)
+endif()
+
+# ============================================================================
+# Python bindings (optional)
+# ============================================================================
+option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
+
+if(BUILD_PYTHON_BINDINGS)
+    message(STATUS "Building Python bindings for sage_flow")
+    add_subdirectory(python)
+endif()
 
