@@ -72,7 +72,9 @@ endif()
 if(DEFINED SKBUILD)
     if(SKBUILD_STATE STREQUAL "editable")
         # Editable install: install to source tree directly
-        set(_lib_install_dest "${CMAKE_CURRENT_SOURCE_DIR}/../python")
+        # 注意：这个 CMakeLists.txt 在 sageFlow/src 目录下
+        # 需要回到 sageFlow/../python 目录（即 sage_flow/python）
+        set(_lib_install_dest "${CMAKE_CURRENT_SOURCE_DIR}/../../python")
     else()
         # Wheel build: install to wheel platlib (same directory as Python extension)
         set(_lib_install_dest "${SKBUILD_PLATLIB_DIR}/sage/middleware/components/sage_flow/python")
