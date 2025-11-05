@@ -44,8 +44,25 @@ check_libstdcxx() {
 # Check libstdc++ before building
 check_libstdcxx
 
+# 确定构建目录：优先使用 .sage/build/sage_flow（统一构建目录）
+# 如果在 middleware 上下文中构建，会由父 CMake 管理
+# 如果独立构建（开发/测试），则使用本地 build/
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 路径: sageFlow -> sage_flow -> components -> middleware -> sage -> src -> sage-middleware -> packages -> SAGE
+SAGE_ROOT="$(cd "${SCRIPT_DIR}/../../../../../../../.." && pwd)"
+
+if [[ -d "${SAGE_ROOT}/.sage" ]]; then
+    # 在 SAGE 项目根目录下，使用统一构建目录
+    BUILD_DIR="${SAGE_ROOT}/.sage/build/sage_flow"
+    echo "使用统一构建目录: ${BUILD_DIR}"
+else
+    # 独立构建（子模块开发模式）
+    BUILD_DIR="${SCRIPT_DIR}/build"
+    echo "使用本地构建目录: ${BUILD_DIR}"
+fi
+
 # Create build directory if not exists
-mkdir -p build
+mkdir -p "${BUILD_DIR}"
 
 # Configure with CMake (default to Debug for easier debugging; override via BUILD_TYPE env)
 cmake_args=(
@@ -64,9 +81,9 @@ if [[ -n "${SAGE_GPERFTOOLS_ROOT:-}" ]]; then
 	cmake_args+=(-DSAGE_GPERFTOOLS_ROOT="${SAGE_GPERFTOOLS_ROOT}")
 fi
 
-cmake -B build "${cmake_args[@]}"
+cmake -B "${BUILD_DIR}" -S "${SCRIPT_DIR}" "${cmake_args[@]}"
 
 # Build
-cmake --build build -j "$(nproc)"
+cmake --build "${BUILD_DIR}" -j "$(nproc)"
 
 echo "sageFlow build completed."
