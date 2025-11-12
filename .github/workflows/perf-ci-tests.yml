@@ -1,0 +1,90 @@
+name: Performance Testing - Parallel Join
+
+on:
+  pull_request:
+    branches: [ main, main-dev ]
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  performance-test:
+    name: ${{ matrix.os }} | Performance Test
+    runs-on: ${{ matrix.os }}
+    env:
+      # Set log level to info for CI performance tests
+      SAGEFLOW_LOG_LEVEL: info
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest ]
+        build_type: [ Release ]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Install C++ toolchain (consistent with main-ci-tests.yml)
+      - name: Install C++ toolchain (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            pkg-config
+
+      - name: Show compiler versions
+        if: runner.os == 'Linux'
+        run: |
+          g++ --version || true
+          gcc --version || true
+          cmake --version || true
+
+      - name: Configure CMake
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DBUILD_TESTING=ON \
+            -DSAGEFLOW_ENABLE_METRICS=ON \
+            -DSAGEFLOW_BUILD_PYBIND=OFF \
+            -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+
+      - name: Build
+        run: |
+          cmake --build build --config ${{ matrix.build_type }} --parallel
+
+      - name: Run parallel join performance tests
+        run: |
+          # Run performance test with CI-specific configuration
+          # Using the perf_join_datasource_modes_ci.toml configuration
+          cd build
+          # Copy the CI config to the expected location for the test
+          cp ../config/perf_join_datasource_modes_ci.toml ../config/perf_join_datasource_modes.toml.bak
+          # Temporarily use CI config
+          mv ../config/perf_join_datasource_modes.toml ../config/perf_join_datasource_modes.toml.orig || true
+          cp ../config/perf_join_datasource_modes_ci.toml ../config/perf_join_datasource_modes.toml
+          # Run the performance test
+          ctest --test-dir . --output-on-failure -R "test_join_datasource_modes" -L PERF
+          # Restore original config
+          mv ../config/perf_join_datasource_modes.toml.orig ../config/perf_join_datasource_modes.toml || true
+      
+      - name: Upload performance metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: performance-metrics
+          path: |
+            build/metrics/**
+            test/result/**
+      
+      - name: Upload test logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs-perf
+          path: |
+            build/Testing/**
+            build/*.log

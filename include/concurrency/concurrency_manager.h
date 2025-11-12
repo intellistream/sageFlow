@@ -24,6 +24,8 @@ class ConcurrencyManager {
   ~ConcurrencyManager();
 
   auto create_index(const std::string &name, const IndexType &index_type, int dimension) -> int;
+  auto create_index(const std::string &name, const IndexType &index_type, int dimension,
+                    const IndexParameters& params) -> int;
   auto create_index(const std::string &name, int dimension) -> int;
 
   auto drop_index(const std::string &name) -> bool;

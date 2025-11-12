@@ -5,6 +5,8 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <variant>
+#include <optional>
 
 #include "compute_engine/compute_engine.h"
 #include "storage/storage_manager.h"
@@ -17,6 +19,24 @@ enum class IndexType {  // NOLINT
   IVF,
   Vectraflow
 };
+
+// Index-specific parameter structures
+struct IVFParameters {
+  int nlist = 1000;
+  double rebuild_threshold = 1.5;
+  int nprobes = 10;
+};
+
+struct HNSWParameters {
+  int m = 20;
+  int ef_construction = 100;
+  int ef_search = 40;
+};
+
+struct NoParameters {};
+
+// Variant to hold any index parameters
+using IndexParameters = std::variant<NoParameters, IVFParameters, HNSWParameters>;
 
 class Index {
  public:

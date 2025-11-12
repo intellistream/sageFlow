@@ -20,9 +20,9 @@ void Ivf::debugDumpStateUnlocked() {
   size_t total_in_lists = 0;
   for (auto &kv : inverted_lists_) total_in_lists += kv.second.size();
   SAGEFLOW_LOG_WARN("INDEX", "DEBUG_DUMP size_={} total_in_lists={} deleted_uids={} nlists={} attempts={} success={} missing={} miss_in_storage={} miss_not_in_storage={} underflow={} ",
-                 size_.load(), total_in_lists, deleted_uids_.size(), inverted_lists_.size(),
-                 erase_attempts_.load(), erase_success_.load(), erase_missing_.load(),
-                 erase_missing_in_storage_.load(), erase_missing_not_in_storage_.load(), erase_underflow_.load());
+                    size_.load(), total_in_lists, deleted_uids_.size(), inverted_lists_.size(),
+                    erase_attempts_.load(), erase_success_.load(), erase_missing_.load(),
+                    erase_missing_in_storage_.load(), erase_missing_not_in_storage_.load(), erase_underflow_.load());
   // 采样输出前几个非空列表的部分内容
   int printed = 0;
   for (auto &kv : inverted_lists_) {
@@ -30,7 +30,7 @@ void Ivf::debugDumpStateUnlocked() {
     std::string sample;
     size_t limit = std::min<size_t>(kv.second.size(), 5);
     for (size_t i = 0; i < limit; ++i) { sample += std::to_string(kv.second[i]); sample.push_back(','); }
-  SAGEFLOW_LOG_DEBUG("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
+    SAGEFLOW_LOG_DEBUG("INDEX", "list_id={} size={} sample=[{}]", kv.first, kv.second.size(), sample);
     if (++printed >= 5) break;
   }
 }
@@ -491,18 +491,23 @@ auto Ivf::query_for_join(const VectorRecord &record, double join_similarity_thre
   while (!probe_indices.empty()) {
     auto cluster_idx = probe_indices.top().second;
     probe_indices.pop();
-    std::shared_lock<std::shared_mutex> list_lock(list_mutexes_[cluster_idx]);
-  if (inverted_lists_.find(cluster_idx) != inverted_lists_.end()) {
-      const auto& candidate_ids = inverted_lists_.at(cluster_idx);
-      for (const auto& id_val : candidate_ids) {
-  if (local_deleted_uids.find(id_val) != local_deleted_uids.end()) {
-          continue;
-        }
-        if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
-          double similarity = storage_manager_->engine_->Similarity(record.data_, candidate->data_);
-          if (similarity - join_similarity_threshold > epsilon) {
-            results.emplace_back(id_val);
-          }
+    // Copy the candidate list under lock to avoid race condition
+    std::vector<uint64_t> candidate_ids_copy;
+    {
+      std::shared_lock<std::shared_mutex> list_lock(list_mutexes_[cluster_idx]);
+      if (inverted_lists_.find(cluster_idx) != inverted_lists_.end()) {
+        candidate_ids_copy = inverted_lists_.at(cluster_idx);
+      }
+    }
+    // Process candidates without holding the lock
+    for (const auto& id_val : candidate_ids_copy) {
+      if (local_deleted_uids.find(id_val) != local_deleted_uids.end()) {
+        continue;
+      }
+      if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
+        double similarity = storage_manager_->engine_->Similarity(record.data_, candidate->data_);
+        if (similarity - join_similarity_threshold > epsilon) {
+          results.emplace_back(id_val);
         }
       }
     }

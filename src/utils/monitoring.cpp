@@ -22,12 +22,12 @@ void PerformanceMonitor::StartProfiling() {
   if (!profiling_) {
     ProfilerStart(profile_output_file_.c_str());
     profiling_ = true;
-  SAGEFLOW_LOG_INFO("MONITOR", "profiling_started file={} ", profile_output_file_);
+    SAGEFLOW_LOG_INFO("MONITOR", "profiling_started file={} ", profile_output_file_);
   } else {
-  SAGEFLOW_LOG_WARN("MONITOR", "profiling_already_running file={} ", profile_output_file_);
+    SAGEFLOW_LOG_WARN("MONITOR", "profiling_already_running file={} ", profile_output_file_);
   }
 #else
-  std::cerr << "Profiling not available: gperftools not found." << '\n';
+  SAGEFLOW_LOG_ERROR("MONITOR", "Profiling not available: gperftools not found.");
 #endif
 }
 
@@ -36,12 +36,12 @@ void PerformanceMonitor::StopProfiling() {
   if (profiling_) {
     ProfilerStop();
     profiling_ = false;
-  SAGEFLOW_LOG_INFO("MONITOR", "profiling_stopped file={} ", profile_output_file_);
+    SAGEFLOW_LOG_INFO("MONITOR", "profiling_stopped file={} ", profile_output_file_);
   } else {
-  SAGEFLOW_LOG_WARN("MONITOR", "profiling_not_running file={} ", profile_output_file_);
+    SAGEFLOW_LOG_WARN("MONITOR", "profiling_not_running file={} ", profile_output_file_);
   }
 #else
-  std::cerr << "Profiling not available: gperftools not found." << '\n';
+  SAGEFLOW_LOG_ERROR("MONITOR", "Profiling not available: gperftools not found.");
 #endif
 }
 

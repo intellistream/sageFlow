@@ -41,6 +41,7 @@ namespace sageFlow {
 
     void initializeIVFIndexes(int nlist, double rebuild_threshold, int nprobes); // 保留现有接口（暂未用到额外参数）
     bool createIndexPair(IndexType type, const std::string& prefix);
+    bool createIndexPair(IndexType type, const std::string& prefix, const IndexParameters& params);
 
     // 线程安全的窗口更新方法（容器改为 deque）
     auto updateSideThreadSafe(
@@ -55,6 +56,10 @@ namespace sageFlow {
     std::vector<std::unique_ptr<VectorRecord>> getCandidates(
         const std::unique_ptr<VectorRecord>& data_ptr, int slot);
 
+    // 获取候选项的辅助方法（假定已持有两个窗口的锁）
+    std::vector<std::unique_ptr<VectorRecord>> getCandidatesWithLocksHeld(
+        const std::unique_ptr<VectorRecord>& data_ptr, int slot);
+
     // 验证候选项是否在指定窗口中的辅助方法（容器改为 deque）
     bool validateCandidateInWindow(
         const std::unique_ptr<VectorRecord>& candidate,
@@ -67,8 +72,22 @@ namespace sageFlow {
         int slot,
         std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
 
+    // 执行join操作的辅助方法（假定已持有对面窗口的锁）
+    void executeJoinForCandidatesWithLockHeld(
+        const std::vector<std::unique_ptr<VectorRecord>>& candidates,
+        const std::unique_ptr<VectorRecord>& data_ptr,
+        int slot,
+        const std::deque<std::unique_ptr<VectorRecord>>& opposite_window,
+        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
+
     // Lazy模式的join执行辅助方法
     void executeLazyJoin(
+        const std::vector<std::unique_ptr<VectorRecord>>& candidates,
+        int slot,
+        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
+
+    // Lazy模式的join执行辅助方法（假定已持有两个窗口的锁）
+    void executeLazyJoinWithLocksHeld(
         const std::vector<std::unique_ptr<VectorRecord>>& candidates,
         int slot,
         std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
