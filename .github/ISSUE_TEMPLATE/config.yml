@@ -65,3 +65,23 @@ contact_links:
   - name: "Algorithm Exploration"
     url: "/intellistream/sageFlow/issues/new?template=algorithm_exploration.md"
     about: "Explore and document findings on a new algorithm or method"
+
+  - name: "Join算法研究论文复现"
+    url: "/intellistream/sageFlow/issues/new?template=join_research_reproduction.md"
+    about: "追踪和管理Join算法相关研究论文的复现工作"
+
+  - name: "流式结构化数据Join"
+    url: "/intellistream/sageFlow/issues/new?template=join_stream_structured.md"
+    about: "实现流式结构化数据的Join算法 (SplitJoin)"
+
+  - name: "向量批处理相似度Join"
+    url: "/intellistream/sageFlow/issues/new?template=join_vector_batch.md"
+    about: "实现向量数据的批处理相似度连接算法 (LSH/Vector DB)"
+
+  - name: "向量流式相似度Join"
+    url: "/intellistream/sageFlow/issues/new?template=join_vector_stream.md"
+    about: "实现向量数据的流式相似度连接算法 (Adaptive/kNN)"
+
+  - name: "ANNS索引集成与适配"
+    url: "/intellistream/sageFlow/issues/new?template=join_anns_index.md"
+    about: "集成Faiss IVF/HNSW/DiskANN索引支持流式Join"
