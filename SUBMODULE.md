@@ -56,7 +56,7 @@ git commit -m "chore: update sageFlow to latest"
 
 **Problem:** You're in the main repository trying to commit submodule files.
 
-**Solution:** 
+**Solution:**
 ```bash
 cd packages/sage-middleware/src/sage/middleware/components/sage_flow/sageFlow  # Enter the submodule first
 git add .
