@@ -77,7 +77,7 @@ endif()
 add_subdirectory(src)
 
 # 只在需要时添加测试和示例（避免循环依赖问题）
-if(BUILD_TESTS)
+if(BUILD_TESTING)
     add_subdirectory(test)
     add_subdirectory(examples)
 endif()
