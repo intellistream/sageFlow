@@ -53,15 +53,14 @@ list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*example.*")
 # 由 stream_runtime 单独构建，避免与 stream/optimizer 的依赖循环
 list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*/stream/stream_environment\\.cpp$")
 
-# 创建动态库
-add_library(sageflow SHARED ${SAGEFLOW_SOURCES})
+# 创建动态库，包含 stream_runtime 的对象文件以避免链接问题
+add_library(sageflow SHARED ${SAGEFLOW_SOURCES} $<TARGET_OBJECTS:stream_runtime>)
 
 target_link_libraries(
         sageflow
         PUBLIC
         externalRuntimeLibs
-        PRIVATE
-        stream_runtime
+        stream_runtime  # Link dependencies of stream_runtime
 )
 if(ENABLE_GPERFTOOLS AND DEFINED SAGE_GPERFTOOLS_LIBS AND SAGE_GPERFTOOLS_LIBS)
         target_link_libraries(

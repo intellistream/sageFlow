@@ -13,8 +13,9 @@ target_link_libraries(
         common
 )
 
-add_lib(
+add_library(
         stream_runtime
+        OBJECT
         stream_environment.cpp
 )
 target_link_libraries(
@@ -28,4 +29,5 @@ target_link_libraries(
         execution
         storage
         utils
+        externalRuntimeLibs
 )
