@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.15)
 
-# Find Python
-find_package(Python3 COMPONENTS Interpreter Development REQUIRED)
+# Find Python - use Development.Module for wheel builds (not Development.Embed)
+find_package(Python3 COMPONENTS Interpreter Development.Module REQUIRED)
 
 # Find or fetch pybind11 (check if parent project already provided it)
 if(NOT TARGET pybind11::module)
