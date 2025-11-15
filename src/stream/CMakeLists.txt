@@ -19,7 +19,7 @@ add_lib(
 )
 target_link_libraries(
         stream_runtime
-        PRIVATE
+        PUBLIC
         stream
         query
         function
