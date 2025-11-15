@@ -50,6 +50,8 @@ file(GLOB_RECURSE SAGEFLOW_SOURCES
 # 排除测试和示例文件
 list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*test.*")
 list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*example.*")
+# 由 stream_runtime 单独构建，避免与 stream/optimizer 的依赖循环
+list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*/stream/stream_environment\\.cpp$")
 
 # 创建动态库
 add_library(sageflow SHARED ${SAGEFLOW_SOURCES})
@@ -58,6 +60,8 @@ target_link_libraries(
         sageflow
         PUBLIC
         externalRuntimeLibs
+        PRIVATE
+        stream_runtime
 )
 if(ENABLE_GPERFTOOLS AND DEFINED SAGE_GPERFTOOLS_LIBS AND SAGE_GPERFTOOLS_LIBS)
         target_link_libraries(
