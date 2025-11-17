@@ -72,7 +72,7 @@ public:
   }
   
   // 标记此分区器需要广播（供ResultPartition检测使用）
-  virtual bool isBroadcast() const { return true; }
+  bool isBroadcast() const { return true; }
 };
 
 };
