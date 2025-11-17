@@ -548,7 +548,7 @@ void JoinOperator::executeLazyJoinWithLocksHeld(
                     auto right_copy = std::make_unique<VectorRecord>(*cand);
                     Response lhs{ResponseType::Record, std::move(left_copy)};
                     Response rhs{ResponseType::Record, std::move(right_copy)};
-                    try{
+                    try {
 #ifdef SAGEFLOW_ENABLE_METRICS
                         ScopedTimerAtomic t_joinF(JoinMetrics::instance().join_function_ns);
 #endif
