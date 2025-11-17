@@ -128,7 +128,8 @@ void ExecutionGraph::createConnections() {
             auto result_partition = upstream_vertex->getResultPartition();
 
             // 创建分区器
-            std::unique_ptr<IPartitioner> partitioner = std::make_unique<RoundRobinPartitioner>();
+            std::unique_ptr<IPartitioner> partitioner;
+            partitioner = std::make_unique<RoundRobinPartitioner>();
 
             // 设置输出通道
             std::vector<QueuePtr> output_channels;

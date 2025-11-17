@@ -39,7 +39,6 @@ namespace sageFlow {
    private:
     enum class InternalIndexKind { NONE, IVF, BRUTEFORCE, VAMANA };  // 可扩展
 
-    void initializeIVFIndexes(int nlist, double rebuild_threshold, int nprobes); // 保留现有接口（暂未用到额外参数）
     bool createIndexPair(IndexType type, const std::string& prefix);
     bool createIndexPair(IndexType type, const std::string& prefix, const IndexParameters& params);
 
