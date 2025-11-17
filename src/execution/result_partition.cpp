@@ -26,7 +26,11 @@ void ResultPartition::emit(Response&& data, int slot) const {
         output_channels_[i]->push({std::move(data), slot});
       } else {
         // 其他通道，复制数据
-        Response data_copy{data.type_, data.record_ ? std::make_unique<VectorRecord>(*data.record_) : nullptr};
+        Response data_copy{
+          data.type_,
+          data.record_ ? std::make_unique<VectorRecord>(*data.record_) : nullptr,
+          data.records_ ? std::make_unique<std::vector<VectorRecord>>(*data.records_) : nullptr
+        };
         output_channels_[i]->push({std::move(data_copy), slot});
       }
     }
