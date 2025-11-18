@@ -388,19 +388,19 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
       "DataModeJoin",
       [](std::unique_ptr<VectorRecord>& left,
          std::unique_ptr<VectorRecord>& right) -> std::unique_ptr<VectorRecord> {
-        auto lv = extractFloatVector(*left);
-        auto rv = extractFloatVector(*right);
-        std::vector<float> out;
-        out.reserve(lv.size() + rv.size());
-        out.insert(out.end(), lv.begin(), lv.end());
-        out.insert(out.end(), rv.begin(), rv.end());
-        uint64_t id = left->uid_ * 1000000 + right->uid_ % 1000000;
-        int64_t ts = std::max(left->timestamp_, right->timestamp_);
-        return createVectorRecord(id, ts, out);
-    }, mode_config.vector_dim);
+          auto lv = extractFloatVector(*left);
+          auto rv = extractFloatVector(*right);
+          std::vector<float> out;
+          out.reserve(lv.size() + rv.size());
+          out.insert(out.end(), lv.begin(), lv.end());
+          out.insert(out.end(), rv.begin(), rv.end());
+          uint64_t id = left->uid_ * 1000000 + right->uid_ % 1000000;
+          int64_t ts = std::max(left->timestamp_, right->timestamp_);
+          return createVectorRecord(id, ts, out);
+      }, mode_config.vector_dim);
   uint64_t trigger_interval = static_cast<uint64_t>(std::max<int64_t>(mode_config.time_interval_ms, 1));
   join_func->setWindow(win_ms, trigger_interval);
-  
+
   // Collect matches
   std::mutex match_mutex;
   std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash> actual_pairs;

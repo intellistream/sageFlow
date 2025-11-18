@@ -65,24 +65,24 @@ std::shared_ptr<Operator> Planner::buildOperatorChain(const std::shared_ptr<Stre
         // 递归构建右侧输入流（使用其自身的 slotId）
         auto right_op = buildOperatorChain(other_stream, execution_graph, default_parallelism, /*inherit*/ other_stream->getSlotId());
 
-    // 创建 Join 算子（直接使用 Join Stream 上配置的参数）
-    head = op = std::make_shared<JoinOperator>(
-      stream->function_,
-      concurrency_manager_,
-      stream->getJoinMethod(),
-      stream->getJoinSimilarityThreshold());
+        // 创建 Join 算子（直接使用 Join Stream 上配置的参数）
+        head = op = std::make_shared<JoinOperator>(
+          stream->function_,
+          concurrency_manager_,
+          stream->getJoinMethod(),
+          stream->getJoinSimilarityThreshold());
         configureOperatorParallelism(op, stream->getParallelism());
 
-  // 设置母节点（右侧输入）与左右 slot
-  const auto join_op = std::dynamic_pointer_cast<JoinOperator>(op);
+        // 设置母节点（右侧输入）与左右 slot
+        const auto join_op = std::dynamic_pointer_cast<JoinOperator>(op);
 
-  // 左支承袭当前 stream 的 slot；右支使用 other_stream 的 slot
-  join_op->setSlots(/*left*/ (stream->getSlotId() != -1 ? stream->getSlotId() : inherited_slot_id),
-        /*right*/ other_stream->getSlotId());
+        // 左支承袭当前 stream 的 slot；右支使用 other_stream 的 slot
+        join_op->setSlots(/*left*/ (stream->getSlotId() != -1 ? stream->getSlotId() : inherited_slot_id),
+              /*right*/ other_stream->getSlotId());
 
-        // 将右侧输入连接到 Join 算子，slot 使用右侧支路的 slotId
-        execution_graph->connectOperators(right_op, op, other_stream->getSlotId());
-        break;
+              // 将右侧输入连接到 Join 算子，slot 使用右侧支路的 slotId
+              execution_graph->connectOperators(right_op, op, other_stream->getSlotId());
+              break;
       }
       case FunctionType::Sink:
         head = op = std::make_shared<SinkOperator>(stream->function_);

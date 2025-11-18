@@ -22,3 +22,10 @@ timeWindow = 5000 # Time window for join operator in milliseconds (e.g., 5 secon
 # ivfNlist = 100
 # ivfNprobes = 10
 # ivfRebuildThreshold = 0.2
+
+# GPERFTOOLS Profiling (requires ENABLE_GPERFTOOLS=ON during build)
+# Set to true to enable CPU profiling for performance analysis
+enableProfiling = false
+# Output path for profile data (analyzed with: pprof --text ./binary profile.prof)
+# If not specified, defaults to "profiles/join_operator_profile.prof"
+profileOutputPath = "profiles/join_operator_profile.prof"
