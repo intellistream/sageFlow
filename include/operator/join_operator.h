@@ -6,6 +6,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <atomic>
+#include <string>
 
 #include "common/data_types.h"
 #include "operator/operator.h"
@@ -13,14 +14,21 @@
 #include "concurrency/concurrency_manager.h"
 
 namespace sageFlow {
+  // Forward declaration for PerformanceMonitor
+  class PerformanceMonitor;
+
   class JoinOperator final : public Operator {
    public:
     explicit JoinOperator(std::unique_ptr<Function> &join_func,
                           const std::shared_ptr<ConcurrencyManager> &concurrency_manager,
                           const std::string& join_method_name = "bruteforce_lazy",
-                          double join_similarity_threshold = 0.8);
+                          double join_similarity_threshold = 0.8,
+                          bool enable_profiling = false,
+                          const std::string& profile_output_path = "");
 
     auto open() -> void override;
+    
+    ~JoinOperator() override;
 
     auto process(Response&data, int slot) -> std::optional<Response> override;
 
@@ -114,5 +122,9 @@ namespace sageFlow {
     // 由 Planner 注入的左右侧 slot id，用于区分左右输入与默认下游 slot
     int left_slot_id_ = 0;
     int right_slot_id_ = 1;
+    
+    // GPERFTOOLS profiling support
+    std::unique_ptr<PerformanceMonitor> profiler_;
+    bool enable_profiling_ = false;
   };
   }  // namespace sageFlow
