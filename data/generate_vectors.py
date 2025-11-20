@@ -12,8 +12,8 @@ def generate_vectors(num_vectors, num_dimensions):
     data = []
     for i in range(num_vectors):
         vector = [i]  # Start with an ID
-        vector.extend(
-            [round(random.uniform(0.0, 1.0), 2) for _ in range(num_dimensions)]
+        vectors.extend(
+            [int(round(random.uniform(0.0, 1.0), 2) * 100) for _ in range(num_dimensions)]  # type: ignore
         )
         data.append(vector)
     return data

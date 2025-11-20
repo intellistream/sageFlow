@@ -83,7 +83,7 @@ def make_grouped_bar(pivot_df: pd.DataFrame, ylabel: str, title: str, out_path: 
 
     for i, method in enumerate(pivot_df.columns):
         y = pivot_df[method].values
-        ax.bar(x + offsets[i], y, width, label=method, color=colors.get(method, None))
+        ax.bar(x + offsets[i], y, width, label=method, color=colors.get(method, None))  # type: ignore
 
     ax.set_xlabel("并行度")
     ax.set_ylabel(ylabel)
@@ -132,14 +132,14 @@ def make_grouped_stacked_100(lock_df: pd.DataFrame, exec_df: pd.DataFrame, title
         lock_vals = lock_df[method].values if method in lock_df.columns else np.zeros(len(x))
         # 底层：有效执行
         ax.bar(
-            x + offsets[i], exec_vals, width,
+            x + offsets[i], exec_vals, width,  # type: ignore
             label=None if i else "有效执行",
             color=colors["exec"],
             edgecolor="#333333", linewidth=0.6, hatch=hatches.get(method, None)
         )
         # 顶层：锁等待
         ax.bar(
-            x + offsets[i], lock_vals, width, bottom=exec_vals,
+            x + offsets[i], lock_vals, width, bottom=exec_vals,  # type: ignore
             label=None if i else "锁等待",
             color=colors["lock"],
             edgecolor="#333333", linewidth=0.6, hatch=hatches.get(method, None)
