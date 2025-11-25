@@ -10,9 +10,9 @@ namespace sageFlow {
 class BruteForceJoinMethod final : public BaseMethod {
  public:
   BruteForceJoinMethod(int left_index_id,
-             int right_index_id,
-             double join_similarity_threshold,
-             const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
+                       int right_index_id,
+                       double join_similarity_threshold,
+                       const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
       : BaseMethod(join_similarity_threshold),
         left_index_id_(left_index_id),
         right_index_id_(right_index_id),
