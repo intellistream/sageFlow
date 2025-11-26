@@ -46,10 +46,14 @@ void ExecutionVertex::join() const {
 void ExecutionVertex::run() const {
   SAGEFLOW_LOG_DEBUG("VERTEX", "{} started thread={} ", name_, (size_t)std::hash<std::thread::id>{}(std::this_thread::get_id()));
 
+  // 创建运行时上下文
+  RuntimeContext runtime_context(subtask_index_, operator_->get_parallelism());
+
   auto source_op = dynamic_cast<OutputOperator*>(operator_.get());
   try {
-    // 打开算子
-    operator_->open();
+    // 打开算子，传入运行时上下文
+    operator_->open(runtime_context);
+    
     // 创建collector，将emit操作注册到collector中
     Collector collector([this](std::unique_ptr<Response> response, int slot) {
       if (response) {
@@ -73,10 +77,10 @@ void ExecutionVertex::run() const {
           continue;
         }
 
-        // 调用算子的apply方法处理逻辑
+        // 调用算子的apply方法处理逻辑，传入运行时上下文
         Response data = std::move(data_opt->response);
         try {
-          operator_->apply(std::move(data), data_opt->slot, collector);
+          operator_->apply(std::move(data), data_opt->slot, collector, runtime_context);
         } catch (const std::exception& e) {
           int dim = (data.record_ ? data.record_->data_.dim_ : -1);
           uint64_t uid = (data.record_ ? data.record_->uid_ : 0);
@@ -91,7 +95,7 @@ void ExecutionVertex::run() const {
         if (!data_opt) break; // 没有残留数据
         Response data = std::move(data_opt->response);
         try {
-          operator_->apply(std::move(data), data_opt->slot, collector);
+          operator_->apply(std::move(data), data_opt->slot, collector, runtime_context);
         } catch (const std::exception& e) {
           int dim = (data.record_ ? data.record_->data_.dim_ : -1);
           uint64_t uid = (data.record_ ? data.record_->uid_ : 0);

@@ -3,6 +3,8 @@
 //
 
 #include "execution/execution_graph.h"
+#include "execution/partitioned_connection_strategy.h"
+#include "execution/shared_queue_connection_strategy.h"
 #include <iostream>
 #include <algorithm>
 #include "utils/logger.h"
@@ -15,6 +17,10 @@ ExecutionGraph::~ExecutionGraph() {
 }
 
 void ExecutionGraph::addOperator(std::shared_ptr<Operator> op) {
+    addOperator(op, ConnectionType::PARTITIONED);
+}
+
+void ExecutionGraph::addOperator(std::shared_ptr<Operator> op, ConnectionType connection_type) {
     if (!op) return;
 
     operators_.push_back(op);
@@ -22,6 +28,7 @@ void ExecutionGraph::addOperator(std::shared_ptr<Operator> op) {
     OperatorInfo info;
     info.op = op;
     info.parallelism = op->get_parallelism();
+    info.connection_type = connection_type;
     operator_infos_[op] = std::move(info);
 }
 
@@ -59,10 +66,31 @@ void ExecutionGraph::createVerticesForOperator(std::shared_ptr<Operator> op) {
     }
 }
 
+std::unique_ptr<IConnectionStrategy> ExecutionGraph::getConnectionStrategy(
+    std::shared_ptr<Operator> downstream_op) {
+    auto it = operator_infos_.find(downstream_op);
+    if (it == operator_infos_.end()) {
+        // 默认使用分区策略
+        return std::make_unique<PartitionedConnectionStrategy>();
+    }
+
+    // 根据下游算子的连接类型创建对应的策略
+    const OperatorInfo& info = it->second;
+    switch (info.connection_type) {
+        case ConnectionType::SHARED_QUEUE:
+            return std::make_unique<SharedQueueConnectionStrategy>();
+        case ConnectionType::PARTITIONED:
+        default:
+            return std::make_unique<PartitionedConnectionStrategy>();
+    }
+}
+
 auto ExecutionGraph::createQueues(
   size_t upstream_parallelism,
   size_t downstream_parallelism,
   bool is_join_operator) -> std::vector<QueuePtr> {
+    // 该方法已弃用，保留用于兼容性
+    // 新代码应使用连接策略的createQueues方法
     std::vector<QueuePtr> queues;
 
     // 计算需要创建的队列数量
@@ -104,6 +132,9 @@ void ExecutionGraph::createConnections() {
         // 判断下游是否为Join算子
         bool is_join_operator = (downstream_op->getType() == OperatorType::JOIN);
 
+        // 获取连接策略
+        auto strategy = getConnectionStrategy(downstream_op);
+
     // // 连接概览日志
     // std::cout << "Connecting " << upstream_op->name
     //       << " -> " << downstream_op->name
@@ -113,10 +144,12 @@ void ExecutionGraph::createConnections() {
     //       << (is_join_operator ? " (JOIN)" : "")
     //       << "\n";
 
-        // 创建队列
-        auto queues = createQueues(upstream_info.parallelism,
-                               downstream_info.parallelism,
-                                                  is_join_operator);
+        // 使用连接策略创建队列
+        auto queues = strategy->createQueues(
+            upstream_info.parallelism,
+            downstream_info.parallelism,
+            is_join_operator);
+        
         // 记录到 all_queues_
         for (auto &q : queues) {
             all_queues_.push_back(q);
@@ -127,23 +160,14 @@ void ExecutionGraph::createConnections() {
             auto& upstream_vertex = upstream_info.vertices[i];
             auto result_partition = upstream_vertex->getResultPartition();
 
-            // 创建分区器
-            std::unique_ptr<IPartitioner> partitioner;
-            partitioner = std::make_unique<RoundRobinPartitioner>();
-
-            // 设置输出通道
-            std::vector<QueuePtr> output_channels;
-            if (downstream_info.parallelism == 1) {
-                // 下游只有一个并行度，所有上游都连接到同一个队列
-                output_channels.push_back(queues[i % queues.size()]);
-            } else {
-                // 下游有多个并行度，需要分发到多个队列
-                for (size_t j = 0; j < downstream_info.parallelism; ++j) {
-                    output_channels.push_back(queues[j % queues.size()]);
-                }
-            }
-
-            result_partition->setup(std::move(partitioner), std::move(output_channels), slot);
+            // 使用连接策略配置ResultPartition
+            strategy->setupResultPartition(
+                result_partition,
+                queues,
+                i,
+                upstream_info.parallelism,
+                downstream_info.parallelism,
+                slot);
 
             // // 每个上游子任务的输出通道统计（针对当前 slot）
             // std::cout << "  " << upstream_op->name << "[" << i << "] -> slot=" << slot
@@ -157,24 +181,15 @@ void ExecutionGraph::createConnections() {
             auto& downstream_vertex = downstream_info.vertices[i];
             auto input_gate = downstream_vertex->getInputGate();
 
-            // 配置输入队列
-            std::vector<QueuePtr> input_queues;
-            if (upstream_info.parallelism == 1) {
-                // 上游只有一个并行度
-                input_queues.push_back(queues[0]);
-            } else {
-                // 上游有多个并行度，当前下游顶点需要接收来自多个上游的数据
-                for (size_t j = 0; j < upstream_info.parallelism; ++j) {
-                    input_queues.push_back(queues[j]);
-                }
-            }
-
-            // 如果是首次配置，setup；否则追加
-            if (input_gate->size() == 0) {
-                input_gate->setup(std::move(input_queues));
-            } else {
-                input_gate->addQueues(std::move(input_queues));
-            }
+            // 使用连接策略配置InputGate
+            bool is_first_setup = (input_gate->size() == 0);
+            strategy->setupInputGate(
+                input_gate,
+                queues,
+                i,
+                upstream_info.parallelism,
+                downstream_info.parallelism,
+                is_first_setup);
             //
             // // 每个下游子任务的输入队列统计
             // std::cout << "  " << downstream_op->name << "[" << i << "] <- slot=" << slot

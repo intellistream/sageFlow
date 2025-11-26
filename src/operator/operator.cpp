@@ -23,6 +23,12 @@ auto sageFlow::Operator::getType() const -> OperatorType { return type_; }
 
 auto sageFlow::Operator::open() -> void { is_open_ = true; }
 
+// New open method with RuntimeContext - default implementation delegates to legacy open()
+auto sageFlow::Operator::open(const RuntimeContext& context) -> void {
+  open();  // Call legacy open() for backward compatibility
+  // Subclasses can override this to use the RuntimeContext
+}
+
 auto sageFlow::Operator::close() -> void { is_open_ = false; }
 
 auto sageFlow::Operator::process(Response&record, int slot) -> std::optional<Response> {
@@ -32,6 +38,13 @@ auto sageFlow::Operator::process(Response&record, int slot) -> std::optional<Res
 auto sageFlow::Operator::apply(Response&& record, int slot, Collector& collector) -> void {
   // 默认实现：直接将数据传递给下游
   collector.collect(std::make_unique<Response>(std::move(record)), slot);
+}
+
+// New apply method with RuntimeContext - default implementation delegates to legacy apply()
+auto sageFlow::Operator::apply(Response&& record, int slot, Collector& collector, 
+                               const RuntimeContext& context) -> void {
+  apply(std::move(record), slot, collector);  // Call legacy apply() for backward compatibility
+  // Subclasses can override this to use the RuntimeContext
 }
 
 void sageFlow::Operator::set_parallelism(const size_t p) {
