@@ -331,7 +331,7 @@ auto JoinOperator::getCandidatesWithLocksHeld(
     if (is_eager_) {
         return join_method_->ExecuteEager(*data_ptr, slot);
     }
-        const int64_t logical_lower_bound = logicalWindowLowerBound(data_ptr->timestamp_);
+    const int64_t logical_lower_bound = logicalWindowLowerBound(data_ptr->timestamp_);
     std::deque<std::unique_ptr<VectorRecord>> query_records_copy;
     if (slot == left_slot_id_) {
         for (auto &p : left_records_) {

@@ -67,7 +67,7 @@ bool JsonWriter::writeVectors(const std::string& file_path,
         output << "      \"similarity_threshold\": " << entry.similarity_threshold << ",\n";
         output << "      \"alpha\": " << entry.alpha << ",\n";
         output << "      \"modulo_base\": " << entry.modulo_base << ",\n";
-  output << "      \"record_count\": " << entry.record_count << ",\n";
+        output << "      \"record_count\": " << entry.record_count << ",\n";
         output << "      \"pair_count\": " << entry.pairs.size() << ",\n";
         output << "      \"pairs\": [\n";
         for (size_t p = 0; p < entry.pairs.size(); ++p) {
