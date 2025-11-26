@@ -12,6 +12,7 @@
 #include <iostream>
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "utils/logger.h"
 
@@ -36,6 +37,24 @@ bool JoinOperator::createIndexPair(IndexType type, const std::string& prefix, co
 static inline std::string to_lower_copy(std::string v) {
     std::transform(v.begin(), v.end(), v.begin(), [](unsigned char c){return char(std::tolower(c));});
     return v;
+}
+
+int64_t JoinOperator::logicalWindowLowerBound(int64_t reference_timestamp) const {
+    const int64_t window_size = join_func_ ? join_func_->getWindowSize() : 0;
+    if (window_size <= 0) {
+        return std::numeric_limits<int64_t>::min();
+    }
+    if (reference_timestamp <= std::numeric_limits<int64_t>::min() + window_size) {
+        return std::numeric_limits<int64_t>::min();
+    }
+    return reference_timestamp - window_size;
+}
+
+bool JoinOperator::isRecordFresh(const std::unique_ptr<VectorRecord>& record, int64_t logical_lower_bound) const {
+    if (!record) {
+        return false;
+    }
+    return record->timestamp_ >= logical_lower_bound;
 }
 
 JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
@@ -191,6 +210,13 @@ auto JoinOperator::updateSideThreadSafe(
     auto& window = (slot == 0) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
 
     int64_t timelimit = window.windowTimeLimit(now_time_stamp);
+    if (retention_buffer_ > 0) {
+        if (timelimit <= std::numeric_limits<int64_t>::min() + retention_buffer_) {
+            timelimit = std::numeric_limits<int64_t>::min();
+        } else {
+            timelimit -= retention_buffer_;
+        }
+    }
     // 窗口过期阶段（包含过期判定与容器维护；索引删除单独计时）
     SAGEFLOW_LOG_DEBUG("JOIN", "Expiring records before timestamp {} now={} current_size={} ", timelimit, now_time_stamp, records.size());
     size_t expired_count = 0;
@@ -275,22 +301,25 @@ auto JoinOperator::getCandidates(
     if (is_eager_) {
         return join_method_->ExecuteEager(*data_ptr, slot);
     }
+    const int64_t logical_lower_bound = logicalWindowLowerBound(data_ptr->timestamp_);
     std::deque<std::unique_ptr<VectorRecord>> query_records_copy; // 改为 deque
     if (slot == left_slot_id_) {
         uint64_t before_wait = metrics_timestamp();
         std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
         metrics_record_lock_wait(before_wait);
         for (auto &p : left_records_) {
-          if (p) query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+                    if (isRecordFresh(p, logical_lower_bound)) {
+                        query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+                    }
         }
     } else {
         uint64_t before_wait = metrics_timestamp();
         std::shared_lock<std::shared_mutex> lk(right_records_mutex_);
         metrics_record_lock_wait(before_wait);
         for (auto &p : right_records_)
-          if (p) {
-            query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
-          }
+                    if (isRecordFresh(p, logical_lower_bound)) {
+                        query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+                    }
     }
     return join_method_->ExecuteLazy(query_records_copy, slot);
 }
@@ -302,14 +331,19 @@ auto JoinOperator::getCandidatesWithLocksHeld(
     if (is_eager_) {
         return join_method_->ExecuteEager(*data_ptr, slot);
     }
+    const int64_t logical_lower_bound = logicalWindowLowerBound(data_ptr->timestamp_);
     std::deque<std::unique_ptr<VectorRecord>> query_records_copy;
     if (slot == left_slot_id_) {
         for (auto &p : left_records_) {
-          if (p) query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+                    if (isRecordFresh(p, logical_lower_bound)) {
+                        query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+                    }
         }
     } else {
         for (auto &p : right_records_) {
-          if (p) query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+                    if (isRecordFresh(p, logical_lower_bound)) {
+                        query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
+                    }
         }
     }
     return join_method_->ExecuteLazy(query_records_copy, slot);
@@ -317,9 +351,19 @@ auto JoinOperator::getCandidatesWithLocksHeld(
 
 auto JoinOperator::validateCandidateInWindow(
     const std::unique_ptr<VectorRecord>& candidate,
-    const std::deque<std::unique_ptr<VectorRecord>>& window_records) -> bool {
-    if (!candidate) return false;
-    for (auto &r : window_records) if (r && r->uid_ == candidate->uid_) return true;
+    const std::deque<std::unique_ptr<VectorRecord>>& window_records,
+    int64_t logical_lower_bound) -> bool {
+    if (!isRecordFresh(candidate, logical_lower_bound)) {
+        return false;
+    }
+    for (auto &r : window_records) {
+        if (!isRecordFresh(r, logical_lower_bound)) {
+            continue;
+        }
+        if (r->uid_ == candidate->uid_) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -355,6 +399,10 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
     const std::deque<std::unique_ptr<VectorRecord>>& opposite_window,
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
     MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
+    const int64_t logical_lower_bound = logicalWindowLowerBound(data_ptr->timestamp_);
+    if (!isRecordFresh(data_ptr, logical_lower_bound)) {
+        return;
+    }
     
     // IMPORTANT: Validation is necessary even in eager mode to filter out:
     // 1. Expired records: Shared index may have records not yet expired from index but already expired from windows
@@ -364,7 +412,10 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
     // instances' windows fail validation. This is a known trade-off - without validation we get
     // incorrect joins with expired records.
     for (auto &cand : candidates) {
-        if (validateCandidateInWindow(cand, opposite_window)) {
+        if (!isRecordFresh(cand, logical_lower_bound)) {
+            continue;
+        }
+        if (validateCandidateInWindow(cand, opposite_window, logical_lower_bound)) {
             std::unique_ptr<VectorRecord> left_copy;
             std::unique_ptr<VectorRecord> right_copy;
             
@@ -408,9 +459,11 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
 void JoinOperator::executeLazyJoin(
     const std::vector<std::unique_ptr<VectorRecord>>& candidates,
     int slot,
+    int64_t query_timestamp,
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
     // 统一计量 Lazy 路径的候选匹配阶段
     MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
+    const int64_t logical_lower_bound = logicalWindowLowerBound(query_timestamp);
     if (slot == left_slot_id_) {
         uint64_t before_wait_r = metrics_timestamp();
         std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
@@ -419,9 +472,10 @@ void JoinOperator::executeLazyJoin(
         std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
         metrics_record_lock_wait(before_wait_l);
         for (auto &l : left_records_) {
-            if (!l) continue;
+            if (!isRecordFresh(l, logical_lower_bound)) continue;
             for (auto &cand : candidates) {
-                if (validateCandidateInWindow(cand, right_records_)) {
+                if (!isRecordFresh(cand, logical_lower_bound)) continue;
+                if (validateCandidateInWindow(cand, right_records_, logical_lower_bound)) {
                     auto left_copy = std::make_unique<VectorRecord>(*l);
                     auto right_copy = std::make_unique<VectorRecord>(*cand);
                     Response lhs{ResponseType::Record, std::move(left_copy)};
@@ -451,9 +505,10 @@ void JoinOperator::executeLazyJoin(
         std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
         metrics_record_lock_wait(before_wait_r);
         for (auto &r : right_records_) {
-            if (!r) continue;
+            if (!isRecordFresh(r, logical_lower_bound)) continue;
             for (auto &cand : candidates) {
-                if (validateCandidateInWindow(cand, left_records_)) {
+                if (!isRecordFresh(cand, logical_lower_bound)) continue;
+                if (validateCandidateInWindow(cand, left_records_, logical_lower_bound)) {
                     auto left_copy = std::make_unique<VectorRecord>(*cand);
                     auto right_copy = std::make_unique<VectorRecord>(*r);
                     Response lhs{ResponseType::Record, std::move(left_copy)};
@@ -481,6 +536,7 @@ void JoinOperator::executeLazyJoin(
 void JoinOperator::executeLazyJoinWithLocksHeld(
     const std::vector<std::unique_ptr<VectorRecord>>& candidates,
     int slot,
+    int64_t query_timestamp,
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
     // This version assumes both window locks are already held by caller
     MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
@@ -488,11 +544,13 @@ void JoinOperator::executeLazyJoinWithLocksHeld(
     // While validation against local window causes some window fragmentation, removing it entirely
     // creates N×M join operations which causes severe performance degradation (timeouts).
     // TODO: Find a better approach that avoids both fragmentation AND explosion
+    const int64_t logical_lower_bound = logicalWindowLowerBound(query_timestamp);
     if (slot == left_slot_id_) {
         for (auto &l : left_records_) {
-            if (!l) continue;
+            if (!isRecordFresh(l, logical_lower_bound)) continue;
             for (auto &cand : candidates) {
-                if (validateCandidateInWindow(cand, right_records_)) {
+                if (!isRecordFresh(cand, logical_lower_bound)) continue;
+                if (validateCandidateInWindow(cand, right_records_, logical_lower_bound)) {
                     auto left_copy = std::make_unique<VectorRecord>(*l);
                     auto right_copy = std::make_unique<VectorRecord>(*cand);
                     Response lhs{ResponseType::Record, std::move(left_copy)};
@@ -516,9 +574,10 @@ void JoinOperator::executeLazyJoinWithLocksHeld(
         }
     } else {
         for (auto &r : right_records_) {
-            if (!r) continue;
+            if (!isRecordFresh(r, logical_lower_bound)) continue;
             for (auto &cand : candidates) {
-                if (validateCandidateInWindow(cand, left_records_)) {
+                if (!isRecordFresh(cand, logical_lower_bound)) continue;
+                if (validateCandidateInWindow(cand, left_records_, logical_lower_bound)) {
                     auto left_copy = std::make_unique<VectorRecord>(*cand);
                     auto right_copy = std::make_unique<VectorRecord>(*r);
                     Response lhs{ResponseType::Record, std::move(left_copy)};
@@ -562,21 +621,6 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
       return;
     }
 
-    // 窗口状态一致性保证机制：
-    // 无论使用何种分区方法（RoundRobin、KeyPartitioner等），窗口的最终状态
-    // 只取决于记录的timestamp和window配置，不依赖于算子实例的调度顺序。
-    // 
-    // 关键机制：
-    // 1. updateSideThreadSafe中持有窗口锁进行插入和过期操作，保证单个窗口的一致性
-    // 2. 下面的双锁机制确保trigger时左右窗口状态一致，防止对面窗口在join计算过程中发生变化
-    // 3. 共享索引通过ConcurrencyManager保证线程安全，插入顺序由分区策略（如timestamp-based）决定
-    //
-    // 这样设计确保：即使并行度>1，每个算子实例的窗口状态也是确定性的，
-    // join结果不会因为调度顺序或分区方法的变化而产生竞态条件。
-    
-    // Critical fix for single-instance concurrency:
-    // When triggered, acquire BOTH window locks before getting candidates and executing join
-    // This prevents the opposite slot from expiring records while we're computing the join
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
     size_t left_sz = 0, right_sz = 0;
     
@@ -603,7 +647,7 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
                                               slot == left_slot_id_ ? right_records_ : left_records_,
                                               local_return_pool);
     } else {
-        executeLazyJoinWithLocksHeld(candidates, slot, local_return_pool);
+        executeLazyJoinWithLocksHeld(candidates, slot, now_time_stamp, local_return_pool);
         // Release locks before clearing for lazy mode
         lkL.unlock();
         lkR.unlock();

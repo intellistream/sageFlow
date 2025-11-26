@@ -7,6 +7,7 @@
 #include <shared_mutex>
 #include <atomic>
 #include <string>
+#include <algorithm>
 
 #include "common/data_types.h"
 #include "operator/operator.h"
@@ -44,6 +45,10 @@ namespace sageFlow {
             right_slot_id_ = right_slot_id;
         }
 
+        void setRetentionBuffer(int64_t buffer) {
+            retention_buffer_ = std::max<int64_t>(buffer, 0);
+        }
+
    private:
     enum class InternalIndexKind { NONE, IVF, BRUTEFORCE, VAMANA };  // 可扩展
 
@@ -70,7 +75,8 @@ namespace sageFlow {
     // 验证候选项是否在指定窗口中的辅助方法（容器改为 deque）
     bool validateCandidateInWindow(
         const std::unique_ptr<VectorRecord>& candidate,
-        const std::deque<std::unique_ptr<VectorRecord>>& window_records);
+        const std::deque<std::unique_ptr<VectorRecord>>& window_records,
+        int64_t logical_lower_bound);
 
     // 执行join操作的辅助方法
     void executeJoinForCandidates(
@@ -91,13 +97,18 @@ namespace sageFlow {
     void executeLazyJoin(
         const std::vector<std::unique_ptr<VectorRecord>>& candidates,
         int slot,
+        int64_t query_timestamp,
         std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
 
     // Lazy模式的join执行辅助方法（假定已持有两个窗口的锁）
     void executeLazyJoinWithLocksHeld(
         const std::vector<std::unique_ptr<VectorRecord>>& candidates,
         int slot,
+        int64_t query_timestamp,
         std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
+
+    int64_t logicalWindowLowerBound(int64_t reference_timestamp) const;
+    bool isRecordFresh(const std::unique_ptr<VectorRecord>& record, int64_t logical_lower_bound) const;
 
     std::unique_ptr<JoinFunction> join_func_;
     std::shared_ptr<Operator> mother_;
@@ -118,6 +129,7 @@ namespace sageFlow {
     bool use_index_ = false;          // 是否使用底层索引（IVF / BruteForce / 未来扩展）
     bool is_eager_ = false;           // eager / lazy 模式
     double join_similarity_threshold_ = 0.8;
+    int64_t retention_buffer_ = 5000;
 
     // 由 Planner 注入的左右侧 slot id，用于区分左右输入与默认下游 slot
     int left_slot_id_ = 0;

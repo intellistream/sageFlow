@@ -29,6 +29,9 @@
 #include <sstream>
 #include <algorithm>
 #include <cmath>
+#include <optional>
+#include <iomanip>
+#include <cctype>
 
 namespace sageFlow {
 namespace test {
@@ -213,6 +216,121 @@ static std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash>
   return expected;
 }
 
+static std::string sanitizeFilename(std::string name) {
+  for (char& ch : name) {
+    if (!(std::isalnum(static_cast<unsigned char>(ch)) || ch == '_' || ch == '-' )) {
+      ch = '_';
+    }
+  }
+  return name;
+}
+
+static std::optional<std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash>>
+loadCachedGroundTruth(DatasetDataSource& data_source,
+                      size_t record_count,
+                      uint64_t window_ms,
+                      double similarity_threshold,
+                      uint64_t modulo_base) {
+  auto cached = data_source.findGroundTruthEntry(window_ms, similarity_threshold, modulo_base, record_count);
+  if (!cached) {
+    return std::nullopt;
+  }
+  std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash> restored;
+  restored.reserve(cached->pairs.size());
+  for (const auto& pr : cached->pairs) {
+    restored.insert(pr);
+  }
+  return restored;
+}
+
+static void persistGroundTruth(DatasetDataSource& data_source,
+                               const DataSourceModeConfig& config,
+                               const std::string& method,
+                               size_t record_count,
+                               uint64_t window_ms,
+                               double similarity_threshold,
+                               double alpha,
+                               uint64_t modulo_base,
+                               const std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash>& expected_matches) {
+  DatasetDataSource::GroundTruthEntry entry;
+  entry.window_ms = window_ms;
+  entry.similarity_threshold = similarity_threshold;
+  entry.alpha = alpha;
+  entry.modulo_base = modulo_base;
+  entry.record_count = record_count;
+  entry.label = config.name + "_" + method + "_p" + std::to_string(record_count);
+  entry.pairs.reserve(expected_matches.size());
+  for (const auto& pr : expected_matches) {
+    entry.pairs.push_back(pr);
+  }
+  if (data_source.persistGroundTruthEntry(entry)) {
+    SAGEFLOW_LOG_INFO("TEST", "[GT] Persisted {} ground truth pairs for {} window={} threshold={}",
+                      entry.pairs.size(), data_source.getFilePath(), window_ms, similarity_threshold);
+  } else {
+    SAGEFLOW_LOG_WARN("TEST", "[GT] Failed to persist ground truth for {}", data_source.getFilePath());
+  }
+}
+
+static void dumpSinkResults(const DataSourceModeConfig& config,
+                            const std::string& method,
+                            int data_size,
+                            int parallelism,
+                            uint64_t win_ms,
+                            double recall,
+                            double precision,
+                            double f1,
+                            uint64_t duration_ms,
+                            const std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash>& actual_pairs,
+                            const std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash>& expected_pairs) {
+  namespace fs = std::filesystem;
+  auto result_dir_str = DynamicConfigManager::resolveProjectRelativePath("test/result/datasource_modes");
+  fs::path result_dir = result_dir_str;
+  fs::create_directories(result_dir);
+  std::string base_name = config.name + "_" + method + "_" + std::to_string(data_size) + "_p" +
+                          std::to_string(parallelism) + "_w" + std::to_string(win_ms);
+  std::string sanitized = sanitizeFilename(base_name);
+  fs::path file_path = result_dir / (sanitized + ".json");
+
+  std::ofstream ofs(file_path);
+  if (!ofs.is_open()) {
+    SAGEFLOW_LOG_WARN("TEST", "[SinkDump] Unable to open {} for writing", file_path.string());
+    return;
+  }
+
+  ofs << std::fixed << std::setprecision(6);
+  ofs << "{\n";
+  ofs << "  \"test_name\": \"" << config.name << "\",\n";
+  ofs << "  \"method\": \"" << method << "\",\n";
+  ofs << "  \"size\": " << data_size << ",\n";
+  ofs << "  \"parallelism\": " << parallelism << ",\n";
+  ofs << "  \"window_ms\": " << win_ms << ",\n";
+  ofs << "  \"duration_ms\": " << duration_ms << ",\n";
+  ofs << "  \"recall\": " << recall << ",\n";
+  ofs << "  \"precision\": " << precision << ",\n";
+  ofs << "  \"f1\": " << f1 << ",\n";
+  ofs << "  \"actual_pair_count\": " << actual_pairs.size() << ",\n";
+  ofs << "  \"expected_pair_count\": " << expected_pairs.size() << ",\n";
+  ofs << "  \"actual_pairs\": [\n";
+  size_t idx = 0;
+  for (const auto& pr : actual_pairs) {
+    ofs << "    [" << pr.first << ", " << pr.second << "]";
+    if (++idx < actual_pairs.size()) ofs << ",";
+    ofs << "\n";
+  }
+  ofs << "  ],\n";
+  ofs << "  \"expected_pairs\": [\n";
+  idx = 0;
+  for (const auto& pr : expected_pairs) {
+    ofs << "    [" << pr.first << ", " << pr.second << "]";
+    if (++idx < expected_pairs.size()) ofs << ",";
+    ofs << "\n";
+  }
+  ofs << "  ]\n";
+  ofs << "}\n";
+  ofs.close();
+  SAGEFLOW_LOG_INFO("TEST", "[SinkDump] Results saved to {}", file_path.string());
+}
+
 // Test class for data source modes
 class JoinDataSourceModesTest : public ::testing::TestWithParam<std::tuple<DataSourceModeConfig, std::string, int, int, uint64_t>> {
 protected:
@@ -241,6 +359,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   
   // Prepare data based on mode
   std::vector<std::unique_ptr<VectorRecord>> base_records;
+  std::shared_ptr<DatasetDataSource> dataset_source_for_cache;
   
   if (mode_config.mode == "generate_save_load") {
     // Mode 1: Generate -> Save -> Load
@@ -294,7 +413,8 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
     ds_config.expected_dim = mode_config.vector_dim;
     ds_config.loop = true;
     
-    DatasetDataSource data_source(ds_config);
+    dataset_source_for_cache = std::make_shared<DatasetDataSource>(ds_config);
+    auto& data_source = *dataset_source_for_cache;
     base_records.reserve(data_size);
     int64_t base_ts = 1000000;
     uint64_t uid = 1;
@@ -315,7 +435,8 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
     ds_config.expected_dim = mode_config.data_source_expected_dim;
     ds_config.loop = mode_config.data_source_loop;
     
-    DatasetDataSource data_source(ds_config);
+    dataset_source_for_cache = std::make_shared<DatasetDataSource>(ds_config);
+    auto& data_source = *dataset_source_for_cache;
     base_records.reserve(data_size);
     int64_t base_ts = 1000000;
     uint64_t uid = 1;
@@ -375,8 +496,23 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   
   // Compute expected matches - use consistent UID mapping
   constexpr double kAlpha = 0.1;
-  auto expected_matches =
-    computeExpectedPairsByTraversal(left_records, right_records, mode_config.threshold, win_ms, kAlpha, kModuloBase);
+  std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash> expected_matches;
+  bool used_cached_ground_truth = false;
+  if (dataset_source_for_cache) {
+    auto cached = loadCachedGroundTruth(*dataset_source_for_cache, expected_left, win_ms, mode_config.threshold, kModuloBase);
+    if (cached) {
+      expected_matches = std::move(*cached);
+      used_cached_ground_truth = true;
+      SAGEFLOW_LOG_INFO("TEST", "[GT] Loaded cached ground truth pairs ({}) for {}", expected_matches.size(), dataset_source_for_cache->getFilePath());
+    }
+  }
+  if (!used_cached_ground_truth) {
+    expected_matches =
+      computeExpectedPairsByTraversal(left_records, right_records, mode_config.threshold, win_ms, kAlpha, kModuloBase);
+    if (dataset_source_for_cache) {
+      persistGroundTruth(*dataset_source_for_cache, mode_config, method, expected_left, win_ms, mode_config.threshold, kAlpha, kModuloBase, expected_matches);
+    }
+  }
   const uint64_t expected_emit_count = static_cast<uint64_t>(expected_matches.size());
   
   // Create stream sources
@@ -516,6 +652,8 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   SAGEFLOW_LOG_INFO("TEST", "Result: name={} mode={} method={} size={} parallelism={} time_ms={} matches={}/{} recall={:.3f} precision={:.3f} f1={:.3f}",
                     mode_config.name, mode_config.mode, method, data_size, parallelism, duration.count(),
                     match_count, expected_matches.size(), recall, precision, f1);
+  dumpSinkResults(mode_config, method, data_size, parallelism, win_ms, recall, precision, f1,
+                  static_cast<uint64_t>(duration.count()), actual_pairs, expected_matches);
   
   // Write to report file
   try {
