@@ -29,6 +29,9 @@ add_subdirectory(
        storage
 )
 add_subdirectory(
+        state
+)
+add_subdirectory(
         stream
 )
 
@@ -44,6 +47,7 @@ file(GLOB_RECURSE SAGEFLOW_SOURCES
     operator/*.cpp
     query/*.cpp
     storage/*.cpp
+    state/*.cpp
     stream/*.cpp
 )
 

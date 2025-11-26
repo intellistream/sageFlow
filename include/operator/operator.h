@@ -10,6 +10,7 @@
 #include "common/data_types.h"  // Include VectorRecord definition
 #include "function/function_api.h"
 #include "execution/collector.h"
+#include "execution/runtime_context.h"
 
 namespace sageFlow {
 enum class OperatorType {
@@ -34,13 +35,22 @@ class Operator {
 
   auto getType() const -> OperatorType;
 
+  // Legacy open method (for backward compatibility)
   virtual auto open() -> void;
+
+  // New open method with RuntimeContext
+  virtual auto open(const RuntimeContext& context) -> void;
 
   virtual auto close() -> void;
 
   virtual auto process(Response&record, int slot) -> std::optional<Response>;
 
+  // Legacy apply method (for backward compatibility)
   virtual auto apply(Response&& record, int slot, Collector& collector) -> void;
+
+  // New apply method with RuntimeContext
+  virtual auto apply(Response&& record, int slot, Collector& collector, 
+                    const RuntimeContext& context) -> void;
 
   void set_parallelism(size_t p);
 

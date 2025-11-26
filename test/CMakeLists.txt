@@ -76,6 +76,9 @@ set(UNIT_TEST_SPECS
     test_data_source               UnitTest/test_data_source.cpp              120 UNIT
     test_data_persistence          UnitTest/test_data_persistence.cpp         120 UNIT
     test_join_data_source          UnitTest/test_join_data_source.cpp         120 UNIT
+    test_connection_strategy       UnitTest/test_connection_strategy.cpp      120 UNIT
+    test_runtime_context           UnitTest/test_runtime_context.cpp          120 UNIT
+    test_window_state              UnitTest/test_window_state.cpp             120 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)
