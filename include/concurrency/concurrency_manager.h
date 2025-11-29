@@ -23,6 +23,18 @@ class ConcurrencyManager {
   // Destructor
   ~ConcurrencyManager();
 
+  /**
+   * @brief 注册外部创建的索引
+   * 
+   * 用于注册在 ConcurrencyManager 外部创建的索引（如 PartitionedIndex）。
+   * 该方法会自动配置索引的 storage_manager_，确保索引可以访问全局存储。
+   * 
+   * @param name 索引名称
+   * @param index 外部创建的索引
+   * @return 索引 ID，失败返回 -1
+   */
+  auto register_index(const std::string &name, std::shared_ptr<Index> index) -> int;
+
   auto create_index(const std::string &name, const IndexType &index_type, int dimension) -> int;
   auto create_index(const std::string &name, const IndexType &index_type, int dimension,
                     const IndexParameters& params) -> int;

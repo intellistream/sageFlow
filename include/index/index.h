@@ -17,7 +17,9 @@ enum class IndexType {  // NOLINT
   HNSW,
   BruteForce,
   IVF,
-  Vectraflow
+  Vectraflow,
+  HDRTree,
+  PartitionedIndex
 };
 
 // Index-specific parameter structures

@@ -95,6 +95,29 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, int dim
   return create_index(name, IndexType::BruteForce, dimension);
 }
 
+auto sageFlow::ConcurrencyManager::register_index(const std::string& name, std::shared_ptr<Index> index) -> int {
+  if (!index) {
+    return -1;
+  }
+  
+  // 分配索引 ID
+  index->index_id_ = index_id_counter_++;
+  
+  // 配置 storage_manager_（遵循索引创建规范）
+  index->storage_manager_ = storage_;
+  if (storage_ && !storage_->engine_) {
+    storage_->engine_ = std::make_shared<ComputeEngine>();
+  }
+  
+  // 创建并发控制器
+  const auto blank_controller = std::make_shared<BlankController>(index);
+  
+  controller_map_[index->index_id_] = blank_controller;
+  index_map_[name] = IdWithType{.id_ = index->index_id_, .index_type_ = index->index_type_};
+  
+  return index->index_id_;
+}
+
 auto sageFlow::ConcurrencyManager::drop_index(const std::string& name) -> bool { return false; }
 
 auto sageFlow::ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecord> record) -> bool {
