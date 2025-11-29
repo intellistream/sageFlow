@@ -3,11 +3,13 @@
 add_lib(
         execution
         blocking_queue.cpp
+        centroid_partitioner.cpp
         execution_graph.cpp
         execution_vertex.cpp
         input_gate.cpp
         result_partition.cpp
         ring_buffer_queue.cpp
+        vector_space_partitioner.cpp
 )
 target_link_libraries(
         execution
