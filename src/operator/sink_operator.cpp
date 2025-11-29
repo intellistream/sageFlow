@@ -24,3 +24,9 @@ auto sageFlow::SinkOperator::apply(Response&& record, int slot, Collector& colle
   //   collector.collect(std::make_unique<Response>(std::move(result)), slot);
   // }
 }
+
+auto sageFlow::SinkOperator::apply(Response&& record, int slot, Collector& collector, 
+                                   const RuntimeContext& context) -> void {
+  // SinkOperator 不需要 RuntimeContext 信息，直接委托给旧方法
+  apply(std::move(record), slot, collector);
+}

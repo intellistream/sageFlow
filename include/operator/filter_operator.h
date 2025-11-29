@@ -14,6 +14,10 @@ class FilterOperator final : public Operator {
 
   auto apply(Response&& record, int slot, Collector& collector) -> void override;
 
+  // New method with RuntimeContext support
+  auto apply(Response&& record, int slot, Collector& collector, 
+             const RuntimeContext& context) -> void override;
+
  private:
   std::unique_ptr<Function> filter_func_;
 };

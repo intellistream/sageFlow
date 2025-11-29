@@ -17,6 +17,10 @@ class TopkOperator final : public Operator {
 
   auto apply(Response&& record, int slot, Collector& collector) -> void override;
 
+  // New method with RuntimeContext support
+  auto apply(Response&& record, int slot, Collector& collector, 
+             const RuntimeContext& context) -> void override;
+
  private:
   std::unique_ptr<Function> topk_func_;
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;

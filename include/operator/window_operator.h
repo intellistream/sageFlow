@@ -16,6 +16,10 @@ class WindowOperator : public Operator {
 
   auto apply(Response &&record, int slot, Collector &collector) -> void override;
 
+  // New method with RuntimeContext support
+  auto apply(Response &&record, int slot, Collector &collector, 
+             const RuntimeContext& context) -> void override;
+
   int window_size_;
 
  protected:
@@ -34,6 +38,10 @@ class TumblingWindowOperator final : public WindowOperator {
 
   auto apply(Response &&record, int slot, Collector &collector) -> void override;
 
+  // New method with RuntimeContext support
+  auto apply(Response &&record, int slot, Collector &collector, 
+             const RuntimeContext& context) -> void override;
+
  private:
   std::list<std::unique_ptr<VectorRecord>> window_buffer_;
 };
@@ -45,6 +53,10 @@ class SlidingWindowOperator final : public WindowOperator {
   auto process(Response &data, int slot) -> std::optional<Response> override;
 
   auto apply(Response &&record, int slot, Collector &collector) -> void override;
+
+  // New method with RuntimeContext support
+  auto apply(Response &&record, int slot, Collector &collector, 
+             const RuntimeContext& context) -> void override;
 
  private:
   std::list<std::unique_ptr<VectorRecord>> window_buffer_;

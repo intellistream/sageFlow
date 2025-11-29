@@ -10,9 +10,18 @@ add_lib(
         window_operator.cpp
         itopk_operator.cpp
         aggregate_operator.cpp
+        distance_verifier.cpp
+        async_candidate_generator.cpp
         join_operator_methods/base_method.cpp
         join_operator_methods/bruteforce.cpp
+        join_operator_methods/bruteforce_baseline.cpp
         join_operator_methods/ivf.cpp
+        join_operator_methods/hnsw.cpp
+        join_operator_methods/hdr_tree_method.cpp
+        join_operator_methods/clustered_join_method.cpp
+        join_operator_methods/s3j_method.cpp
+        join_operator_methods/s3j_components/adaptive_partitioner.cpp
+        join_operator_methods/s3j_components/adaptive_index_selector.cpp
 )
 target_link_libraries(
         operator

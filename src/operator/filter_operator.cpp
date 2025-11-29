@@ -20,3 +20,9 @@ auto sageFlow::FilterOperator::apply(Response&& record, int slot, Collector& col
   }
   // 不通过过滤的数据直接丢弃，不向下游发送
 }
+
+auto sageFlow::FilterOperator::apply(Response&& record, int slot, Collector& collector, 
+                                     const RuntimeContext& context) -> void {
+  // FilterOperator 不需要 RuntimeContext 信息，直接委托给旧方法
+  apply(std::move(record), slot, collector);
+}
