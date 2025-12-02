@@ -118,9 +118,9 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         int64_t step_size = join_func_->getStepSize();
         int64_t vector_count = (step_size > 0) ? (window_size / step_size) : window_size;
         int nlist = std::max(1, static_cast<int>(4.0 * std::sqrt(static_cast<double>(vector_count))));
-        // 提高 nprobes 比例以保证高召回率（从 30% 提高到 80%）
-        // IVF 是近似索引，只搜索 nprobes 个聚类，低 nprobes 会导致召回率下降
-        int nprobes = std::max(10, nlist * 80 / 100);
+        // nprobes 设为 30%，平衡召回率和查询速度
+        // IVF 是近似索引，只搜索 nprobes 个聚类
+        int nprobes = std::max(3, nlist * 30 / 100);
         
         // IVF 需要使用索引加速，创建索引对
         IVFParameters ivf_params{
