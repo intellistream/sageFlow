@@ -139,7 +139,9 @@ void TwoTierWindowState::evictExpired(int64_t current_timestamp,
     std::unique_lock lock(partitions_[subtask_index].mutex_);
     
     auto& tier_pair = partitions_[subtask_index];
-    int64_t expiry_threshold = current_timestamp - window_size;
+    // 计算过期阈值：timestamp < current_timestamp - multiplier * window_size
+    int64_t expiry_threshold = current_timestamp - 
+        static_cast<int64_t>(eviction_buffer_multiplier_ * window_size);
     size_t evicted_count = 0;
     
     // 1. 清理紧凑层（从头部删除，因为头部是旧记录）

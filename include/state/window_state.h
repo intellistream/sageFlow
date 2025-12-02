@@ -123,6 +123,35 @@ public:
      * @return true 表示共享状态，false 表示分区状态
      */
     virtual bool isShared() const = 0;
+
+    /**
+     * @brief 设置过期缓冲区倍数
+     * 
+     * evictExpired 的过期条件为: timestamp < current_timestamp - multiplier * window_size
+     * 默认值为 2.0，表示 2 倍窗口大小的缓冲区
+     * 
+     * @param multiplier 缓冲区倍数（必须 >= 1.0）
+     */
+    void setEvictionBufferMultiplier(double multiplier) {
+        eviction_buffer_multiplier_ = std::max(1.0, multiplier);
+    }
+
+    /**
+     * @brief 获取过期缓冲区倍数
+     * @return 当前的缓冲区倍数
+     */
+    double getEvictionBufferMultiplier() const {
+        return eviction_buffer_multiplier_;
+    }
+
+    /**
+     * @brief 默认的过期缓冲区倍数
+     */
+    static constexpr double DEFAULT_EVICTION_BUFFER_MULTIPLIER = 2.0;
+
+protected:
+    /// 过期缓冲区倍数，默认 2.0 表示 2 倍窗口大小
+    double eviction_buffer_multiplier_ = DEFAULT_EVICTION_BUFFER_MULTIPLIER;
 };
 
 } // namespace sageFlow

@@ -276,6 +276,9 @@ TEST_F(WindowStateFactoryTest, CreatedStateEvictionWorks) {
         WindowStateType::SHARED, 1, config);
 
     ASSERT_NE(state, nullptr);
+    
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state->setEvictionBufferMultiplier(1.0);
 
     // 添加多个记录
     for (int i = 0; i < 5; ++i) {
@@ -288,7 +291,7 @@ TEST_F(WindowStateFactoryTest, CreatedStateEvictionWorks) {
     EXPECT_EQ(state->size(0), 5);
 
     // 清理过期记录（窗口大小 2000ms，当前时间 5000ms）
-    // 应该保留 timestamp >= 3000 的记录（即 uid 2, 3, 4）
+    // 使用 1 倍缓冲区：应该保留 timestamp >= 3000 的记录（即 uid 2, 3, 4）
     state->evictExpired(5000, 2000, 0);
 
     EXPECT_EQ(state->size(0), 3);  // uid 2, 3, 4 (timestamps 3000, 4000, 5000)

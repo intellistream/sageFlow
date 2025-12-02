@@ -99,6 +99,9 @@ TEST_F(TwoTierWindowStateTest, GetAllRecordsReturnsPointers) {
 }
 
 TEST_F(TwoTierWindowStateTest, EvictExpiredFromWriteTier) {
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state_->setEvictionBufferMultiplier(1.0);
+    
     state_->addRecord(createTestRecord(1, 1000), 0);
     state_->addRecord(createTestRecord(2, 2000), 0);
     state_->addRecord(createTestRecord(3, 5000), 0);
@@ -107,7 +110,7 @@ TEST_F(TwoTierWindowStateTest, EvictExpiredFromWriteTier) {
     EXPECT_EQ(state_->size(0), 4);
     
     // 清理过期记录（窗口大小为 3000，当前时间 9000）
-    // 应该保留时间戳 >= 6000 的记录
+    // 使用 1 倍缓冲区：应该保留时间戳 >= 6000 的记录
     state_->evictExpired(9000, 3000, 0);
     
     EXPECT_EQ(state_->size(0), 1);
@@ -200,6 +203,9 @@ TEST_F(TwoTierWindowStateTest, CompactDoesNothingWhenInsufficientRecords) {
 // ============================================================================
 
 TEST_F(TwoTierWindowStateTest, EvictExpiredFromBothTiers) {
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state_->setEvictionBufferMultiplier(1.0);
+    
     // 添加足够多的记录触发压缩
     for (int i = 0; i < 12; ++i) {
         state_->addRecord(createTestRecord(i, 1000 + i * 100), 0);
@@ -211,7 +217,7 @@ TEST_F(TwoTierWindowStateTest, EvictExpiredFromBothTiers) {
     
     size_t total_before = state_->size(0);
     
-    // 清理所有时间戳 < 2000 的记录
+    // 使用 1 倍缓冲区：清理所有时间戳 < 2000 的记录
     state_->evictExpired(3000, 1000, 0);
     
     // 应该清理掉一些记录
@@ -361,6 +367,9 @@ TEST_F(TwoTierWindowStateTest, EmptyState) {
 }
 
 TEST_F(TwoTierWindowStateTest, AllRecordsExpired) {
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state_->setEvictionBufferMultiplier(1.0);
+    
     // 添加一些记录
     for (int i = 0; i < 15; ++i) {
         state_->addRecord(createTestRecord(i, 1000 + i * 100), 0);
@@ -425,6 +434,9 @@ TEST_F(TwoTierWindowStateTest, LargeNumberOfRecords) {
 }
 
 TEST_F(TwoTierWindowStateTest, EvictNothingWhenAllValid) {
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state_->setEvictionBufferMultiplier(1.0);
+    
     // 添加时间戳在窗口内的记录
     for (int i = 0; i < 5; ++i) {
         state_->addRecord(createTestRecord(i, 9000 + i * 100), 0);

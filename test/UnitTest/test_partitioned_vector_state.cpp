@@ -276,6 +276,9 @@ TEST_F(PartitionedVectorStateTest, BoundaryVectorInQueryResults) {
 // ============================================================================
 
 TEST_F(PartitionedVectorStateTest, EvictExpiredAcrossPartitions) {
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state_->setEvictionBufferMultiplier(1.0);
+    
     // 添加不同时间戳的记录
     for (uint64_t i = 1; i <= 100; ++i) {
         state_->addRecord(createRandomRecord(i, static_cast<int64_t>(i * 100)), 0);
@@ -283,8 +286,7 @@ TEST_F(PartitionedVectorStateTest, EvictExpiredAcrossPartitions) {
     
     EXPECT_EQ(state_->totalSize(), 100);
     
-    // 过期清理：窗口大小 5000，当前时间戳 10000
-    // 清理 timestamp < (10000 - 5000) = 5000 的记录
+    // 使用 1 倍缓冲区：过期清理 timestamp < (10000 - 5000) = 5000 的记录
     // 即 timestamp = i * 100 < 5000，则 i < 50
     // 所以 uid 1-49 被清理（49条），uid 50-100 保留（51条）
     state_->evictExpired(10000, 5000, 0);
@@ -294,6 +296,9 @@ TEST_F(PartitionedVectorStateTest, EvictExpiredAcrossPartitions) {
 }
 
 TEST_F(PartitionedVectorStateTest, EvictUpdatesUidMap) {
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state_->setEvictionBufferMultiplier(1.0);
+    
     state_->addRecord(createRandomRecord(1, 1000), 0);
     state_->addRecord(createRandomRecord(2, 2000), 0);
     state_->addRecord(createRandomRecord(3, 3000), 0);
@@ -303,7 +308,7 @@ TEST_F(PartitionedVectorStateTest, EvictUpdatesUidMap) {
     EXPECT_GE(state_->getPartitionForUid(2), 0);
     EXPECT_GE(state_->getPartitionForUid(3), 0);
     
-    // 过期清理：清除 timestamp < 2500 的记录
+    // 使用 1 倍缓冲区：过期清理 timestamp < 2500 的记录
     state_->evictExpired(5000, 2500, 0);
     
     // uid=1 和 uid=2 应该被清理

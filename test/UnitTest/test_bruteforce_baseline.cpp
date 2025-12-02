@@ -77,7 +77,7 @@ protected:
     }
     
     /**
-     * @brief 创建与给定向量具有指定相似度的向量
+     * @brief 创建与给定向量具有指定相似度的向量（基于余弦相似度）
      */
     std::vector<float> createSimilarVector(
         const std::vector<float>& base,
@@ -109,6 +109,57 @@ protected:
         std::vector<float> result(base.size());
         for (size_t i = 0; i < base.size(); ++i) {
             result[i] = static_cast<float>(base[i] * cos_theta + noise[i] * sin_theta);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * @brief 创建与给定向量具有指定 L2 相似度的向量
+     * 
+     * BruteForceBaseline 使用 ComputeEngine::Similarity 计算相似度，
+     * 其公式为: similarity = exp(-alpha * L2_distance)，其中 alpha = 0.1
+     * 
+     * 给定目标相似度 s，反推 L2 距离: d = -ln(s) / alpha
+     * 然后生成一个与 base 距离为 d 的向量
+     * 
+     * @param base 基础向量（假设已归一化）
+     * @param target_similarity 目标相似度 (0, 1]
+     * @param seed 随机种子
+     * @return 具有指定 L2 相似度的向量
+     */
+    std::vector<float> createSimilarVectorL2(
+        const std::vector<float>& base,
+        double target_similarity,
+        uint32_t seed) {
+        
+        std::mt19937 rng(seed);
+        std::normal_distribution<float> dist(0.0f, 1.0f);
+        
+        // 从目标相似度反推 L2 距离
+        // similarity = exp(-0.1 * L2_distance)
+        // L2_distance = -ln(similarity) / 0.1
+        constexpr double alpha = 0.1;
+        double target_l2_distance = -std::log(std::clamp(target_similarity, 1e-10, 1.0)) / alpha;
+        
+        // 生成随机方向向量
+        std::vector<float> direction(base.size());
+        float dir_norm = 0.0f;
+        for (size_t i = 0; i < base.size(); ++i) {
+            direction[i] = dist(rng);
+            dir_norm += direction[i] * direction[i];
+        }
+        dir_norm = std::sqrt(dir_norm);
+        
+        // 单位化方向向量
+        for (auto& d : direction) {
+            d /= dir_norm;
+        }
+        
+        // 计算结果向量: result = base + target_l2_distance * direction
+        std::vector<float> result(base.size());
+        for (size_t i = 0; i < base.size(); ++i) {
+            result[i] = base[i] + static_cast<float>(target_l2_distance * direction[i]);
         }
         
         return result;
@@ -207,8 +258,8 @@ TEST_F(BruteForceBaselineTest, ExecuteEager_SimilarVectors) {
     method_->open(*context_, left_state_.get(), right_state_.get());
     
     auto base_vec = createNormalizedVector(default_dim_, 42);
-    // 创建相似度 0.9 的向量（高于阈值 0.8）
-    auto similar_vec = createSimilarVector(base_vec, 0.9, 100);
+    // 创建 L2 相似度 0.9 的向量（高于阈值 0.8）
+    auto similar_vec = createSimilarVectorL2(base_vec, 0.9, 100);
     
     auto query = createRecord(1, base_vec);
     auto record = createRecord(2, similar_vec);
@@ -225,8 +276,8 @@ TEST_F(BruteForceBaselineTest, ExecuteEager_DissimilarVectors) {
     method_->open(*context_, left_state_.get(), right_state_.get());
     
     auto base_vec = createNormalizedVector(default_dim_, 42);
-    // 创建相似度 0.5 的向量（低于阈值 0.8）
-    auto dissimilar_vec = createSimilarVector(base_vec, 0.5, 100);
+    // 创建 L2 相似度 0.5 的向量（低于阈值 0.8）
+    auto dissimilar_vec = createSimilarVectorL2(base_vec, 0.5, 100);
     
     auto query = createRecord(1, base_vec);
     auto record = createRecord(2, dissimilar_vec);
@@ -258,14 +309,14 @@ TEST_F(BruteForceBaselineTest, ExecuteEager_MultipleMatches) {
     auto base_vec = createNormalizedVector(default_dim_, 42);
     auto query = createRecord(1, base_vec);
     
-    // 添加多个相似的记录
+    // 添加多个相似的记录（使用 L2 相似度）
     for (uint64_t i = 2; i <= 5; ++i) {
-        auto similar_vec = createSimilarVector(base_vec, 0.85, static_cast<uint32_t>(i * 100));
+        auto similar_vec = createSimilarVectorL2(base_vec, 0.85, static_cast<uint32_t>(i * 100));
         right_state_->addRecord(createRecord(i, similar_vec), 0);
     }
     
     // 添加一个不相似的记录
-    auto dissimilar_vec = createSimilarVector(base_vec, 0.5, 999);
+    auto dissimilar_vec = createSimilarVectorL2(base_vec, 0.5, 999);
     right_state_->addRecord(createRecord(6, dissimilar_vec), 0);
     
     auto results = method_->ExecuteEager(*query, 0);
@@ -303,8 +354,8 @@ TEST_F(BruteForceBaselineTest, ThresholdBoundary_ExactlyAtThreshold) {
     method_->open(*context_, left_state_.get(), right_state_.get());
     
     auto base_vec = createNormalizedVector(default_dim_, 42);
-    // 创建刚好在阈值上的向量 - 使用 0.81 确保稳定超过阈值
-    auto boundary_vec = createSimilarVector(base_vec, 0.81, 100);
+    // 创建刚好在阈值上的向量 - 使用 0.81 确保稳定超过阈值（L2 相似度）
+    auto boundary_vec = createSimilarVectorL2(base_vec, 0.81, 100);
     
     auto query = createRecord(1, base_vec);
     right_state_->addRecord(createRecord(2, boundary_vec), 0);
@@ -320,8 +371,8 @@ TEST_F(BruteForceBaselineTest, ThresholdBoundary_JustBelowThreshold) {
     method_->open(*context_, left_state_.get(), right_state_.get());
     
     auto base_vec = createNormalizedVector(default_dim_, 42);
-    // 创建明显低于阈值的向量
-    auto below_vec = createSimilarVector(base_vec, 0.7, 100);
+    // 创建明显低于阈值的向量（L2 相似度）
+    auto below_vec = createSimilarVectorL2(base_vec, 0.7, 100);
     
     auto query = createRecord(1, base_vec);
     right_state_->addRecord(createRecord(2, below_vec), 0);

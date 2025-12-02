@@ -66,6 +66,8 @@ TEST_F(WindowStateTest, PartitionedStateBasicOperations) {
 
 TEST_F(WindowStateTest, PartitionedStateEviction) {
     PartitionedWindowState state(2);
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state.setEvictionBufferMultiplier(1.0);
     
     // 添加带时间戳的记录
     state.addRecord(createTestRecord(1, 1000), 0);
@@ -76,7 +78,7 @@ TEST_F(WindowStateTest, PartitionedStateEviction) {
     EXPECT_EQ(state.size(0), 4);
     
     // 清理过期记录（窗口大小为 3000，当前时间 9000）
-    // 应该保留时间戳 >= 6000 的记录
+    // 使用 1 倍缓冲区：应该保留时间戳 >= 6000 的记录
     state.evictExpired(9000, 3000, 0);
     
     EXPECT_EQ(state.size(0), 1);
@@ -86,6 +88,8 @@ TEST_F(WindowStateTest, PartitionedStateEviction) {
 
 TEST_F(WindowStateTest, PartitionedStateIndependentPartitions) {
     PartitionedWindowState state(3);
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state.setEvictionBufferMultiplier(1.0);
     
     // 添加到不同分区
     for (size_t i = 0; i < 3; ++i) {
@@ -99,7 +103,7 @@ TEST_F(WindowStateTest, PartitionedStateIndependentPartitions) {
     EXPECT_EQ(state.size(1), 4);
     EXPECT_EQ(state.size(2), 6);
     
-    // 清理一个分区不应影响其他分区
+    // 使用 1 倍缓冲区：清理一个分区不应影响其他分区
     state.evictExpired(5000, 2000, 1);
     
     EXPECT_EQ(state.size(0), 2);  // 未清理
@@ -165,6 +169,8 @@ TEST_F(WindowStateTest, SharedStateBasicOperations) {
 
 TEST_F(WindowStateTest, SharedStateEviction) {
     SharedWindowState state;
+    // 设置 1 倍缓冲区使测试行为与原设计一致
+    state.setEvictionBufferMultiplier(1.0);
     
     // 添加带时间戳的记录
     state.addRecord(createTestRecord(1, 1000), 0);
@@ -175,6 +181,7 @@ TEST_F(WindowStateTest, SharedStateEviction) {
     EXPECT_EQ(state.size(0), 4);
     
     // 清理过期记录（subtask_index 被忽略）
+    // 使用 1 倍缓冲区：应该保留时间戳 >= 6000 的记录
     state.evictExpired(9000, 3000, 0);
     
     EXPECT_EQ(state.size(0), 1);

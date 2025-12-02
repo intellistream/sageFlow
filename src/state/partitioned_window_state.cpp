@@ -70,9 +70,13 @@ void PartitionedWindowState::evictExpired(int64_t current_timestamp,
     auto& partition = partitions_[subtask_index];
     auto& expired = expired_uids_[subtask_index];
     
+    // 计算过期阈值：timestamp < current_timestamp - multiplier * window_size
+    int64_t expiry_threshold = current_timestamp - 
+        static_cast<int64_t>(eviction_buffer_multiplier_ * window_size);
+    
     // 将过期记录的 UID 添加到 expired_uids_ buffer 中
     while (!partition.empty() && 
-           partition.front()->timestamp_ < current_timestamp - window_size) {
+           partition.front()->timestamp_ < expiry_threshold) {
         expired.insert(partition.front()->uid_);
         partition.pop_front();
     }

@@ -115,3 +115,6 @@ docs/tasks/group_*/
 # Test data (generated)
 test/data/
 
+
+# Task documentation (internal use only)
+docs/tasks/

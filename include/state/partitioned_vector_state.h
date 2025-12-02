@@ -146,6 +146,18 @@ public:
      */
     bool isShared() const override { return false; }
 
+    /**
+     * @brief 设置过期缓冲区倍数（传播到所有子分区）
+     * @param multiplier 缓冲区倍数（必须 >= 1.0）
+     */
+    void setEvictionBufferMultiplier(double multiplier) {
+        WindowState::setEvictionBufferMultiplier(multiplier);
+        // 传播到所有子分区
+        for (auto& partition : partitions_) {
+            partition->setEvictionBufferMultiplier(multiplier);
+        }
+    }
+
     // ========== 分区特定操作 ==========
 
     /**

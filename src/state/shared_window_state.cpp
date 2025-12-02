@@ -71,9 +71,13 @@ void SharedWindowState::evictExpired(int64_t current_timestamp,
     // subtask_index 在共享状态中被忽略
     std::unique_lock lock(mutex_);
     
+    // 计算过期阈值：timestamp < current_timestamp - multiplier * window_size
+    int64_t expiry_threshold = current_timestamp - 
+        static_cast<int64_t>(eviction_buffer_multiplier_ * window_size);
+    
     // 将过期记录的 UID 添加到 expired_uids_ buffer 中
     while (!shared_window_.empty() && 
-           shared_window_.front()->timestamp_ < current_timestamp - 2*window_size) {
+           shared_window_.front()->timestamp_ < expiry_threshold) {
         // 记录过期 UID（用于后续批量删除）
         expired_uids_.insert(shared_window_.front()->uid_);
         shared_window_.pop_front();
