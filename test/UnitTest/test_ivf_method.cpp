@@ -79,7 +79,11 @@ protected:
     }
     
     /**
-     * @brief 创建与给定向量具有指定相似度的向量
+     * @brief 创建与给定向量具有指定余弦相似度的向量
+     * 
+     * 使用 Gram-Schmidt 正交化确保精确的目标相似度：
+     * result = base * cos(θ) + orthogonal * sin(θ)
+     * 其中 θ = arccos(target_similarity)
      */
     std::vector<float> createSimilarVector(
         const std::vector<float>& base,
@@ -89,29 +93,110 @@ protected:
         std::mt19937 rng(seed);
         std::normal_distribution<float> dist(0.0f, 1.0f);
         
-        // 生成随机噪声向量
-        std::vector<float> noise(base.size());
-        float noise_norm = 0.0f;
+        // 生成随机向量
+        std::vector<float> random_vec(base.size());
         for (size_t i = 0; i < base.size(); ++i) {
-            noise[i] = dist(rng);
-            noise_norm += noise[i] * noise[i];
-        }
-        noise_norm = std::sqrt(noise_norm);
-        for (auto& n : noise) {
-            n /= noise_norm;
+            random_vec[i] = dist(rng);
         }
         
-        // 线性组合得到目标相似度
-        double angle = std::acos(std::clamp(target_similarity, -1.0, 1.0));
-        double cos_theta = std::cos(angle);
-        double sin_theta = std::sin(angle);
+        // Gram-Schmidt 正交化：从 random_vec 中减去 base 方向的分量
+        // orthogonal = random_vec - (random_vec · base) * base
+        double dot_rb = 0.0;
+        for (size_t i = 0; i < base.size(); ++i) {
+            dot_rb += random_vec[i] * base[i];
+        }
+        
+        std::vector<float> orthogonal(base.size());
+        for (size_t i = 0; i < base.size(); ++i) {
+            orthogonal[i] = random_vec[i] - static_cast<float>(dot_rb * base[i]);
+        }
+        
+        // 归一化正交向量
+        double orth_norm = 0.0;
+        for (size_t i = 0; i < base.size(); ++i) {
+            orth_norm += orthogonal[i] * orthogonal[i];
+        }
+        orth_norm = std::sqrt(orth_norm);
+        if (orth_norm < 1e-10) {
+            // 极端情况：random_vec 与 base 几乎平行，重新生成
+            return createSimilarVector(base, target_similarity, seed + 1);
+        }
+        for (auto& v : orthogonal) {
+            v /= static_cast<float>(orth_norm);
+        }
+        
+        // 线性组合得到精确的目标相似度
+        // cos(θ) = target_similarity, sin(θ) = sqrt(1 - cos²(θ))
+        double cos_theta = std::clamp(target_similarity, -1.0, 1.0);
+        double sin_theta = std::sqrt(1.0 - cos_theta * cos_theta);
         
         std::vector<float> result(base.size());
         for (size_t i = 0; i < base.size(); ++i) {
-            result[i] = static_cast<float>(base[i] * cos_theta + noise[i] * sin_theta);
+            result[i] = static_cast<float>(base[i] * cos_theta + orthogonal[i] * sin_theta);
         }
         
         return result;
+    }
+    
+    /**
+     * @brief 创建与给定向量具有指定 L2 相似度的向量
+     * 
+     * IVFMethod 使用 exp(-alpha * L2_distance) 作为相似度计算
+     * 所以我们需要根据目标相似度反推 L2 距离，然后生成对应的向量
+     * 
+     * target_similarity = exp(-alpha * d) => d = -ln(target_similarity) / alpha
+     */
+    std::vector<float> createSimilarVectorL2(
+        const std::vector<float>& base,
+        double target_similarity,
+        uint32_t seed) {
+        
+        constexpr double kAlpha = 0.1;  // 与 IVFMethod 一致
+        
+        // 计算目标 L2 距离
+        double clipped_sim = std::clamp(target_similarity, 1e-9, 1.0 - 1e-9);
+        double target_distance = -std::log(clipped_sim) / kAlpha;
+        
+        std::mt19937 rng(seed);
+        std::normal_distribution<float> dist(0.0f, 1.0f);
+        
+        // 生成随机方向向量
+        std::vector<float> direction(base.size());
+        double dir_norm = 0.0;
+        for (size_t i = 0; i < base.size(); ++i) {
+            direction[i] = dist(rng);
+            dir_norm += direction[i] * direction[i];
+        }
+        dir_norm = std::sqrt(dir_norm);
+        for (auto& d : direction) {
+            d /= static_cast<float>(dir_norm);
+        }
+        
+        // 沿随机方向偏移 target_distance
+        std::vector<float> result(base.size());
+        for (size_t i = 0; i < base.size(); ++i) {
+            result[i] = base[i] + static_cast<float>(target_distance * direction[i]);
+        }
+        
+        return result;
+    }
+    
+    /**
+     * @brief 计算两个向量的 L2 相似度 (exp(-alpha * L2_distance))
+     */
+    double computeL2Similarity(
+        const std::vector<float>& a,
+        const std::vector<float>& b) {
+        if (a.size() != b.size() || a.empty()) return 0.0;
+        
+        constexpr double kAlpha = 0.1;
+        double distance_sq = 0.0;
+        for (size_t i = 0; i < a.size(); ++i) {
+            double diff = a[i] - b[i];
+            distance_sq += diff * diff;
+        }
+        double distance = std::sqrt(distance_sq);
+        return std::exp(-kAlpha * distance);
     }
     
     /**
@@ -296,7 +381,7 @@ TEST_F(IVFMethodTest, ExecuteEager_SimilarVectors) {
     auto base_vec = createNormalizedVector(default_dim_, 42);
     
     // 创建一个相似向量（0.85 > threshold）
-    auto similar_vec = createSimilarVector(base_vec, 0.85, 100);
+    auto similar_vec = createSimilarVectorL2(base_vec, 0.85, 100);
     
     auto query = createRecord(1, base_vec);
     auto record = createRecord(2, similar_vec);
@@ -316,7 +401,7 @@ TEST_F(IVFMethodTest, ExecuteEager_DissimilarVectors) {
     auto base_vec = createNormalizedVector(default_dim_, 42);
     
     // 创建一个不相似的向量（0.5 < threshold）
-    auto dissimilar_vec = createSimilarVector(base_vec, 0.5, 100);
+    auto dissimilar_vec = createSimilarVectorL2(base_vec, 0.5, 100);
     
     auto query = createRecord(1, base_vec);
     auto record = createRecord(2, dissimilar_vec);
@@ -353,16 +438,16 @@ TEST_F(IVFMethodTest, ExecuteEager_MultipleMatches) {
     auto base_vec = createNormalizedVector(default_dim_, 42);
     auto query = createRecord(1, base_vec);
     
-    // 添加多个相似记录
+    // 添加多个相似记录 (L2 相似度 > 0.8)
     for (uint64_t i = 2; i <= 5; ++i) {
-        auto similar_vec = createSimilarVector(base_vec, 0.85 + (i - 2) * 0.03, 100 + i);
+        auto similar_vec = createSimilarVectorL2(base_vec, 0.85 + (i - 2) * 0.03, 100 + i);
         auto record = createRecord(i, similar_vec);
         right_state_->addRecord(std::move(record), 0);
     }
     
-    // 添加一些不相似的记录
+    // 添加一些不相似的记录 (L2 相似度 < 0.8)
     for (uint64_t i = 6; i <= 8; ++i) {
-        auto dissimilar_vec = createNormalizedVector(default_dim_, 200 + i);
+        auto dissimilar_vec = createSimilarVectorL2(base_vec, 0.5 + (i - 6) * 0.1, 200 + i);  // 0.5, 0.6, 0.7
         auto record = createRecord(i, dissimilar_vec);
         right_state_->addRecord(std::move(record), 0);
     }
@@ -452,7 +537,7 @@ TEST_F(IVFMethodTest, RecallComparison) {
     size_t expected_matches = 0;
     for (uint64_t i = 2; i <= 20; ++i) {
         double sim = 0.5 + (i % 10) * 0.05;  // 0.5 到 0.95
-        auto vec = createSimilarVector(base_vec, sim, 100 + i);
+        auto vec = createSimilarVectorL2(base_vec, sim, 100 + i);
         auto record = createRecord(i, vec);
         
         if (sim >= default_threshold_) {
@@ -522,8 +607,8 @@ TEST_F(IVFMethodTest, ThresholdBoundary) {
     auto base_vec = createNormalizedVector(default_dim_, 42);
     
     // 创建明确高于和低于阈值的向量
-    auto vec_above = createSimilarVector(base_vec, 0.90, 100);  // 明显高于阈值
-    auto vec_below = createSimilarVector(base_vec, 0.75, 101);  // 明显低于阈值
+    auto vec_above = createSimilarVectorL2(base_vec, 0.90, 100);  // 明显高于阈值
+    auto vec_below = createSimilarVectorL2(base_vec, 0.75, 101);  // 明显低于阈值
     
     right_state_->addRecord(createRecord(10, vec_above), 0);
     right_state_->addRecord(createRecord(11, vec_below), 0);
@@ -558,7 +643,7 @@ TEST_F(IVFMethodTest, HighDimensionVectors) {
     method.open(*context_, left_state_.get(), right_state_.get());
     
     auto base_vec = createNormalizedVector(high_dim, 42);
-    auto similar_vec = createSimilarVector(base_vec, 0.85, 100);
+    auto similar_vec = createSimilarVectorL2(base_vec, 0.85, 100);
     
     auto query = createRecord(1, base_vec);
     auto record = createRecord(2, similar_vec);
@@ -585,7 +670,7 @@ TEST_F(IVFMethodTest, LargeScaleWindow) {
     size_t expected_matches = 0;
     for (uint64_t i = 10; i < 1010; ++i) {
         double sim = (i % 100 < 30) ? 0.85 : 0.5;  // 30% 相似
-        auto vec = createSimilarVector(base_vec, sim, 100 + i);
+        auto vec = createSimilarVectorL2(base_vec, sim, 100 + i);
         auto record = createRecord(i, vec);
         
         if (sim >= default_threshold_) {
