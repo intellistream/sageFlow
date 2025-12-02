@@ -86,6 +86,7 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
             // VSJoin 需要 VectorSpacePartitioner
             components.vector_partitioner = createVectorSpacePartitioner(config);
             // TODO: 创建其他 VSJoin 组件（coordinator, async_gen, verifier）
+            // Issue URL: https://github.com/intellistream/sageFlow/issues/79
             break;
         }
         case JoinAlgorithm::S3J:
@@ -247,6 +248,7 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createVSJoinMethod(
     
     // VSJoin 暂时使用 BruteForce 作为基础
     // TODO: 实现完整的 VSJoin 方法
+    // Issue URL: https://github.com/intellistream/sageFlow/issues/78
     SAGEFLOW_LOG_WARN("JOIN_FACTORY", "VSJoin method is not fully implemented yet, "
                      "using BruteForce as fallback");
     return createBruteForceMethod(config, cm, left_idx, right_idx);
@@ -305,6 +307,7 @@ std::unique_ptr<IPartitioner> JoinStrategyFactory::createPartitioner(
             // LSH 分区需要使用基于 VectorSpacePartitioner 的适配器
             // 这里暂时返回 VectorHashPartitioner 作为替代
             // TODO: 实现 LSHPartitionerAdapter
+            // Issue URL: https://github.com/intellistream/sageFlow/issues/77
             SAGEFLOW_LOG_WARN("JOIN_FACTORY", 
                              "LSH partitioner adapter not implemented, using VectorHash");
             return std::make_unique<VectorHashPartitioner>();
