@@ -1,195 +1,164 @@
-# VSJoin Infrastructure & Core Components Implementation
+# VSJoin 流式向量相似性连接引擎 - 多线程架构重构与 Baseline 实现
 
-## 📋 PR Summary
+## 📋 概述
 
-This PR implements the foundational infrastructure and core components for VSJoin (Vector-space Similarity Join) based on the implementation roadmap defined in `docs/VSJOIN_IMPLEMENTATION_ROADMAP.md`. 
-
-> ⚠️ **Draft Status**: This is a work-in-progress PR. New join methods are implemented but **not yet integrated into JoinOperator** and **have not passed integration tests**.
+ PR 实现了 SageFlow 的 **VSJoin 流式向量相似性连接引**，包含完整的多线程架构重构和多种 Baseline 算法实现。这是一个大规模重构，包含 **195 个文件变更**，新增约 **50,000+ 行代码**。
 
 ---
 
-## 🎯 Based on Roadmap
+## 🏗️ 架构变更
 
-This work follows the **VSJoin Implementation Roadmap** (Section 11) and addresses:
-- **Group B (B-01 ~ B-04)**: Core VSJoin components
-- **Group C (C-01)**: VSJoin integration (partial)
-- **Group D (D-01 ~ D-06)**: Baseline implementations (infrastructure only)
+### 1. RuntimeContext 注入与并行执行模型
 
----
+- **RuntimeContext**: 提供任务标识 (`subtask_index`) 和并行度 (`parallelism`) 信息
+- **ExecutionVertex**: 每个并行实例持有独立的 `RuntimeContext`
+- **Operator 接口**: `open()`, `apply()`, `close()` 方法增加 `RuntimeContext` 参数
 
-## ✅ Completed Work
+### 2. 窗口状态抽象层
 
-### 1. Core Computation Infrastructure (B-01)
-- **PCA Module** (`compute_engine/pca.h/cpp`)
-  - Covariance matrix computation
-  - Eigenvalue decomposition
-  - Dimensionality reduction with configurable target dimensions
-- **SIMD Distance Computation** (`compute_engine/distance.h`)
-  - AVX/AVX2/SSE optimized distance calculations
-  - L2 distance and Cosine similarity with SIMD acceleration
+                state.addRecord(createTestRecord(t * 1000 + i, 1000 + i * 10), t); `WindowState` 接口，支持多种状态实现：
 
-### 2. Vector Space Partitioning (B-02)
-- **VectorSpacePartitioner** interface (`execution/vector_space_partitioner.h`)
-- **LSHPartitioner** implementation
-  - Random hyperplane-based locality-sensitive hashing
-  - Configurable hash functions and bucket count
-- **KMeansPartitioner** implementation
-  - Iterative centroid refinement
-  - Dynamic rebalancing support
+| 状态类型 | 描述 | 适用场/root/sageFlow |
+|---------|------|---------|
+| `SharedWindowState` | 所有实例共享同一状态 | RoundRobin 分区 |
+| `PartitionedWindowState` | 每个 subtask 独立状态 | Key/VectorHash 分区 |
+| `TwoTierWindowState` | 两层架构（写友好+紧凑层） | 高吞吐场景 |
+| `PartitionedVectorState` | 向量空间分区状态 | VSJoin/S3J |
 
-### 3. State Management Extensions (B-03)
-- **TwoTierWindowState** (`state/two_tier_window_state.h/cpp`)
-  - Write-friendly layer for incoming records
-  - Compact layer for efficient querying
-  - Background compaction support
-- **PartitionedVectorState** (`state/partitioned_vector_state.h/cpp`)
-  - Per-partition state isolation
-  - Vector-space aware state management
+### 3. 连接策略
 
-### 4. Index Implementations (B-04 + D-02)
-- **PartitionedIndex** (`index/partitioned_index.h/cpp`)
-  - Per-partition IVF indexes
-  - Partition-aware insert and query
-- **HDRTreeIndex** (`index/hdr_tree_index.h/cpp`)
-  - Hierarchical Data-driven R-tree for streams
-  - Delta buffer for update absorption
-  - Scheduled reconstruction
+                state.addRecord(createTestRecord(t * 1000 + i, 1000 + i * 10), t);
 
-### 5. Lightweight Coordination (B-05)
-- **PartitionCoordinator** (`coordination/partition_coordinator.h`)
-  - Cross-partition coordination for boundary vectors
-- **AsyncCandidateGenerator** (`coordination/async_candidate_generator.h`)
-  - Asynchronous candidate generation for improved throughput
-- **DistanceVerifier** (`coordination/distance_verifier.h`)
-  - Final verification with exact distance computation
-
-### 6. Join Method Skeletons
-- **VSJoinMethod** (`operator/join_operator_methods/vsjoin_method.h/cpp`)
-- **S3JMethod** (`operator/join_operator_methods/s3j_method.h/cpp`)
-- **ClusteredJoinMethod** (`operator/join_operator_methods/clustered_join_method.h/cpp`)
-- **AdaptivePartitioner** and **AdaptiveIndexSelector** for S3J
-
-### 7. Comprehensive Unit Tests
-- `test_pca.cpp` - PCA dimensionality reduction
-- `test_simd_distance.cpp` - SIMD distance calculations
-- `test_vector_space_partitioner.cpp` - LSH/KMeans partitioners
-- `test_two_tier_window_state.cpp` - Two-tier window state
-- `test_s3j_method.cpp` - S3JMethod with adaptive components
-
-### 8. Documentation
-- `docs/VSJOIN_IMPLEMENTATION_ROADMAP.md` - Complete implementation roadmap
-- `docs/tasks/TASK_GROUP_C_BASELINES.md` - Baseline implementation tasks
-- `docs/tasks/TASK_GROUP_C_INTEGRATION.md` - Integration tasks
+- **PartitionedConnectionStrategy**: 每个上游有专属队列，适合 share-nothing 架构
+- **SharedQueueConnectionStrategy**: 共享队列池，适合负载均衡场景
 
 ---
 
-## ⏳ Pending Work (Not in This PR)
+## 🔧 核心组件
 
-### Integration Tasks (Group C)
-| Task | Description | Status |
-|------|-------------|--------|
-| C-02 | JoinStrategyFactory implementation | ⬜ Not Started |
-| C-03 | Partition strategy adaptive selection | ⬜ Not Started |
-| C-04 | Window state adaptive selection | ⬜ Not Started |
-| C-05 | Baseline method registration system | ⬜ Not Started |
-| C-06 | Configuration validation | ⬜ Not Started |
+### Join 策略工厂模式 (新增)
 
-### Baseline Implementations (Group D)
-| Task | Description | Status |
-|------|-------------|--------|
-| D-01 | BruteForce Baseline (Ground Truth) | ⬜ Not Started |
-| D-02 | HDR-Tree Baseline (Static version complete) | 🔄 Partial |
-| D-03 | HNSW Baseline | ⬜ Not Started |
-| D-04 | IVF Baseline | ⬜ Not Started |
-| D-05 | ClusteredJoin Baseline | ⬜ Not Started |
-| D-06 | S3J (DEBS'23) Baseline | ⬜ Not Started |
-
----
-
-## ⚠️ Known Issues
-
-### 1. JoinOperator Integration Gap
-The following new join methods have been implemented but are **NOT yet integrated** into `JoinOperator`:
-- `VSJoinMethod`
-- `S3JMethod`
-- `ClusteredJoinMethod`
-
-**Impact**: These methods cannot be selected through the current JoinOperator configuration. Integration requires completion of C-02 (JoinStrategyFactory).
-
-### 2. No Integration Tests Passed
-All new join methods have unit tests, but **none have passed integration tests** yet. Full pipeline testing is blocked by:
-- JoinOperator integration gap
-- Missing JoinStrategyFactory
-- Incomplete configuration-driven strategy selection
-
-### 3. Potential Recall Regression
-The current implementation may show **lower recall rates** compared to the previous version due to:
-- Incomplete integration of vector-space partitioning
-- Missing cross-partition coordination in actual pipeline
-
-### 4. Possible Segfault Scenarios
-During development, the following scenarios may trigger segfaults:
-- Accessing uninitialized partitioned indexes
-- Missing null checks in async coordination paths
-- Race conditions in shared state access (under investigation)
-
----
-
-## 🧪 Testing
-
-### Unit Tests Added
-```bash
-# All new unit tests
-./build/bin/test_pca
-./build/bin/test_simd_distance
-./build/bin/test_vector_space_partitioner
-./build/bin/test_two_tier_window_state
-./build/bin/test_s3j_method
+```
+JoinStrategyConfig (配置) 
+    ↓
+JoinConfigValidator (验证)
+    ↓
+JoinStrategyFactory (创建)
+    ↓
+StrategyComponents {
+    JoinMethod,
+    WindowState (left/right),
+    Partitioner,
+    Index (shared/partitioned),
+    VSJoin/S3J 专用组件
+}
 ```
 
-### Integration Tests
-```bash
-# Not yet available - pending JoinOperator integration
+#### 新增文件：
+- `include/operator/join_strategy_config.h` - 统一配置结构
+- `include/operator/join_strategy_factory.h` - 策略工厂
+- `include/operator/join_method_registry.h` - 方法注册中心
+- `include/operator/join_config_validator.h` - 配置验证/root/sageFlow
+- `include/execution/partitioner_factory.h` - 分区/root/sageFlow
+- `include/state/window_state_factory.h` - 状态工
+- `config/join_strategies.toml` - 策略配置文件
+
+
+
+- **VectorSpacePartitioner**: 抽象接口
+  - `LSHPartitioner`: 局部敏感哈希分区 (VSJoin)
+  - `KMeansPartitioner`: K-Means 聚类分区
+  - `CentroidPartitioner`: 质心分区 (S3J)
+
+### 并发与索引管理
+
+                state.addRecord(createTestRecord(t * 1000 + i, 1000 + i * 10), t);
+- **ConcurrencyController**: 索引级别的并发控制
+- **PartitionedIndex**: 向量空间分区索引
+
+### VSJoin 专用组件
+
+- `PartitionCoordinator`: 跨分区协调
+- `BoundaryTracker`: 边界向量追踪
+- `AsyncCandidateGenerator`: 异步候选生成
+- `LateArrivalHandler`: 延迟数据处理
+- `DistanceVerifier`: 距离验证
+
+---
+
+## 📊 支持的 Join 算法
+
+| 算法 | 类型 | 分区策略 | 窗口状态 | 说明 |
+|-----|------|---------|---------|------|
+| **BruteForce** | Baseline | RoundRobin | Shared | Ground Truth |
+| **IVF** | Approximate | RoundRobin/KeyHash | Shared/Partitioned | 倒排索引 |
+| **HNSW** | Approximate | RoundRobin | Shared | 分层可导航图 |
+| **S3J** | Baseline | Centroid | PartitionedVector | DEBS'23 |
+| **ClusteredJoin** | Baseline | Centroid | PartitionedVector | VectraFlow |
+| **HDRTree** | Baseline | VectorHash | Partitioned | HDR-Tree |
+| **VSJoin** | Our Method | LSH | PartitionedVector | 本项目核心方法 |
+
+---
+
+## 🧪 测试覆盖
+
+### 新增单元测试 (19 个测试文件)
+
+- `test_join_strategy_factory.cpp` - 策略工
+- `test_join_config_validator.cpp` - 配置验证测试
+- `test_join_method_registry.cpp` - 注册中心测试
+- `test_partitioner_factory.cpp` - 分区器工厂测试
+- `test_window_state_factory.cpp` - 状态工厂测试
+- `test_window_state.cpp` - 窗口状态基础测试
+- `test_two_tier_window_state.cpp` - 两层状态测试
+- `test_partitioned_vector_state.
+- `test_vector_space_partitioner.cpp` - 空间分/root/sageFlow
+- `test_partitioned_index.cpp` - 分区索引测试
+- `test_partition_coordinator.cpp` - 协调器测试
+- `test_late_arrival_handler.cpp` - 延迟处理测试
+- `test_join_operator_state.cpp` - Join 状态测试
+- `test_bruteforce_method.cpp` / `test_ivf_method.cpp` / `test_s3j_method.cpp` - 方法测试
+- `test_pca.cpp` / `test_simd_distance.cpp` - 计算优化测试
+
+### 集成测试
+
+- `test_join_pipeline.cpp` - 端到端 Join 流水线测试
+
+### 性能测试
+
+- `perf_join_with_datasource.cpp` - 数据源性能测试
+- 支持不同数据集模式的性能评估
+
+---
+
+## 📚 文档更新
+
+- `docs/ARCHITECTURE_REFACTORING.md` - 架
+- `docs/CONNECTION_STRATEGIES.md` - 连接策略详解
+- `docs/JOIN_PIPELINE_GUIDE.md` - Join 流水线指南
+- `docs/VSJOIN_IMPLEMENTATION_ROADMAP.md` - VSJoin 实现路线图
+- `.github/copilot-instructions.md` - AI 辅助开发指南
+
+---
+
+## ⚠️ 已知问题
+
+1. **性能测试不稳定**: CI 中的 Performance Test 偶发超时
+2. **部分 Baseline 方法未完全实现**: HDRTree, ClusteredJoin 的完整实现待补充
+
+---
+
+## 🔄 后续工作
+
+- [ ] 完善 HDRTree 和 ClusteredJoin 的完整实现
+- [ ] 添加更多性能基准测试
+- [ ] 优化 CI 性能测试稳定性
+- [ ] 补充 Python Binding
+
+---
+
+## 📈 变更统计
+
 ```
-
----
-
-## 📁 Files Changed
-
-### New Files
-- `include/compute_engine/pca.h`
-- `include/compute_engine/distance.h` (SIMD extensions)
-- `include/execution/vector_space_partitioner.h`
-- `include/state/two_tier_window_state.h`
-- `include/state/partitioned_vector_state.h`
-- `include/index/partitioned_index.h`
-- `include/index/hdr_tree_index.h`
-- `include/coordination/partition_coordinator.h`
-- `include/coordination/async_candidate_generator.h`
-- `include/coordination/distance_verifier.h`
-- `include/operator/join_operator_methods/vsjoin_method.h`
-- `include/operator/join_operator_methods/s3j_method.h`
-- `include/operator/join_operator_methods/clustered_join_method.h`
-
-### Modified Files
-- All operators updated with `RuntimeContext` integration
-- Build configuration updates
-
----
-
-## 🔜 Next Steps
-
-1. **Complete C-02**: Implement `JoinStrategyFactory` for configuration-driven strategy creation
-2. **Integrate Methods**: Wire up new join methods into `JoinOperator` through the factory
-3. **Add Integration Tests**: Create end-to-end tests for each baseline
-4. **Fix Known Issues**: Address recall regression and potential segfaults
-5. **Complete Baselines**: Implement remaining D-01 ~ D-06 tasks
-
----
-
-## 📚 References
-
-- [VSJoin Implementation Roadmap](docs/VSJOIN_IMPLEMENTATION_ROADMAP.md)
-- [Task Group C: Integration](docs/tasks/TASK_GROUP_C_INTEGRATION.md)
-- [Task Group D: Baselines](docs/tasks/TASK_GROUP_C_BASELINES.md)
-
+195 files changed, 50369 insertions(+), 2479 deletions(-)
+```
