@@ -97,6 +97,11 @@ set(UNIT_TEST_SPECS
     test_partitioned_index         UnitTest/test_partitioned_index.cpp        180 UNIT
     test_partitioned_vector_state  UnitTest/test_partitioned_vector_state.cpp 180 UNIT
     test_async_candidate_generator UnitTest/test_async_candidate_generator.cpp 180 UNIT
+    test_join_strategy_factory     UnitTest/test_join_strategy_factory.cpp    180 UNIT
+    test_partitioner_factory       UnitTest/test_partitioner_factory.cpp      120 UNIT
+    test_window_state_factory      UnitTest/test_window_state_factory.cpp     120 UNIT
+    test_join_method_registry      UnitTest/test_join_method_registry.cpp     180 UNIT
+    test_join_config_validator     UnitTest/test_join_config_validator.cpp    120 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)

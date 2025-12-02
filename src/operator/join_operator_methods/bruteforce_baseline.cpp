@@ -77,15 +77,31 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteEager(
         return results;
     }
     
-    // 获取目标窗口中的所有记录
-    const auto& records = target_state->getRecords(subtask_index_);
+    // 获取目标窗口的快照（线程安全）
+    // 使用 getRecordsSnapshot 而不是 getRecords，因为 SharedWindowState::getRecords 
+    // 返回的引用在锁释放后可能被其他线程修改
+    auto records_snapshot = target_state->getRecordsSnapshot(subtask_index_);
+    
+    // 调试：记录窗口大小
+    static std::atomic<uint64_t> query_count{0};
+    static std::atomic<uint64_t> total_window_size{0};
+    uint64_t qc = query_count.fetch_add(1, std::memory_order_relaxed);
+    total_window_size.fetch_add(records_snapshot.size(), std::memory_order_relaxed);
+    if (qc % 500 == 0) {
+        SAGEFLOW_LOG_INFO("BruteForceBaseline",
+            "ExecuteEager: subtask={}/{} query_uid={} slot={} window_size={} avg_window={:.1f} shared={}",
+            subtask_index_, parallelism_, query_record.uid_, query_slot, 
+            records_snapshot.size(), 
+            static_cast<double>(total_window_size.load()) / (qc + 1),
+            target_state->isShared());
+    }
     
     SAGEFLOW_LOG_DEBUG("BruteForceBaseline",
         "ExecuteEager: query_uid={}, slot={}, searching {} records",
-        query_record.uid_, query_slot, records.size());
+        query_record.uid_, query_slot, records_snapshot.size());
     
     // 执行暴力搜索
-    results = searchInRecords(query_record, records);
+    results = searchInRecordsSnapshot(query_record, records_snapshot);
     
     SAGEFLOW_LOG_DEBUG("BruteForceBaseline",
         "ExecuteEager: found {} matches for query_uid={}",
@@ -94,41 +110,6 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteEager(
     return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteLazy(
-    const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-    int query_slot) {
-    
-    std::vector<std::unique_ptr<VectorRecord>> all_results;
-    
-    if (query_records.empty()) {
-        return all_results;
-    }
-    
-    SAGEFLOW_LOG_DEBUG("BruteForceBaseline",
-        "ExecuteLazy: processing {} queries for slot {}",
-        query_records.size(), query_slot);
-    
-    // 预估结果数量以减少内存重分配
-    all_results.reserve(query_records.size() * 2);
-    
-    // 对每个查询执行 Eager 匹配
-    for (const auto& query : query_records) {
-        if (!query) {
-            continue;
-        }
-        
-        auto matches = ExecuteEager(*query, query_slot);
-        for (auto& match : matches) {
-            all_results.push_back(std::move(match));
-        }
-    }
-    
-    SAGEFLOW_LOG_DEBUG("BruteForceBaseline",
-        "ExecuteLazy: total {} matches from {} queries",
-        all_results.size(), query_records.size());
-    
-    return all_results;
-}
 
 void BruteForceBaseline::close() {
     left_state_ = nullptr;
@@ -138,7 +119,7 @@ void BruteForceBaseline::close() {
     SAGEFLOW_LOG_DEBUG("BruteForceBaseline", "Closed");
 }
 
-double BruteForceBaseline::computeCosineSimilarity(
+double BruteForceBaseline::computeSimilarity(
     const std::vector<float>& a, 
     const std::vector<float>& b) const {
     
@@ -152,11 +133,63 @@ double BruteForceBaseline::computeCosineSimilarity(
         return 0.0;
     }
     
-    // 使用 SIMD 优化的余弦相似度计算
-    float similarity = SIMDDistance::cosineSimilarity(
-        a.data(), b.data(), a.size());
+    // 使用 L2 距离 + 指数衰减转换为相似度
+    // 与 ComputeEngine::Similarity 保持一致
+    double distance_sq = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
+        distance_sq += diff * diff;
+    }
+    double distance = std::sqrt(distance_sq);
     
-    return static_cast<double>(similarity);
+    // alpha = 0.1 是默认值，与 ComputeEngine 一致
+    constexpr double kAlpha = 0.1;
+    return std::exp(-kAlpha * distance);
+}
+
+std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecordsSnapshot(
+    const VectorRecord& query,
+    const std::vector<std::shared_ptr<const VectorRecord>>& records) const {
+    
+    std::vector<std::unique_ptr<VectorRecord>> results;
+    
+    if (records.empty()) {
+        return results;
+    }
+    
+    // 获取查询向量
+    std::vector<float> query_vec = extractVector(query);
+    if (query_vec.empty()) {
+        SAGEFLOW_LOG_WARN("BruteForceBaseline", 
+            "Query vector is empty for uid={}", query.uid_);
+        return results;
+    }
+    
+    // 遍历所有记录，计算相似度
+    for (const auto& record : records) {
+        if (!record) {
+            continue;
+        }
+        
+        // 跳过自匹配（同一条记录）
+        if (record->uid_ == query.uid_) {
+            continue;
+        }
+        
+        std::vector<float> record_vec = extractVector(*record);
+        if (record_vec.empty()) {
+            continue;
+        }
+        
+        double similarity = computeSimilarity(query_vec, record_vec);
+        
+        if (similarity >= join_similarity_threshold_) {
+            // 创建匹配记录的副本
+            results.push_back(std::make_unique<VectorRecord>(*record));
+        }
+    }
+    
+    return results;
 }
 
 std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecords(
@@ -193,7 +226,7 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecords(
             continue;
         }
         
-        double similarity = computeCosineSimilarity(query_vec, record_vec);
+        double similarity = computeSimilarity(query_vec, record_vec);
         
         if (similarity >= join_similarity_threshold_) {
             // 创建匹配记录的副本

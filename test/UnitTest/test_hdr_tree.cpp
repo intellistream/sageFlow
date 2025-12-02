@@ -343,17 +343,6 @@ TEST(HDRTreeMethodTest, ExecuteEagerWithNullManager) {
   EXPECT_TRUE(results.empty());
 }
 
-TEST(HDRTreeMethodTest, ExecuteLazyWithNullManager) {
-  HDRTreeMethod method(0, 1, 0.8, nullptr);
-
-  std::deque<std::unique_ptr<VectorRecord>> queries;
-  queries.push_back(createVectorRecord(0, 0, std::vector<float>(64, 1.0f)));
-
-  auto results = method.ExecuteLazy(queries, 0);
-
-  EXPECT_TRUE(results.empty());
-}
-
 // ==================== 召回率测试 ====================
 
 TEST(HDRTreeTest, RecallVsBruteForce) {

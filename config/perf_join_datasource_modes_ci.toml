@@ -3,7 +3,7 @@
 # Using smaller dataset size optimized for CI environment
 name = "ci_perf_join_parallel_test"
 mode = "generate_direct_use"
-methods = ["bruteforce_eager", "ivf_eager"]
+methods = ["bruteforce", "ivf"]
 sizes = [1000]  # Smaller size for CI - fast execution while testing parallelism
 records_count = 1000
 vector_dim = 64

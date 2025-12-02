@@ -36,10 +36,6 @@ class BruteForceEager : public BaseMethod {
       const VectorRecord& query_record,
       int slot) override;
 
-  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-      const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-      int query_slot) override;
-
   // 辅助方法
   auto getOtherStreamKnnIndexId(int data_arrival_slot) const -> int;
 

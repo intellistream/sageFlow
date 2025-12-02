@@ -121,16 +121,6 @@ public:
         int query_slot) override;
     
     /**
-     * @brief Lazy 模式：批量查询执行匹配
-     * @param query_records 查询向量队列
-     * @param query_slot 查询来源槽位
-     * @return 所有匹配结果列表
-     */
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-        const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-        int query_slot) override;
-    
-    /**
      * @brief 关闭方法，释放资源
      */
     void close();
@@ -164,6 +154,16 @@ public:
      * @return true 如果使用 ConcurrencyManager 管理的索引
      */
     bool isUsingIndex() const { return concurrency_manager_ != nullptr; }
+    
+    /**
+     * @brief 设置索引 ID
+     * @param left_index_id 左侧索引 ID
+     * @param right_index_id 右侧索引 ID
+     */
+    void setIndexIds(int32_t left_index_id, int32_t right_index_id) {
+        left_index_id_ = left_index_id;
+        right_index_id_ = right_index_id;
+    }
 
 private:
     Config config_;
@@ -199,6 +199,16 @@ private:
         int32_t index_id);
     
     /**
+     * @brief 通过窗口状态快照执行暴力范围搜索（线程安全版本）
+     * @param query 查询向量
+     * @param records 待搜索的记录快照
+     * @return 满足阈值的匹配记录
+     */
+    std::vector<std::unique_ptr<VectorRecord>> rangeSearchBruteForceSnapshot(
+        const VectorRecord& query,
+        const std::vector<std::shared_ptr<const VectorRecord>>& records);
+    
+    /**
      * @brief 通过窗口状态执行暴力范围搜索（降级模式）
      * @param query 查询向量
      * @param records 待搜索的记录集
@@ -209,12 +219,13 @@ private:
         const std::deque<std::unique_ptr<VectorRecord>>& records);
     
     /**
-     * @brief 计算两个向量的余弦相似度
+     * @brief 计算两个向量的相似度
+     * 使用 L2 距离 + 指数衰减 (exp(-alpha * dist))，与 ComputeEngine::Similarity 一致
      * @param a 第一个向量
      * @param b 第二个向量
-     * @return 余弦相似度值
+     * @return 相似度值，范围 [0.0, 1.0]
      */
-    double computeCosineSimilarity(
+    double computeSimilarity(
         const std::vector<float>& a,
         const std::vector<float>& b) const;
     

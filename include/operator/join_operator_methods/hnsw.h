@@ -84,19 +84,6 @@ class HNSWJoinMethod final : public BaseMethod {
       const VectorRecord& query_record, int query_slot) override;
 
   /**
-   * @brief Lazy 模式执行（批量查询）
-   *
-   * 对一批查询向量执行范围搜索，返回所有满足相似度阈值的候选记录。
-   *
-   * @param query_records 查询向量记录批次
-   * @param query_slot 查询槽位（0=左流，1=右流）
-   * @return 所有查询的候选记录合并列表
-   */
-  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-      const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-      int query_slot) override;
-
-  /**
    * @brief 设置搜索扩展因子
    *
    * 动态调整搜索时的候选集大小。较大的 ef_search 会提高召回率但降低速度。

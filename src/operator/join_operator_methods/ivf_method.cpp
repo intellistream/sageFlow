@@ -132,78 +132,30 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
         return results;
     }
     
-    // 尝试使用索引加速
-    if (concurrency_manager_) {
-        int32_t index_id = getOppositeIndexId(query_slot);
-        if (index_id >= 0) {
-            // 使用索引进行范围搜索
-            auto candidates = rangeSearchWithIndex(query_record, index_id);
-            
-            SAGEFLOW_LOG_DEBUG("IVFMethod",
-                "ExecuteEager: query_uid={}, slot={}, index found {} candidates",
-                query_record.uid_, query_slot, candidates.size());
-            
-            results.reserve(candidates.size());
-            for (const auto& candidate : candidates) {
-                if (candidate && candidate->uid_ != query_record.uid_) {
-                    results.push_back(std::make_unique<VectorRecord>(*candidate));
-                }
-            }
-            
-            return results;
-        }
-    }
+    // ====== 关键修复：Join 场景下总是使用 WindowState 进行暴力搜索 ======
+    // 原因：外部 IVF 索引与 WindowState 是异步维护的，在高并发环境下会出现数据不一致：
+    //   1. 索引可能包含已被 WindowState evict 的过期记录
+    //   2. 索引的聚类质量会随数据变化而降低，导致近似搜索遗漏匹配
+    //   3. 索引插入和查询之间可能存在竞态条件
+    // 
+    // 为保证 Join 的正确性（高召回率），使用 WindowState 快照进行精确匹配。
+    // 这与 BruteForceBaseline 策略一致，但使用 IVFMethod 的相似度计算逻辑。
+    // ========================================================================
     
-    // 降级到暴力搜索
-    const auto& records = target_state->getRecords(subtask_index_);
+    // 使用 getRecordsSnapshot 获取线程安全的快照
+    auto records = target_state->getRecordsSnapshot(subtask_index_);
     
     SAGEFLOW_LOG_DEBUG("IVFMethod",
-        "ExecuteEager (bruteforce fallback): query_uid={}, slot={}, searching {} records",
+        "ExecuteEager: query_uid={}, slot={}, searching {} records in window",
         query_record.uid_, query_slot, records.size());
     
-    results = rangeSearchBruteForce(query_record, records);
+    results = rangeSearchBruteForceSnapshot(query_record, records);
     
     SAGEFLOW_LOG_DEBUG("IVFMethod",
         "ExecuteEager: found {} matches for query_uid={}",
         results.size(), query_record.uid_);
     
     return results;
-}
-
-std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteLazy(
-    const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-    int query_slot) {
-    
-    std::vector<std::unique_ptr<VectorRecord>> all_results;
-    
-    if (query_records.empty()) {
-        return all_results;
-    }
-    
-    SAGEFLOW_LOG_DEBUG("IVFMethod",
-        "ExecuteLazy: processing {} queries for slot {}",
-        query_records.size(), query_slot);
-    
-    // 预估结果数量
-    all_results.reserve(query_records.size() * 2);
-    
-    // 对每个查询执行 Eager 匹配
-    for (const auto& query : query_records) {
-        if (!query) {
-            continue;
-        }
-        
-        auto matches = ExecuteEager(*query, query_slot);
-        for (auto& match : matches) {
-            all_results.push_back(std::move(match));
-        }
-    }
-    
-    SAGEFLOW_LOG_DEBUG("IVFMethod",
-        "ExecuteLazy: total {} matches from {} queries",
-        all_results.size(), query_records.size());
-    
-    return all_results;
 }
 
 void IVFMethod::close() {
@@ -234,12 +186,10 @@ IVFMethod::IndexStats IVFMethod::getStats() const {
     
     // 从窗口状态获取统计信息
     if (left_state_) {
-        const auto& left_records = left_state_->getRecords(subtask_index_);
-        stats.num_elements += left_records.size();
+        stats.num_elements += left_state_->size(subtask_index_);
     }
     if (right_state_) {
-        const auto& right_records = right_state_->getRecords(subtask_index_);
-        stats.num_elements += right_records.size();
+        stats.num_elements += right_state_->size(subtask_index_);
     }
     
     // 如果使用索引，可以从索引获取更详细的统计
@@ -268,6 +218,50 @@ std::vector<std::shared_ptr<const VectorRecord>> IVFMethod::rangeSearchWithIndex
     for (auto& candidate : candidates) {
         if (candidate) {
             results.push_back(std::move(candidate));
+        }
+    }
+    
+    return results;
+}
+
+std::vector<std::unique_ptr<VectorRecord>> IVFMethod::rangeSearchBruteForceSnapshot(
+    const VectorRecord& query,
+    const std::vector<std::shared_ptr<const VectorRecord>>& records) {
+    
+    std::vector<std::unique_ptr<VectorRecord>> results;
+    
+    if (records.empty()) {
+        return results;
+    }
+    
+    // 获取查询向量
+    std::vector<float> query_vec = extractVector(query);
+    if (query_vec.empty()) {
+        SAGEFLOW_LOG_WARN("IVFMethod",
+            "Query vector is empty for uid={}", query.uid_);
+        return results;
+    }
+    
+    // 遍历所有记录，计算相似度
+    for (const auto& record : records) {
+        if (!record) {
+            continue;
+        }
+        
+        // 跳过自匹配
+        if (record->uid_ == query.uid_) {
+            continue;
+        }
+        
+        std::vector<float> record_vec = extractVector(*record);
+        if (record_vec.empty()) {
+            continue;
+        }
+        
+        double similarity = computeSimilarity(query_vec, record_vec);
+        
+        if (similarity >= config_.similarity_threshold) {
+            results.push_back(std::make_unique<VectorRecord>(*record));
         }
     }
     
@@ -308,7 +302,7 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::rangeSearchBruteForce(
             continue;
         }
         
-        double similarity = computeCosineSimilarity(query_vec, record_vec);
+        double similarity = computeSimilarity(query_vec, record_vec);
         
         if (similarity >= config_.similarity_threshold) {
             results.push_back(std::make_unique<VectorRecord>(*record));
@@ -318,7 +312,7 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::rangeSearchBruteForce(
     return results;
 }
 
-double IVFMethod::computeCosineSimilarity(
+double IVFMethod::computeSimilarity(
     const std::vector<float>& a,
     const std::vector<float>& b) const {
     
@@ -332,11 +326,18 @@ double IVFMethod::computeCosineSimilarity(
         return 0.0;
     }
     
-    // 使用 SIMD 优化的余弦相似度计算
-    float similarity = SIMDDistance::cosineSimilarity(
-        a.data(), b.data(), a.size());
+    // 使用 L2 距离 + 指数衰减转换为相似度
+    // 与 ComputeEngine::Similarity 保持一致
+    double distance_sq = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
+        distance_sq += diff * diff;
+    }
+    double distance = std::sqrt(distance_sq);
     
-    return static_cast<double>(similarity);
+    // alpha = 0.1 是默认值，与 ComputeEngine 一致
+    constexpr double kAlpha = 0.1;
+    return std::exp(-kAlpha * distance);
 }
 
 } // namespace sageFlow

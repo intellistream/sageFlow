@@ -405,30 +405,6 @@ TEST_F(ClusteredJoinMethodTest, EagerExecution) {
   SAGEFLOW_LOG_INFO("TEST", "Eager query found {} results", results.size());
 }
 
-TEST_F(ClusteredJoinMethodTest, LazyExecution) {
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
-
-  auto samples = generateRandomVectors(50, config_.dimension);
-
-  // 插入数据到索引
-  for (int i = 0; i < 25; ++i) {
-    auto record = createVectorRecord(i, 1000 + i, samples[i]);
-    concurrency_manager_->insert(right_index_id_, std::make_unique<VectorRecord>(*record));
-  }
-
-  method.trainPartitioner(samples);
-
-  // 准备批量查询
-  std::deque<std::unique_ptr<VectorRecord>> queries;
-  for (int i = 0; i < 5; ++i) {
-    queries.push_back(createVectorRecord(100 + i, 2000 + i, samples[i]));
-  }
-
-  auto results = method.ExecuteLazy(queries, 0);
-
-  SAGEFLOW_LOG_INFO("TEST", "Lazy query found {} results", results.size());
-}
-
 TEST_F(ClusteredJoinMethodTest, PartitionStats) {
   ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
 

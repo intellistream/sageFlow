@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/hnsw.h"
+#include "operator/join_method_registry.h"
 #include "utils/logger.h"
 #include <deque>
 
@@ -77,42 +78,6 @@ std::vector<std::unique_ptr<VectorRecord>> HNSWJoinMethod::ExecuteEager(
   return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> HNSWJoinMethod::ExecuteLazy(
-    const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-    int query_slot) {
-  std::vector<std::unique_ptr<VectorRecord>> all_results;
-  
-  if (!concurrency_manager_) {
-    SAGEFLOW_LOG_WARN("HNSW_JOIN", "ExecuteLazy: concurrency_manager is null");
-    return all_results;
-  }
-  
-  int idx = otherIndexId(query_slot);
-  if (idx < 0) {
-    SAGEFLOW_LOG_DEBUG("HNSW_JOIN", "ExecuteLazy: invalid index id for slot {}", query_slot);
-    return all_results;
-  }
-  
-  SAGEFLOW_LOG_DEBUG("HNSW_JOIN", "ExecuteLazy: processing {} queries for slot {}", 
-                     query_records.size(), query_slot);
-  
-  // 批量处理查询
-  for (const auto& query_record : query_records) {
-    if (!query_record) continue;
-    
-    auto candidates = concurrency_manager_->query_for_join(idx, *query_record, join_similarity_threshold_);
-    
-    for (auto& c : candidates) {
-      if (c) {
-        all_results.emplace_back(std::make_unique<VectorRecord>(*c));
-      }
-    }
-  }
-  
-  SAGEFLOW_LOG_DEBUG("HNSW_JOIN", "ExecuteLazy: total results={}", all_results.size());
-  
-  return all_results;
-}
 
 void HNSWJoinMethod::setEfSearch(int ef_search) {
   if (ef_search > 0) {
@@ -129,3 +94,32 @@ HNSWJoinMethod::IndexStats HNSWJoinMethod::getStats() const {
 }
 
 }  // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::HNSW,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "HNSW",
+        "HNSW-based approximate nearest neighbor join. "
+        "Uses hierarchical navigable small world graph for fast k-NN search. "
+        "High recall with logarithmic query time.",
+        sageFlow::JoinAlgorithm::HNSW,
+        true,   // supports_eager
+        true,   // supports_lazy
+        sageFlow::PartitionStrategy::ROUND_ROBIN,
+        sageFlow::WindowStateType::SHARED,
+        "Malkov & Yashunin, IEEE TPAMI 2018"
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int left_idx,
+       int right_idx) {
+        sageFlow::HNSWJoinMethod::Config hnsw_config;
+        hnsw_config.m = config.hnsw_m;
+        hnsw_config.ef_construction = config.hnsw_ef_construction;
+        hnsw_config.ef_search = config.hnsw_ef_search;
+        hnsw_config.use_existing_index = true;
+        return std::make_unique<sageFlow::HNSWJoinMethod>(
+            left_idx, right_idx, config.similarity_threshold, cm, hnsw_config);
+    });

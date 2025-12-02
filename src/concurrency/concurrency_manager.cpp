@@ -37,6 +37,8 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
   index->index_type_ = index_type;
   index->dimension_ = dimension;
 
+  // 使用共享的 StorageManager
+  // 注意：新架构下，Join 方法应使用 WindowState 而非 StorageManager 来获取候选
   index->storage_manager_ = storage_;
   storage_->engine_ = std::make_shared<ComputeEngine>();
 
@@ -81,6 +83,7 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
   index->index_type_ = index_type;
   index->dimension_ = dimension;
 
+  // 使用共享的 StorageManager
   index->storage_manager_ = storage_;
   storage_->engine_ = std::make_shared<ComputeEngine>();
 

@@ -334,14 +334,12 @@ TEST_F(S3JMethodTest, ExecuteLazyWithoutManager) {
     method.open(context, nullptr, nullptr);
     
     std::mt19937 gen(42);
-    std::deque<std::unique_ptr<VectorRecord>> queries;
     
-    for (int i = 0; i < 5; ++i) {
-        auto vec = createRandomVector(gen);
-        queries.push_back(createVectorRecord(i, 1000 + i, vec));
-    }
+    // 执行单个查询测试
+    auto vec = createRandomVector(gen);
+    auto record = createVectorRecord(0, 1000, vec);
     
-    auto results = method.ExecuteLazy(queries, 0);
+    auto results = method.ExecuteEager(*record, 0);
     EXPECT_TRUE(results.empty());  // 没有设置后端，返回空
 }
 

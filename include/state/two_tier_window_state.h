@@ -50,6 +50,29 @@ public:
         getRecords(size_t subtask_index) const override;
 
     /**
+     * @brief 获取窗口记录的线程安全快照
+     * @param subtask_index 子任务索引
+     * @return 窗口记录的指针向量副本（线程安全）
+     */
+    std::vector<std::shared_ptr<const VectorRecord>> 
+        getRecordsSnapshot(size_t subtask_index) const override;
+
+    /**
+     * @brief 检查窗口中是否包含指定 UID 的记录
+     * @param uid 要检查的记录 UID
+     * @param subtask_index 子任务索引
+     * @return true 如果记录存在于窗口中
+     */
+    bool containsUid(uint64_t uid, size_t subtask_index) const override;
+
+    /**
+     * @brief 获取窗口中存在的 UID 集合
+     * @param subtask_index 子任务索引
+     * @return 当前窗口中所有记录的 UID 集合
+     */
+    std::unordered_set<uint64_t> getUidSet(size_t subtask_index) const override;
+
+    /**
      * @brief 清理过期记录（同时清理两层）
      * @param current_timestamp 当前时间戳
      * @param window_size 窗口大小
@@ -58,6 +81,28 @@ public:
     void evictExpired(int64_t current_timestamp, 
                       int64_t window_size,
                       size_t subtask_index) override;
+
+    /**
+     * @brief 检查指定 UID 是否已过期
+     * @param uid 要检查的记录 UID
+     * @param subtask_index 子任务索引
+     * @return true 如果记录已被标记为过期
+     */
+    bool isExpired(uint64_t uid, size_t subtask_index) const override;
+
+    /**
+     * @brief 获取已过期但未删除的 UID 数量
+     * @param subtask_index 子任务索引
+     * @return 待删除的过期记录数量
+     */
+    size_t getExpiredCount(size_t subtask_index) const override;
+
+    /**
+     * @brief 获取并清空过期 UID buffer
+     * @param subtask_index 子任务索引
+     * @return 待从 Index/Storage 中删除的 UID 列表
+     */
+    std::vector<uint64_t> flushExpiredUids(size_t subtask_index) override;
 
     /**
      * @brief 获取窗口大小（两层总和）
@@ -116,6 +161,7 @@ private:
     struct TierPair {
         std::deque<std::unique_ptr<VectorRecord>> write_tier_;
         std::vector<std::unique_ptr<VectorRecord>> compact_tier_;
+        std::unordered_set<uint64_t> expired_uids_;  // 已过期但未删除的 UID
         mutable std::shared_mutex mutex_;
         
         // 用于 getRecords() 返回的临时合并视图

@@ -5,7 +5,7 @@ parallelism_sink = 1
 records_per_source = 10000
 vector_dim = 128
 similarity_threshold = 0.8
-join_method = "bruteforce_eager"   # 允许: "ivf_eager" "ivf_lazy" "bruteforce_eager" "bruteforce_lazy"
+join_method = "bruteforce"   # 允许: "ivf", "bruteforce", "hnsw" (所有方法均为 eager 模式)
 
 [window]
 time_ms = 60000

@@ -1,9 +1,11 @@
 /*
-修改 Eager/Lazy 通过process 中的 IsEagerAlgorithm 修改
-修改调用的方法， 则修改 using JoinWay 后面的等于号
-*/
+ * JoinOperator 实现
+ * 所有方法均使用 Eager 模式：每条记录到达时立即执行查询
+ */
 #include "operator/join_operator.h"
 #include "operator/join_operator_methods/join_methods.h"
+#include "operator/join_operator_methods/bruteforce_baseline.h"
+#include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_metrics.h"
 #include "utils/monitoring.h"
 
@@ -19,6 +21,11 @@
 #include "spdlog/fmt/bundled/chrono.h"
 
 namespace sageFlow {
+
+// 调试统计变量 - 文件作用域，支持跨函数访问
+static std::atomic<uint64_t> g_total_candidates{0};
+static std::atomic<uint64_t> g_total_queries{0};
+static std::atomic<uint64_t> g_total_filtered_by_ts{0};
 
 bool JoinOperator::createIndexPair(IndexType type, const std::string& prefix) {
     if (!concurrency_manager_) return false;
@@ -88,69 +95,70 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
 
     std::string join_method_name = to_lower_copy(join_method_name_raw);
 
-    // 解析模式（_eager / _lazy）
-    if (join_method_name.rfind("_eager") != std::string::npos) {
-        is_eager_ = true;
-    } else if (join_method_name.rfind("_lazy") != std::string::npos) {
-        is_eager_ = false;
-    } else {
-        // 未指定时默认 lazy
-        is_eager_ = false;
-    }
+    // 所有方法均使用 Eager 模式：每条记录到达时立即执行查询
+    // 移除了 lazy 支持，历史原因保留对 "_eager" 后缀的兼容
+    is_eager_ = true;
 
-    // 提取算法前缀（截掉最后一个 '_' 之后的部分）
+    // 提取算法前缀（兼容旧的 "_eager"/"_lazy" 后缀格式）
     std::string algo = join_method_name;
-    auto pos = algo.rfind('_');
-    if (pos != std::string::npos) algo = algo.substr(0, pos);
+    // 移除可能存在的后缀
+    if (algo.rfind("_eager") != std::string::npos) {
+        algo = algo.substr(0, algo.rfind("_eager"));
+    } else if (algo.rfind("_lazy") != std::string::npos) {
+        algo = algo.substr(0, algo.rfind("_lazy"));
+    }
 
     if (algo == "ivf") {
         index_kind_ = InternalIndexKind::IVF;
-        // IVF 使用共享索引，需要 SharedWindowState 以确保所有并行实例看到完整窗口
+        // IVF 使用共享状态，需要 SharedWindowState 以确保所有并行实例看到完整窗口
         use_shared_state_ = true;
-        // Calculate IVF parameters based on window size
-        // nlist = 4 * sqrt(window_size/step_size), rebuild_threshold = 2.0
+        
+        // 计算 IVF 参数
         int64_t window_size = join_func_->getWindowSize();
         int64_t step_size = join_func_->getStepSize();
-        // Calculate actual vector count in window
         int64_t vector_count = (step_size > 0) ? (window_size / step_size) : window_size;
-        int nlist = static_cast<int>(4.0 * std::sqrt(static_cast<double>(vector_count)));
-        // Ensure nlist is at least 1
-        nlist = std::max(nlist, 1);
+        int nlist = std::max(1, static_cast<int>(4.0 * std::sqrt(static_cast<double>(vector_count))));
+        // 提高 nprobes 比例以保证高召回率（从 30% 提高到 80%）
+        // IVF 是近似索引，只搜索 nprobes 个聚类，低 nprobes 会导致召回率下降
+        int nprobes = std::max(10, nlist * 80 / 100);
         
-        // Calculate nprobes to search at least 30% of clusters for better recall in high-concurrency scenarios
-        // Cap at 60% to maintain reasonable performance
-        int nprobes = std::max(15, std::min(nlist * 60 / 100, nlist * 30 / 100));
-        
+        // IVF 需要使用索引加速，创建索引对
         IVFParameters ivf_params{
             .nlist = nlist,
-            .rebuild_threshold = 2.0,
+            .rebuild_threshold = 0.2,
             .nprobes = nprobes
         };
         
         if (createIndexPair(IndexType::IVF, "join_ivf", ivf_params)) {
             use_index_ = true;
-            join_method_ = std::make_unique<IvfJoinMethod>(left_index_id_, right_index_id_,
-                                                           join_similarity_threshold_, concurrency_manager_);
+            
+            // 创建 IVFMethod 配置
+            IVFMethod::Config ivf_config;
+            ivf_config.similarity_threshold = join_similarity_threshold_;
+            ivf_config.use_existing_index = true;  // 使用 ConcurrencyManager 中的索引
+            ivf_config.nlist = nlist;
+            ivf_config.nprobes = nprobes;
+            
+            join_method_ = std::make_unique<IVFMethod>(ivf_config);
+            SAGEFLOW_LOG_INFO("JOIN", "IVF mode enabled with index, nlist={} nprobes={}",
+                             nlist, nprobes);
         } else {
-            index_kind_ = InternalIndexKind::NONE;
+            // 索引创建失败，降级到 BruteForce
             use_index_ = false;
-            join_method_ = std::make_unique<BruteForceJoinMethod>(
-              -1, -1, join_similarity_threshold_, concurrency_manager_);
+            join_method_ = std::make_unique<BruteForceBaseline>(join_similarity_threshold_);
+            SAGEFLOW_LOG_WARN("JOIN", "Failed to create IVF index pair, falling back to BruteForce");
         }
+                         
     } else if (algo == "bruteforce" || algo == "bf" ) {
         index_kind_ = InternalIndexKind::BRUTEFORCE;
-        // BruteForce 使用共享索引，需要 SharedWindowState 以确保所有并行实例看到完整窗口
+        // BruteForce 使用共享状态
         use_shared_state_ = true;
-        if (createIndexPair(IndexType::BruteForce, "join_bf")) {
-            use_index_ = true;
-            join_method_ = std::make_unique<BruteForceJoinMethod>(left_index_id_, right_index_id_,
-                                                                  join_similarity_threshold_, concurrency_manager_);
-        } else {
-            index_kind_ = InternalIndexKind::NONE;
-            use_index_ = false;
-            join_method_ = std::make_unique<BruteForceJoinMethod>(
-              -1, -1, join_similarity_threshold_, concurrency_manager_);
-        }
+        use_index_ = false;  // 新架构：使用 WindowState 而非外部索引
+        
+        // 创建 BruteForceBaseline - 直接从 WindowState 查找
+        join_method_ = std::make_unique<BruteForceBaseline>(join_similarity_threshold_);
+        SAGEFLOW_LOG_INFO("JOIN", "BruteForce mode enabled (WindowState-based)");
+        
     } else if (algo == "hnsw") {
         // HNSW 模式
         // HNSW 使用共享索引，需要 SharedWindowState 以确保所有并行实例看到完整窗口
@@ -193,13 +201,21 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
     } else {
         index_kind_ = InternalIndexKind::NONE;
         use_index_ = false;
-        is_eager_ = false;
         join_method_ = std::make_unique<BruteForceJoinMethod>(
           -1, -1, join_similarity_threshold_, concurrency_manager_);
     }
 }
 
 JoinOperator::~JoinOperator() {
+    // 输出候选统计信息（调试用）
+    static std::atomic<int> destructor_count{0};
+    if (destructor_count.fetch_add(1) == 0) {
+        SAGEFLOW_LOG_INFO("JOIN_DEBUG", "Candidate stats: total_queries={} total_candidates={} avg_per_query={:.2f} filtered_by_ts={}",
+            g_total_queries.load(), g_total_candidates.load(),
+            g_total_queries.load() > 0 ? static_cast<double>(g_total_candidates.load()) / g_total_queries.load() : 0.0,
+            g_total_filtered_by_ts.load());
+    }
+    
     // 关闭 VSJoin 组件
     closeVSJoinComponents();
     
@@ -211,46 +227,28 @@ JoinOperator::~JoinOperator() {
 }
 
 void JoinOperator::open() {
-  if (is_open_) return;
-  is_open_ = true;
-  
-  // Start profiling when operator opens
-  if (profiler_) {
-      profiler_->StartProfiling();
-      SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling started");
-  }
-  
-  // 为向后兼容，使用默认的 RuntimeContext 创建状态
+  // Legacy open - 委托给带 RuntimeContext 的版本
+  // 使用默认的 RuntimeContext (subtask_index=0, parallelism=parallelism_)
   RuntimeContext default_context(0, parallelism_);
-  
-  // 根据配置创建窗口状态
-  if (use_shared_state_) {
-      left_state_ = std::make_unique<SharedWindowState>();
-      right_state_ = std::make_unique<SharedWindowState>();
-      SAGEFLOW_LOG_INFO("JOIN", "Using SharedWindowState (via legacy open)");
-  } else {
-      left_state_ = std::make_unique<PartitionedWindowState>(parallelism_);
-      right_state_ = std::make_unique<PartitionedWindowState>(parallelism_);
-      SAGEFLOW_LOG_INFO("JOIN", "Using PartitionedWindowState with parallelism={} (via legacy open)", 
-                       parallelism_);
-  }
+  open(default_context);
 }
 
 void JoinOperator::open(const RuntimeContext& context) {
-  if (is_open_) return;
-  is_open_ = true;
-  
-  // Start profiling when operator opens
-  if (profiler_) {
-      profiler_->StartProfiling();
-      SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling started");
-  }
-  
-  // 如果启用了 VSJoin 模式，初始化 VSJoin 组件
-  if (vsjoin_config_.enabled) {
-      initVSJoinComponents(context);
-      SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened with VSJoin mode: subtask={}/{}", 
-                       context.getSubtaskIndex(), context.getParallelism());
+  // 使用 std::call_once 确保初始化只执行一次，即使在多线程环境下
+  std::call_once(init_flag_, [this, &context]() {
+    is_open_ = true;
+    
+    // Start profiling when operator opens
+    if (profiler_) {
+        profiler_->StartProfiling();
+        SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling started");
+    }
+    
+    // 如果启用了 VSJoin 模式，初始化 VSJoin 组件
+    if (vsjoin_config_.enabled) {
+        initVSJoinComponents(context);
+        SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened with VSJoin mode: subtask={}/{}", 
+                         context.getSubtaskIndex(), context.getParallelism());
       return;
   }
   
@@ -266,9 +264,27 @@ void JoinOperator::open(const RuntimeContext& context) {
                        context.getParallelism());
   }
   
+  // 初始化新架构的 Join 方法（传入 WindowState）
+  if (join_method_) {
+      // 尝试作为 BruteForceBaseline 初始化 - 不使用索引，直接从 WindowState 查找
+      if (auto* bf = dynamic_cast<BruteForceBaseline*>(join_method_.get())) {
+          bf->open(context, left_state_.get(), right_state_.get());
+          SAGEFLOW_LOG_INFO("JOIN", "BruteForceBaseline method initialized with WindowState");
+      }
+      // 尝试作为 IVFMethod 初始化 - 使用 ConcurrencyManager 中的索引
+      else if (auto* ivf = dynamic_cast<IVFMethod*>(join_method_.get())) {
+          // 传递索引 ID 和 ConcurrencyManager
+          ivf->setIndexIds(left_index_id_, right_index_id_);
+          ivf->open(context, left_state_.get(), right_state_.get(), concurrency_manager_.get());
+          SAGEFLOW_LOG_INFO("JOIN", "IVFMethod initialized with ConcurrencyManager index, left_idx={} right_idx={}",
+                           left_index_id_, right_index_id_);
+      }
+  }
+  
   SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened: subtask={}/{}, shared_state={}", 
                    context.getSubtaskIndex(), context.getParallelism(), 
                    use_shared_state_);
+  }); // end of std::call_once
 }
 
 auto JoinOperator::updateSideThreadSafe(
@@ -361,24 +377,6 @@ auto JoinOperator::updateSideThreadSafe(
     return needTrigger;
 }
 
-// ================== 旧 fallback 接口（仍保留） ==================
-auto JoinOperator::lazy_process(const int slot) -> std::optional<Response> {
-  std::shared_lock<std::shared_mutex> left_lock(left_records_mutex_);
-  std::shared_lock<std::shared_mutex> right_lock(right_records_mutex_);
-  if (left_records_.empty() || right_records_.empty()) return std::nullopt;
-  left_lock.unlock(); right_lock.unlock();
-  std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
-  // 不再执行旧Excute逻辑，这里直接返回空；保留接口防止外部调用崩溃
-  return std::nullopt;
-}
-
-auto JoinOperator::eager_process(const int slot) -> std::optional<Response> {
-  std::shared_lock<std::shared_mutex> left_lock(left_records_mutex_);
-  std::shared_lock<std::shared_mutex> right_lock(right_records_mutex_);
-  if ((slot==0 && left_records_.empty()) || (slot==1 && right_records_.empty())) return std::nullopt;
-  return std::nullopt;
-}
-
 auto JoinOperator::process(Response& input_data, int slot) -> std::optional<Response> {
     if (!input_data.record_) return std::nullopt;
     std::unique_ptr<VectorRecord> data_ptr = std::make_unique<VectorRecord>(*input_data.record_);
@@ -397,55 +395,16 @@ auto JoinOperator::process(Response& input_data, int slot) -> std::optional<Resp
 auto JoinOperator::getCandidates(
     const std::unique_ptr<VectorRecord>& data_ptr, int slot) -> std::vector<std::unique_ptr<VectorRecord>> {
     MetricsTimer t_fetch(JoinMetrics::instance().candidate_fetch_ns);
-    if (is_eager_) {
-        return join_method_->ExecuteEager(*data_ptr, slot);
-    }
-    const int64_t logical_lower_bound = logicalWindowLowerBound(data_ptr->timestamp_);
-    std::deque<std::unique_ptr<VectorRecord>> query_records_copy; // 改为 deque
-    if (slot == left_slot_id_) {
-        uint64_t before_wait = metrics_timestamp();
-        std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
-        metrics_record_lock_wait(before_wait);
-        for (auto &p : left_records_) {
-                    if (isRecordFresh(p, logical_lower_bound)) {
-                        query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
-                    }
-        }
-    } else {
-        uint64_t before_wait = metrics_timestamp();
-        std::shared_lock<std::shared_mutex> lk(right_records_mutex_);
-        metrics_record_lock_wait(before_wait);
-        for (auto &p : right_records_)
-                    if (isRecordFresh(p, logical_lower_bound)) {
-                        query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
-                    }
-    }
-    return join_method_->ExecuteLazy(query_records_copy, slot);
+    // 所有方法均使用 Eager 模式：直接通过索引查询候选项
+    return join_method_->ExecuteEager(*data_ptr, slot);
 }
 
 auto JoinOperator::getCandidatesWithLocksHeld(
     const std::unique_ptr<VectorRecord>& data_ptr, int slot) -> std::vector<std::unique_ptr<VectorRecord>> {
     // This version assumes both window locks are already held by caller
     MetricsTimer t_fetch(JoinMetrics::instance().candidate_fetch_ns);
-    if (is_eager_) {
-        return join_method_->ExecuteEager(*data_ptr, slot);
-    }
-    const int64_t logical_lower_bound = logicalWindowLowerBound(data_ptr->timestamp_);
-    std::deque<std::unique_ptr<VectorRecord>> query_records_copy;
-    if (slot == left_slot_id_) {
-        for (auto &p : left_records_) {
-                    if (isRecordFresh(p, logical_lower_bound)) {
-                        query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
-                    }
-        }
-    } else {
-        for (auto &p : right_records_) {
-                    if (isRecordFresh(p, logical_lower_bound)) {
-                        query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
-                    }
-        }
-    }
-    return join_method_->ExecuteLazy(query_records_copy, slot);
+    // 所有方法均使用 Eager 模式：直接通过索引查询候选项
+    return join_method_->ExecuteEager(*data_ptr, slot);
 }
 
 auto JoinOperator::validateCandidateInWindow(
@@ -555,152 +514,6 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
     }
 }
 
-void JoinOperator::executeLazyJoin(
-    const std::vector<std::unique_ptr<VectorRecord>>& candidates,
-    int slot,
-    int64_t query_timestamp,
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
-    // 统一计量 Lazy 路径的候选匹配阶段
-    MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
-    const int64_t logical_lower_bound = logicalWindowLowerBound(query_timestamp);
-    if (slot == left_slot_id_) {
-        uint64_t before_wait_r = metrics_timestamp();
-        std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
-        metrics_record_lock_wait(before_wait_r);
-        uint64_t before_wait_l = metrics_timestamp();
-        std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
-        metrics_record_lock_wait(before_wait_l);
-        for (auto &l : left_records_) {
-            if (!isRecordFresh(l, logical_lower_bound)) continue;
-            for (auto &cand : candidates) {
-                if (!isRecordFresh(cand, logical_lower_bound)) continue;
-                if (validateCandidateInWindow(cand, right_records_, logical_lower_bound)) {
-                    auto left_copy = std::make_unique<VectorRecord>(*l);
-                    auto right_copy = std::make_unique<VectorRecord>(*cand);
-                    Response lhs{ResponseType::Record, std::move(left_copy)};
-                    Response rhs{ResponseType::Record, std::move(right_copy)};
-                    try {
-                        MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                        auto res = join_func_->Execute(lhs, rhs);
-                        if (res.record_) local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
-                    } catch (const std::exception& e) {
-                        SAGEFLOW_LOG_ERROR("JOIN_LAZY", "slot={} left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
-                                         slot,
-                                         (lhs.record_ ? lhs.record_->data_.dim_ : -1),
-                                         (rhs.record_ ? rhs.record_->data_.dim_ : -1),
-                                         (lhs.record_ ? lhs.record_->uid_ : 0),
-                                         (rhs.record_ ? rhs.record_->uid_ : 0),
-                                         e.what());
-                        throw;
-                    }
-                }
-            }
-        }
-    } else {
-        uint64_t before_wait_l = metrics_timestamp();
-        std::shared_lock<std::shared_mutex> lk(left_records_mutex_);
-        metrics_record_lock_wait(before_wait_l);
-        uint64_t before_wait_r = metrics_timestamp();
-        std::shared_lock<std::shared_mutex> rk(right_records_mutex_);
-        metrics_record_lock_wait(before_wait_r);
-        for (auto &r : right_records_) {
-            if (!isRecordFresh(r, logical_lower_bound)) continue;
-            for (auto &cand : candidates) {
-                if (!isRecordFresh(cand, logical_lower_bound)) continue;
-                if (validateCandidateInWindow(cand, left_records_, logical_lower_bound)) {
-                    auto left_copy = std::make_unique<VectorRecord>(*cand);
-                    auto right_copy = std::make_unique<VectorRecord>(*r);
-                    Response lhs{ResponseType::Record, std::move(left_copy)};
-                    Response rhs{ResponseType::Record, std::move(right_copy)};
-                    try {
-                        MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                        auto res = join_func_->Execute(lhs, rhs);
-                        if (res.record_) local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
-                    } catch (const std::exception& e) {
-                        SAGEFLOW_LOG_ERROR("JOIN_LAZY", "slot={} left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
-                                         slot,
-                                         (lhs.record_ ? lhs.record_->data_.dim_ : -1),
-                                         (rhs.record_ ? rhs.record_->data_.dim_ : -1),
-                                         (lhs.record_ ? lhs.record_->uid_ : 0),
-                                         (rhs.record_ ? rhs.record_->uid_ : 0),
-                                         e.what());
-                        throw;
-                    }
-                }
-            }
-        }
-    }
-}
-
-void JoinOperator::executeLazyJoinWithLocksHeld(
-    const std::vector<std::unique_ptr<VectorRecord>>& candidates,
-    int slot,
-    int64_t query_timestamp,
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
-    // This version assumes both window locks are already held by caller
-    MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
-    // IMPORTANT: For lazy mode, we must keep validation to avoid Cartesian product explosion
-    // While validation against local window causes some window fragmentation, removing it entirely
-    // creates N×M join operations which causes severe performance degradation (timeouts).
-    // TODO: Find a better approach that avoids both fragmentation AND explosion
-    const int64_t logical_lower_bound = logicalWindowLowerBound(query_timestamp);
-    if (slot == left_slot_id_) {
-        for (auto &l : left_records_) {
-            if (!isRecordFresh(l, logical_lower_bound)) continue;
-            for (auto &cand : candidates) {
-                if (!isRecordFresh(cand, logical_lower_bound)) continue;
-                if (validateCandidateInWindow(cand, right_records_, logical_lower_bound)) {
-                    auto left_copy = std::make_unique<VectorRecord>(*l);
-                    auto right_copy = std::make_unique<VectorRecord>(*cand);
-                    Response lhs{ResponseType::Record, std::move(left_copy)};
-                    Response rhs{ResponseType::Record, std::move(right_copy)};
-                    try {
-                        MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                        auto res = join_func_->Execute(lhs, rhs);
-                        if (res.record_) local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
-                    } catch (const std::exception& e) {
-                        SAGEFLOW_LOG_ERROR("JOIN_LAZY", "slot={} left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
-                                         slot,
-                                         (lhs.record_ ? lhs.record_->data_.dim_ : -1),
-                                         (rhs.record_ ? rhs.record_->data_.dim_ : -1),
-                                         (lhs.record_ ? lhs.record_->uid_ : 0),
-                                         (rhs.record_ ? rhs.record_->uid_ : 0),
-                                         e.what());
-                        throw;
-                    }
-                }
-            }
-        }
-    } else {
-        for (auto &r : right_records_) {
-            if (!isRecordFresh(r, logical_lower_bound)) continue;
-            for (auto &cand : candidates) {
-                if (!isRecordFresh(cand, logical_lower_bound)) continue;
-                if (validateCandidateInWindow(cand, left_records_, logical_lower_bound)) {
-                    auto left_copy = std::make_unique<VectorRecord>(*cand);
-                    auto right_copy = std::make_unique<VectorRecord>(*r);
-                    Response lhs{ResponseType::Record, std::move(left_copy)};
-                    Response rhs{ResponseType::Record, std::move(right_copy)};
-                    try {
-                        MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                        auto res = join_func_->Execute(lhs, rhs);
-                        if (res.record_) local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
-                    } catch (const std::exception& e) {
-                        SAGEFLOW_LOG_ERROR("JOIN_LAZY", "slot={} left_dim={} right_dim={} left_uid={} right_uid={} what={} ",
-                                         slot,
-                                         (lhs.record_ ? lhs.record_->data_.dim_ : -1),
-                                         (rhs.record_ ? rhs.record_->data_.dim_ : -1),
-                                         (lhs.record_ ? lhs.record_->uid_ : 0),
-                                         (rhs.record_ ? rhs.record_->uid_ : 0),
-                                         e.what());
-                        throw;
-                    }
-                }
-            }
-        }
-    }
-}
-
 auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> void {
     // 统计 apply 处理总耗时（一次调用一次计数）
     metrics_increment(JoinMetrics::instance().apply_processing_count);
@@ -737,32 +550,14 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
     
     auto candidates = getCandidatesWithLocksHeld(data_ptr, slot);
     
-    SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "slot={} cand={} left_win={} right_win={} eager={} use_index={} ",
-           slot, candidates.size(), left_sz, right_sz, (is_eager_?1:0), (use_index_?1:0));
+    SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "slot={} cand={} left_win={} right_win={} use_index={} ",
+           slot, candidates.size(), left_sz, right_sz, (use_index_?1:0));
 
-    if (is_eager_) {
-        // Execute join while holding both locks to ensure consistency
-        executeJoinForCandidatesWithLockHeld(candidates, data_ptr, slot, 
-                                              slot == left_slot_id_ ? right_records_ : left_records_,
-                                              local_return_pool);
-    } else {
-        executeLazyJoinWithLocksHeld(candidates, slot, now_time_stamp, local_return_pool);
-        // Release locks before clearing for lazy mode
-        lkL.unlock();
-        lkR.unlock();
-        
-        // 清理窗口前加锁等待计入 lock_wait 与 window_insert_ns（视为窗口阶段的一部分）
-        uint64_t before_wait_L = metrics_timestamp();
-        std::unique_lock<std::shared_mutex> wlkL(left_records_mutex_);
-        metrics_record_lock_wait_dual(before_wait_L, JoinMetrics::instance().window_insert_ns);
-        
-        uint64_t before_wait_R = metrics_timestamp();
-        std::unique_lock<std::shared_mutex> wlkR(right_records_mutex_);
-        metrics_record_lock_wait_dual(before_wait_R, JoinMetrics::instance().window_insert_ns);
-        
-        left_records_.clear();
-        right_records_.clear();
-    }
+    // 所有方法均使用 Eager 模式：每条记录到达时立即执行查询
+    // Execute join while holding both locks to ensure consistency
+    executeJoinForCandidatesWithLockHeld(candidates, data_ptr, slot, 
+                                          slot == left_slot_id_ ? right_records_ : left_records_,
+                                          local_return_pool);
     
     // Locks released here automatically when going out of scope
     
@@ -787,29 +582,17 @@ std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidatesFromState(
     
     MetricsTimer t_fetch(JoinMetrics::instance().candidate_fetch_ns);
     
-    if (is_eager_) {
-        // Eager 模式：使用索引直接获取候选项
-        // 注意：state 是对面的窗口状态（opposite_state），我们需要传递记录来源的 slot
-        // 当 state == right_state_ 时，说明记录来自左流（slot=0），需要查询右索引
-        // 当 state == left_state_ 时，说明记录来自右流（slot=1），需要查询左索引
-        // ExecuteEager 内部使用 otherIndexId(slot) 来选择正确的索引
-        int query_slot = (state == right_state_.get()) ? left_slot_id_ : right_slot_id_;
-        return join_method_->ExecuteEager(*data_ptr, query_slot);
-    }
-    
-    // Lazy 模式：从窗口状态获取所有记录
-    std::deque<std::unique_ptr<VectorRecord>> query_records_copy;
-    const auto& records = state->getRecords(subtask_index);
-    for (const auto& p : records) {
-        if (p) {
-            query_records_copy.emplace_back(std::make_unique<VectorRecord>(*p));
-        }
-    }
-    
-    // 与 Eager 模式相同的逻辑：state 是对面的窗口状态
-    int slot = (state == right_state_.get()) ? left_slot_id_ : right_slot_id_;
-    return join_method_->ExecuteLazy(query_records_copy, slot);
+    // 所有方法均使用 Eager 模式：使用索引直接获取候选项
+    // 注意：state 是对面的窗口状态（opposite_state），我们需要传递记录来源的 slot
+    // 当 state == right_state_ 时，说明记录来自左流（slot=0），需要查询右索引
+    // 当 state == left_state_ 时，说明记录来自右流（slot=1），需要查询左索引
+    // ExecuteEager 内部使用 otherIndexId(slot) 来选择正确的索引
+    int query_slot = (state == right_state_.get()) ? left_slot_id_ : right_slot_id_;
+    return join_method_->ExecuteEager(*data_ptr, query_slot);
 }
+
+// 批量删除阈值：当过期记录数超过此值时，触发批量删除
+constexpr size_t kBatchDeleteThreshold = 100;
 
 auto JoinOperator::updateSideWithState(
     WindowState* state,
@@ -848,10 +631,48 @@ auto JoinOperator::updateSideWithState(
     auto& window = (slot == left_slot_id_) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
     int64_t timelimit = window.windowTimeLimit(now_time_stamp);
     
-    // 清理过期记录（WindowState 内部会处理锁）
+    // 更新全局最大已见时间戳（原子操作，支持乱序）
+    // 使用 compare_exchange 确保只更新为更大的值
+    std::atomic<int64_t>& max_seen_ts = (slot == left_slot_id_) 
+        ? max_seen_left_ts_ : max_seen_right_ts_;
+    int64_t current_max = max_seen_ts.load(std::memory_order_relaxed);
+    while (now_time_stamp > current_max && 
+           !max_seen_ts.compare_exchange_weak(current_max, now_time_stamp,
+                                               std::memory_order_release,
+                                               std::memory_order_relaxed)) {
+        // 重试直到成功或发现更大的值
+    }
+    
+    // 安全 evict 策略：使用双侧的 max_seen_ts 的最小值
+    // 只有当左右两侧都已经处理过足够新的记录时，才能安全 evict
+    // 这确保了：
+    // 1. 当前侧的记录不会被另一侧的查询需要时删除
+    // 2. 处理乱序数据时不会过早删除
+    int64_t left_max = max_seen_left_ts_.load(std::memory_order_acquire);
+    int64_t right_max = max_seen_right_ts_.load(std::memory_order_acquire);
+    int64_t safe_evict_ts = std::min(left_max, right_max);
     {
         MetricsTimer t_window_evict(JoinMetrics::instance().window_insert_ns);
-        state->evictExpired(now_time_stamp, join_func_->getWindowSize(), subtask_index);
+        state->evictExpired(safe_evict_ts, join_func_->getWindowSize(), subtask_index);
+    }
+    
+    // 检查是否需要批量删除 Index/Storage 中的过期记录
+    // 只有当过期记录数超过阈值时才执行，避免频繁删除
+    if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
+        size_t expired_count = state->getExpiredCount(subtask_index);
+        if (expired_count >= kBatchDeleteThreshold) {
+            // 获取并清空过期 UID buffer
+            auto expired_uids = state->flushExpiredUids(subtask_index);
+            
+            // 批量从 Index/Storage 中删除
+            for (uint64_t uid : expired_uids) {
+                concurrency_manager_->erase(index_id_for_cc, uid);
+            }
+            
+            SAGEFLOW_LOG_DEBUG("JOIN_STATE", 
+                "Batch deleted {} expired records from index {}", 
+                expired_uids.size(), index_id_for_cc);
+        }
     }
     
     // 检查是否需要触发
@@ -875,47 +696,59 @@ void JoinOperator::executeJoinWithState(
     
     MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
     
-    // 获取候选项
+    // 获取候选项（已通过索引相似度过滤）
     auto candidates = getCandidatesFromState(data_ptr, opposite_state, subtask_index);
     
-    // 获取对面窗口的记录用于验证
-    const auto& opposite_records = opposite_state->getRecords(subtask_index);
+    // 调试：统计候选数量（使用全局变量）
+    g_total_candidates.fetch_add(candidates.size(), std::memory_order_relaxed);
+    g_total_queries.fetch_add(1, std::memory_order_relaxed);
+    
+    // 计算时间窗口边界
+    // 候选项的时间戳必须在 [data_ptr.timestamp - window_size, data_ptr.timestamp + window_size] 范围内
+    // 即 |data_ptr.timestamp - cand.timestamp| <= window_size
+    int64_t window_size = join_func_->getWindowSize();
+    int64_t window_lower_bound = data_ptr->timestamp_ - window_size;
+    int64_t window_upper_bound = data_ptr->timestamp_ + window_size;
     
     for (const auto& cand : candidates) {
-        // 验证候选项仍在窗口中
-        bool valid = false;
-        for (const auto& r : opposite_records) {
-            if (r && r->uid_ == cand->uid_) {
-                valid = true;
-                break;
-            }
+        // 使用时间戳直接判断候选项是否在窗口范围内
+        // 这避免了与 evictExpired 的竞争条件
+        if (cand->timestamp_ < window_lower_bound || cand->timestamp_ > window_upper_bound) {
+            g_total_filtered_by_ts.fetch_add(1, std::memory_order_relaxed);
+            continue;
         }
         
-        if (valid) {
-            std::unique_ptr<VectorRecord> left_copy;
-            std::unique_ptr<VectorRecord> right_copy;
-            
-            if (slot == left_slot_id_) {
-                left_copy = std::make_unique<VectorRecord>(*data_ptr);
-                right_copy = std::make_unique<VectorRecord>(*cand);
-            } else {
-                left_copy = std::make_unique<VectorRecord>(*cand);
-                right_copy = std::make_unique<VectorRecord>(*data_ptr);
-            }
-            
-            Response lhs{ResponseType::Record, std::move(left_copy)};
-            Response rhs{ResponseType::Record, std::move(right_copy)};
-            
-            try {
-                MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                auto res = join_func_->Execute(lhs, rhs);
-                if (res.record_) {
-                    local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
+        std::unique_ptr<VectorRecord> left_copy;
+        std::unique_ptr<VectorRecord> right_copy;
+        
+        if (slot == left_slot_id_) {
+            left_copy = std::make_unique<VectorRecord>(*data_ptr);
+            right_copy = std::make_unique<VectorRecord>(*cand);
+        } else {
+            left_copy = std::make_unique<VectorRecord>(*cand);
+            right_copy = std::make_unique<VectorRecord>(*data_ptr);
+        }
+        
+        Response lhs{ResponseType::Record, std::move(left_copy)};
+        Response rhs{ResponseType::Record, std::move(right_copy)};
+        
+        try {
+            MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
+            auto res = join_func_->Execute(lhs, rhs);
+            if (res.record_) {
+                // 调试：输出实际匹配的 uid 对
+                static std::atomic<uint64_t> match_debug_count{0};
+                uint64_t mdc = match_debug_count.fetch_add(1, std::memory_order_relaxed);
+                if (mdc < 20) {
+                    SAGEFLOW_LOG_INFO("JOIN_MATCH_DETAIL",
+                        "Match: slot={} query_uid={} cand_uid={} result_uid={}",
+                        slot, data_ptr->uid_, cand->uid_, res.record_->uid_);
                 }
-            } catch (const std::exception& e) {
-                SAGEFLOW_LOG_ERROR("JOIN_STATE", "Exception in executeJoinWithState: what={}", e.what());
-                throw;
+                local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
             }
+        } catch (const std::exception& e) {
+            SAGEFLOW_LOG_ERROR("JOIN_STATE", "Exception in executeJoinWithState: what={}", e.what());
+            throw;
         }
     }
 }
@@ -962,69 +795,42 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     // 保存数据指针副本用于后续 join
     auto data_for_join = std::make_unique<VectorRecord>(*data_ptr);
     
-    // 更新当前侧窗口
-    bool trigger_flag = updateSideWithState(
-        current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
-    
-    if (!trigger_flag) {
-        return;
-    }
-    
-    // 执行 Join 操作
+    // ====== 关键修复：使用序列化锁确保"插入 + 查询"原子性 ======
+    // 问题：高并行度下，两个相似记录 L 和 R 可能同时被不同线程处理：
+    //   Thread A: insert(L) -> query(R_window) // L 还没在 R 的视野中
+    //   Thread B: insert(R) -> query(L_window) // R 还没在 L 的视野中
+    // 结果：(L, R) 对永远不会被匹配！
+    // 
+    // 解决方案：序列化"插入 + 查询"操作，确保每条记录被插入后，
+    // 后续所有查询都能看到它。
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
-    
-    if (is_eager_) {
-        // Eager 模式：只用当前记录与对面窗口进行 join
+    {
+        std::lock_guard<std::mutex> lock(join_sequence_mutex_);
+        
+        // 更新当前侧窗口
+        bool trigger_flag = updateSideWithState(
+            current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
+        
+        // Eager 模式下，每条记录都应该执行 join，不依赖 trigger_flag
+        // trigger_flag 主要用于控制窗口滑动，但在 Eager 模式下仍应处理所有记录
+        
+        // 执行 Join 操作
+        // 所有方法均使用 Eager 模式：只用当前记录与对面窗口进行 join
         executeJoinWithState(data_for_join.get(), opposite_state, slot, 
                             subtask_index, local_return_pool);
-    } else {
-        // Lazy 模式：获取当前侧所有记录与对面窗口的候选项进行 join
-        const auto& current_records = current_state->getRecords(subtask_index);
-        auto candidates = getCandidatesFromState(nullptr, opposite_state, subtask_index);
-        
-        MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
-        const auto& opposite_records = opposite_state->getRecords(subtask_index);
-        
-        for (const auto& l : current_records) {
-            if (!l) continue;
-            for (const auto& cand : candidates) {
-                // 验证候选项仍在窗口中
-                bool valid = false;
-                for (const auto& r : opposite_records) {
-                    if (r && r->uid_ == cand->uid_) {
-                        valid = true;
-                        break;
-                    }
-                }
-                
-                if (valid) {
-                    std::unique_ptr<VectorRecord> left_copy;
-                    std::unique_ptr<VectorRecord> right_copy;
-                    
-                    if (slot == left_slot_id_) {
-                        left_copy = std::make_unique<VectorRecord>(*l);
-                        right_copy = std::make_unique<VectorRecord>(*cand);
-                    } else {
-                        left_copy = std::make_unique<VectorRecord>(*cand);
-                        right_copy = std::make_unique<VectorRecord>(*l);
-                    }
-                    
-                    Response lhs{ResponseType::Record, std::move(left_copy)};
-                    Response rhs{ResponseType::Record, std::move(right_copy)};
-                    
-                    try {
-                        MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                        auto res = join_func_->Execute(lhs, rhs);
-                        if (res.record_) {
-                            local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
-                        }
-                    } catch (const std::exception& e) {
-                        SAGEFLOW_LOG_ERROR("JOIN_LAZY_STATE", "Exception: what={}", e.what());
-                        throw;
-                    }
-                }
-            }
-        }
+    }
+    // ====== 序列化锁结束 ======
+    
+    // 调试：记录匹配数量
+    static std::atomic<uint64_t> total_matches{0};
+    static std::atomic<uint64_t> debug_count{0};
+    total_matches.fetch_add(local_return_pool.size(), std::memory_order_relaxed);
+    uint64_t dc = debug_count.fetch_add(1, std::memory_order_relaxed);
+    if (dc % 500 == 0) {
+        SAGEFLOW_LOG_INFO("JOIN_DEBUG_MATCH", 
+            "subtask={}/{} slot={} uid={} matches_this={} total_matches={}",
+            subtask_index, context.getParallelism(), slot, 
+            data_for_join->uid_, local_return_pool.size(), total_matches.load());
     }
     
     // 发送 Join 结果
@@ -1209,12 +1015,8 @@ void JoinOperator::applyVSJoin(Response&& record, int slot, Collector& collector
         return;
     }
     
-    // 7. 执行 join（根据 eager/lazy 模式）
-    if (is_eager_) {
-        executeVSJoinEager(*record_for_join, slot, collector, context);
-    } else {
-        executeVSJoinLazy(slot, collector, context);
-    }
+    // 7. 执行 join（所有方法均使用 Eager 模式）
+    executeVSJoinEager(*record_for_join, slot, collector, context);
 }
 
 void JoinOperator::executeVSJoinEager(const VectorRecord& query, int slot,
@@ -1286,79 +1088,6 @@ void JoinOperator::executeVSJoinEager(const VectorRecord& query, int slot,
     }
     
     SAGEFLOW_LOG_DEBUG("JOIN_VSJOIN", "Eager completed: results={}", local_return_pool.size());
-}
-
-void JoinOperator::executeVSJoinLazy(int slot, Collector& collector,
-                                      const RuntimeContext& context) {
-    MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
-    const uint64_t apply_enter_ns = metrics_timestamp();
-    
-    size_t subtask_index = context.getSubtaskIndex();
-    
-    // 获取当前侧和目标侧的状态
-    PartitionedVectorState* current_state = (slot == left_slot_id_) 
-        ? left_vsjoin_state_.get() : right_vsjoin_state_.get();
-    PartitionedVectorState* target_state = (slot == left_slot_id_) 
-        ? right_vsjoin_state_.get() : left_vsjoin_state_.get();
-    
-    // 获取当前侧所有记录
-    const auto& current_records = current_state->getRecords(subtask_index);
-    
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
-    
-    // 对当前侧每条记录进行 join
-    for (const auto& query_ptr : current_records) {
-        if (!query_ptr) continue;
-        
-        // 从目标状态中获取相关记录
-        auto candidate_records = target_state->getRecordsForQuery(*query_ptr, vsjoin_config_.num_probes);
-        
-        for (const VectorRecord* cand_ptr : candidate_records) {
-            if (!cand_ptr) continue;
-            
-            // 使用距离验证器验证
-            auto result = vsjoin_verifier_->verify(*query_ptr, *cand_ptr);
-            if (result.passed) {
-                std::unique_ptr<VectorRecord> left_copy;
-                std::unique_ptr<VectorRecord> right_copy;
-                
-                if (slot == left_slot_id_) {
-                    left_copy = std::make_unique<VectorRecord>(*query_ptr);
-                    right_copy = std::make_unique<VectorRecord>(*cand_ptr);
-                } else {
-                    left_copy = std::make_unique<VectorRecord>(*cand_ptr);
-                    right_copy = std::make_unique<VectorRecord>(*query_ptr);
-                }
-                
-                Response lhs{ResponseType::Record, std::move(left_copy)};
-                Response rhs{ResponseType::Record, std::move(right_copy)};
-                
-                try {
-                    MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                    auto res = join_func_->Execute(lhs, rhs);
-                    if (res.record_) {
-                        local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
-                    }
-                } catch (const std::exception& e) {
-                    SAGEFLOW_LOG_ERROR("JOIN_VSJOIN", "Exception in executeVSJoinLazy: what={}", e.what());
-                    throw;
-                }
-            }
-        }
-    }
-    
-    // 发送 Join 结果
-    {
-        MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
-        for (auto& p : local_return_pool) {
-            Response out{ResponseType::Record, std::move(p.second)};
-            collector.collect(std::make_unique<Response>(std::move(out)), p.first);
-            metrics_increment(JoinMetrics::instance().total_emits);
-            metrics_record_e2e_latency(apply_enter_ns);
-        }
-    }
-    
-    SAGEFLOW_LOG_DEBUG("JOIN_VSJOIN", "Lazy completed: results={}", local_return_pool.size());
 }
 
 void JoinOperator::closeVSJoinComponents() {

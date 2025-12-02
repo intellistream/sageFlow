@@ -118,16 +118,6 @@ public:
         int query_slot) override;
     
     /**
-     * @brief Lazy 模式：批量查询执行匹配
-     * @param query_records 查询向量队列
-     * @param query_slot 查询来源槽位
-     * @return 所有匹配结果列表
-     */
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-        const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-        int query_slot) override;
-    
-    /**
      * @brief 关闭方法
      */
     void close();

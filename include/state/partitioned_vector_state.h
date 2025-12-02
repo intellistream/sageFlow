@@ -76,6 +76,29 @@ public:
         getRecords(size_t subtask_index) const override;
 
     /**
+     * @brief 获取窗口记录的线程安全快照
+     * @param subtask_index 子任务索引（在此实现中被忽略）
+     * @return 窗口记录的指针向量副本（线程安全）
+     */
+    std::vector<std::shared_ptr<const VectorRecord>> 
+        getRecordsSnapshot(size_t subtask_index) const override;
+
+    /**
+     * @brief 检查窗口中是否包含指定 UID 的记录
+     * @param uid 要检查的记录 UID
+     * @param subtask_index 子任务索引（在此实现中被忽略）
+     * @return true 如果记录存在于窗口中
+     */
+    bool containsUid(uint64_t uid, size_t subtask_index) const override;
+
+    /**
+     * @brief 获取窗口中存在的 UID 集合
+     * @param subtask_index 子任务索引（在此实现中被忽略）
+     * @return 当前窗口中所有记录的 UID 集合
+     */
+    std::unordered_set<uint64_t> getUidSet(size_t subtask_index) const override;
+
+    /**
      * @brief 清理过期记录
      *
      * 遍历所有分区进行过期清理，同时更新 uid 映射和边界追踪。
@@ -87,6 +110,28 @@ public:
     void evictExpired(int64_t current_timestamp,
                       int64_t window_size,
                       size_t subtask_index) override;
+
+    /**
+     * @brief 检查指定 UID 是否已过期
+     * @param uid 要检查的记录 UID
+     * @param subtask_index 子任务索引（在此实现中被忽略）
+     * @return true 如果记录已被标记为过期
+     */
+    bool isExpired(uint64_t uid, size_t subtask_index) const override;
+
+    /**
+     * @brief 获取已过期但未删除的 UID 数量
+     * @param subtask_index 子任务索引（在此实现中被忽略）
+     * @return 待删除的过期记录数量
+     */
+    size_t getExpiredCount(size_t subtask_index) const override;
+
+    /**
+     * @brief 获取并清空过期 UID buffer
+     * @param subtask_index 子任务索引（在此实现中被忽略）
+     * @return 待从 Index/Storage 中删除的 UID 列表
+     */
+    std::vector<uint64_t> flushExpiredUids(size_t subtask_index) override;
 
     /**
      * @brief 获取窗口大小（所有分区总和）
@@ -193,6 +238,10 @@ private:
     mutable std::deque<std::unique_ptr<VectorRecord>> merged_view_;
     mutable std::shared_mutex merge_mutex_;
     mutable bool view_dirty_ = true;
+
+    /// 全局已过期 UID 集合（跨分区）
+    std::unordered_set<uint64_t> expired_uids_;
+    mutable std::shared_mutex expired_mutex_;
 
     /// uid -> VectorRecord* 映射，用于快速查找（mutable 以支持 const 方法中的缓存更新）
     mutable std::unordered_map<uint64_t, const VectorRecord*> uid_record_map_;

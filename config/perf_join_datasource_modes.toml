@@ -2,8 +2,8 @@
 # Test Mode 1: Generate-Save-Load (generate data, save to file, then load from file)
 name = "perf_join_gen_save_load_random"
 mode = "generate_save_load"
-methods = ["bruteforce_eager", "ivf_eager"]
-#methods = ["ivf_eager"]
+methods = ["bruteforce", "ivf"]
+#methods = ["ivf"]
 sizes = [1000]
 records_count = 10
 vector_dim = 64

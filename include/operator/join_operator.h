@@ -53,7 +53,7 @@ struct VSJoinConfig {
    public:
     explicit JoinOperator(std::unique_ptr<Function> &join_func,
                           const std::shared_ptr<ConcurrencyManager> &concurrency_manager,
-                          const std::string& join_method_name = "bruteforce_lazy",
+                          const std::string& join_method_name = "bruteforce",
                           double join_similarity_threshold = 0.8,
                           bool enable_profiling = false,
                           const std::string& profile_output_path = "",
@@ -74,19 +74,15 @@ struct VSJoinConfig {
     auto apply(Response&& record, int slot, Collector& collector,
               const RuntimeContext& context) -> void override;
 
-    auto lazy_process(int slot) -> std::optional<Response>;
+    // 设置左右两侧的 slot id（由 Planner 动态分配并注入）
+    void setSlots(int left_slot_id, int right_slot_id) {
+        left_slot_id_ = left_slot_id;
+        right_slot_id_ = right_slot_id;
+    }
 
-    auto eager_process(int slot) -> std::optional<Response>;
-
-        // 设置左右两侧的 slot id（由 Planner 动态分配并注入）
-        void setSlots(int left_slot_id, int right_slot_id) {
-            left_slot_id_ = left_slot_id;
-            right_slot_id_ = right_slot_id;
-        }
-
-        void setRetentionBuffer(int64_t buffer) {
-            retention_buffer_ = std::max<int64_t>(buffer, 0);
-        }
+    void setRetentionBuffer(int64_t buffer) {
+        retention_buffer_ = std::max<int64_t>(buffer, 0);
+    }
     // ================== VSJoin 相关方法 ==================
     
     /**
@@ -143,26 +139,12 @@ struct VSJoinConfig {
         int slot,
         std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
 
-    // 执行join操作的辅助方法（假定已持有对面窗口的锁）
+    // 执行 join 操作的辅助方法（假定已持有对面窗口的锁）
     void executeJoinForCandidatesWithLockHeld(
         const std::vector<std::unique_ptr<VectorRecord>>& candidates,
         const std::unique_ptr<VectorRecord>& data_ptr,
         int slot,
         const std::deque<std::unique_ptr<VectorRecord>>& opposite_window,
-        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
-
-    // Lazy模式的join执行辅助方法
-    void executeLazyJoin(
-        const std::vector<std::unique_ptr<VectorRecord>>& candidates,
-        int slot,
-        int64_t query_timestamp,
-        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
-
-    // Lazy模式的join执行辅助方法（假定已持有两个窗口的锁）
-    void executeLazyJoinWithLocksHeld(
-        const std::vector<std::unique_ptr<VectorRecord>>& candidates,
-        int slot,
-        int64_t query_timestamp,
         std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
 
 
@@ -207,6 +189,14 @@ struct VSJoinConfig {
     std::unique_ptr<WindowState> right_state_;
     bool use_shared_state_ = false;  // 是否使用共享状态模式
 
+    // 线程安全的初始化标志
+    std::once_flag init_flag_;
+    
+    // Join 操作序列化锁
+    // 用于确保"插入当前记录 + 查询对侧窗口"作为原子操作执行
+    // 解决高并行度下两个相似记录同时处理时互相错过的竞态条件
+    mutable std::mutex join_sequence_mutex_;
+    
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
 
     // 通用索引 id（不再混用 IVF 命名）
@@ -214,13 +204,21 @@ struct VSJoinConfig {
     int right_index_id_ = -1;
     InternalIndexKind index_kind_ = InternalIndexKind::NONE;
     bool use_index_ = false;          // 是否使用底层索引（IVF / BruteForce / 未来扩展）
-    bool is_eager_ = false;           // eager / lazy 模式
+    // 注意：所有 Join 方法均使用 Eager 模式，Lazy 模式已废弃
+    // is_eager_ 保留仅用于向后兼容，始终为 true
+    bool is_eager_ = true;
     double join_similarity_threshold_ = 0.8;
     int64_t retention_buffer_ = 5000;
 
     // 由 Planner 注入的左右侧 slot id，用于区分左右输入与默认下游 slot
     int left_slot_id_ = 0;
     int right_slot_id_ = 1;
+    
+    // 全局最大已见时间戳（用于安全的 evict 策略）
+    // 在多线程环境下，乱序处理可能导致较早的记录在较晚的记录之后处理
+    // 使用全局 max_seen_timestamp 确保只有当所有时间戳都已超过窗口边界时才 evict
+    std::atomic<int64_t> max_seen_left_ts_{std::numeric_limits<int64_t>::min()};
+    std::atomic<int64_t> max_seen_right_ts_{std::numeric_limits<int64_t>::min()};
     
     // GPERFTOOLS profiling support
     std::unique_ptr<PerformanceMonitor> profiler_;
@@ -285,15 +283,6 @@ struct VSJoinConfig {
      */
     void executeVSJoinEager(const VectorRecord& query, int slot,
                             Collector& collector, const RuntimeContext& context);
-    
-    /**
-     * @brief VSJoin Lazy 模式执行
-     * @param slot 输入槽位
-     * @param collector 结果收集器
-     * @param context 运行时上下文
-     */
-    void executeVSJoinLazy(int slot, Collector& collector,
-                           const RuntimeContext& context);
     
     /**
      * @brief 从 Response 中提取 VectorRecord

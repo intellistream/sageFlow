@@ -113,6 +113,47 @@ PartitionedVectorState::getRecords(size_t /*subtask_index*/) const {
     return merged_view_;
 }
 
+std::vector<std::shared_ptr<const VectorRecord>> 
+PartitionedVectorState::getRecordsSnapshot(size_t /*subtask_index*/) const {
+    std::shared_lock lock(merge_mutex_);
+    
+    std::vector<std::shared_ptr<const VectorRecord>> snapshot;
+    
+    // 计算总大小
+    size_t total_size = 0;
+    for (size_t i = 0; i < num_partitions_; ++i) {
+        total_size += partitions_[i]->size(0);
+    }
+    snapshot.reserve(total_size);
+    
+    // 收集所有分区的记录
+    for (size_t i = 0; i < num_partitions_; ++i) {
+        auto all_records = partitions_[i]->getAllRecords(0);
+        for (const auto* record : all_records) {
+            if (record) {
+                snapshot.push_back(std::make_shared<const VectorRecord>(*record));
+            }
+        }
+    }
+    
+    return snapshot;
+}
+
+bool PartitionedVectorState::containsUid(uint64_t uid, size_t /*subtask_index*/) const {
+    std::shared_lock lock(uid_map_mutex_);
+    return uid_partition_map_.find(uid) != uid_partition_map_.end();
+}
+
+std::unordered_set<uint64_t> PartitionedVectorState::getUidSet(size_t /*subtask_index*/) const {
+    std::shared_lock lock(uid_map_mutex_);
+    std::unordered_set<uint64_t> uid_set;
+    uid_set.reserve(uid_partition_map_.size());
+    for (const auto& [uid, _] : uid_partition_map_) {
+        uid_set.insert(uid);
+    }
+    return uid_set;
+}
+
 void PartitionedVectorState::evictExpired(int64_t current_timestamp,
                                            int64_t window_size,
                                            size_t /*subtask_index*/) {
@@ -127,7 +168,7 @@ void PartitionedVectorState::evictExpired(int64_t current_timestamp,
             uids_before.insert(rec->uid_);
         }
 
-        // 执行过期清理
+        // 执行过期清理（TwoTierWindowState 会记录过期 UID）
         partitions_[partition_id]->evictExpired(current_timestamp, window_size, 0);
 
         // 获取驱逐后的记录
@@ -147,6 +188,14 @@ void PartitionedVectorState::evictExpired(int64_t current_timestamp,
 
     if (all_evicted_uids.empty()) {
         return;
+    }
+
+    // 将过期 UID 添加到全局 expired_uids_ 集合
+    {
+        std::unique_lock lock(expired_mutex_);
+        for (uint64_t uid : all_evicted_uids) {
+            expired_uids_.insert(uid);
+        }
     }
 
     // 更新 uid_partition_map_
@@ -178,6 +227,23 @@ void PartitionedVectorState::evictExpired(int64_t current_timestamp,
 
     SAGEFLOW_LOG_DEBUG("PartitionedVectorState",
         "Evicted {} records across all partitions", all_evicted_uids.size());
+}
+
+bool PartitionedVectorState::isExpired(uint64_t uid, size_t /*subtask_index*/) const {
+    std::shared_lock lock(expired_mutex_);
+    return expired_uids_.count(uid) > 0;
+}
+
+size_t PartitionedVectorState::getExpiredCount(size_t /*subtask_index*/) const {
+    std::shared_lock lock(expired_mutex_);
+    return expired_uids_.size();
+}
+
+std::vector<uint64_t> PartitionedVectorState::flushExpiredUids(size_t /*subtask_index*/) {
+    std::unique_lock lock(expired_mutex_);
+    std::vector<uint64_t> result(expired_uids_.begin(), expired_uids_.end());
+    expired_uids_.clear();
+    return result;
 }
 
 size_t PartitionedVectorState::size(size_t /*subtask_index*/) const {

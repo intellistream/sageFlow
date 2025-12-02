@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/hdr_tree_method.h"
+#include "operator/join_method_registry.h"
 
 #include <unordered_set>
 
@@ -58,48 +59,32 @@ auto HDRTreeMethod::ExecuteEager(const VectorRecord& query_record, int query_slo
   return results;
 }
 
-auto HDRTreeMethod::ExecuteLazy(const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-                                 int query_slot)
-    -> std::vector<std::unique_ptr<VectorRecord>> {
-  std::vector<std::unique_ptr<VectorRecord>> all_results;
-
-  if (!concurrency_manager_) {
-    SAGEFLOW_LOG_WARN("HDRTreeMethod", "ConcurrencyManager is null");
-    return all_results;
-  }
-
-  int idx = otherIndexId(query_slot);
-  if (idx == -1) {
-    SAGEFLOW_LOG_WARN("HDRTreeMethod", "Invalid index ID for slot {}", query_slot);
-    return all_results;
-  }
-
-  SAGEFLOW_LOG_DEBUG("HDRTreeMethod", "ExecuteLazy: processing {} queries on index {}",
-                     query_records.size(), idx);
-
-  // 使用 set 去重结果
-  std::unordered_set<uint64_t> seen_uids;
-
-  for (const auto& qr : query_records) {
-    if (!qr) {
-      continue;
-    }
-
-    auto candidates = concurrency_manager_->query_for_join(idx, *qr,
-                                                            join_similarity_threshold_);
-
-    for (auto& c : candidates) {
-      if (c && seen_uids.find(c->uid_) == seen_uids.end()) {
-        seen_uids.insert(c->uid_);
-        all_results.emplace_back(std::make_unique<VectorRecord>(*c));
-      }
-    }
-  }
-
-  SAGEFLOW_LOG_DEBUG("HDRTreeMethod", "ExecuteLazy: found {} unique candidates from {} queries",
-                     all_results.size(), query_records.size());
-
-  return all_results;
-}
 
 }  // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::HDR_TREE,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "HDR-Tree",
+        "HDR-Tree baseline with PCA dimensionality reduction "
+        "and R-tree spatial indexing. Optimized for dynamic updates.",
+        sageFlow::JoinAlgorithm::HDR_TREE,
+        true,   // supports_eager
+        true,   // supports_lazy
+        sageFlow::PartitionStrategy::KEY_HASH,
+        sageFlow::WindowStateType::PARTITIONED,
+        "Ukey et al., ADC 2022, DOI: 10.1007/978-3-031-15512-3_5"
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int left_idx,
+       int right_idx) {
+        sageFlow::HDRTreeMethod::Config hdr_config;
+        hdr_config.similarity_threshold = config.similarity_threshold;
+        hdr_config.projected_dim = config.hdr_projected_dim;
+        hdr_config.pca_sample_size = config.hdr_pca_sample_size;
+        return std::make_unique<sageFlow::HDRTreeMethod>(
+            left_idx, right_idx, config.similarity_threshold, cm, hdr_config);
+    });

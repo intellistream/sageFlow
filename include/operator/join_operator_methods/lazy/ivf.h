@@ -35,10 +35,6 @@ public:
       const VectorRecord& query_record,
       int slot) override;
 
-  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-      const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-      int query_slot) override;
-
 private:
   int left_ivf_index_id_;
   int right_ivf_index_id_;

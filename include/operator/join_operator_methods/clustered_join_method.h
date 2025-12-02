@@ -85,16 +85,6 @@ class ClusteredJoinMethod final : public BaseMethod {
       const VectorRecord& query_record,
       int query_slot) override;
 
-  /**
-   * @brief Lazy 执行模式（批量查询）
-   * @param query_records 查询向量批次
-   * @param query_slot 查询 slot
-   * @return 所有匹配的候选向量
-   */
-  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-      const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-      int query_slot) override;
-
   // ==================== ClusteredJoin 特有方法 ====================
 
   /**

@@ -74,19 +74,6 @@ public:
         int query_slot) override;
     
     /**
-     * @brief Lazy 模式：批量查询执行匹配
-     * 
-     * 对每个查询向量调用 ExecuteEager，汇总所有结果
-     * 
-     * @param query_records 查询向量队列
-     * @param query_slot 查询来源槽位 (0=左流, 1=右流)
-     * @return 所有匹配结果列表（记录副本）
-     */
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-        const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-        int query_slot) override;
-    
-    /**
      * @brief 关闭方法，释放资源
      */
     void close();
@@ -122,14 +109,25 @@ private:
     bool initialized_ = false;
     
     /**
-     * @brief 计算两个向量的余弦相似度
+     * @brief 计算两个向量的相似度
+     * 使用 L2 距离 + 指数衰减 (exp(-alpha * dist))，与 ComputeEngine::Similarity 一致
      * @param a 第一个向量（从 VectorRecord 提取）
      * @param b 第二个向量（从 VectorRecord 提取）
-     * @return 余弦相似度值，范围 [-1.0, 1.0]
+     * @return 相似度值，范围 [0.0, 1.0]
      */
-    double computeCosineSimilarity(
+    double computeSimilarity(
         const std::vector<float>& a, 
         const std::vector<float>& b) const;
+    
+    /**
+     * @brief 在给定记录快照中搜索满足阈值的匹配（线程安全版本）
+     * @param query 查询向量记录
+     * @param records 待搜索的记录快照（shared_ptr 版本）
+     * @return 匹配结果列表（记录副本）
+     */
+    std::vector<std::unique_ptr<VectorRecord>> searchInRecordsSnapshot(
+        const VectorRecord& query,
+        const std::vector<std::shared_ptr<const VectorRecord>>& records) const;
     
     /**
      * @brief 在给定记录集中搜索满足阈值的匹配

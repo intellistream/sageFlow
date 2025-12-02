@@ -20,9 +20,8 @@ class BruteForceJoinMethod final : public BaseMethod {
 
   ~BruteForceJoinMethod() override = default;
 
-  // 统一接口
+  // 统一接口：所有方法均使用 Eager 模式
   std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(const VectorRecord& query_record, int query_slot) override;
-  std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(const std::deque<std::unique_ptr<VectorRecord>>& query_records, int query_slot) override;
 
  private:
   int otherIndexId(int slot) const { return (slot == 0) ? right_index_id_ : left_index_id_; }

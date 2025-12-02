@@ -53,6 +53,86 @@ TwoTierWindowState::getRecords(size_t subtask_index) const {
     return tier_pair.merged_view_;
 }
 
+std::vector<std::shared_ptr<const VectorRecord>> 
+TwoTierWindowState::getRecordsSnapshot(size_t subtask_index) const {
+    std::shared_lock lock(partitions_[subtask_index].mutex_);
+    
+    const auto& tier_pair = partitions_[subtask_index];
+    std::vector<std::shared_ptr<const VectorRecord>> snapshot;
+    
+    size_t total_size = tier_pair.write_tier_.size() + tier_pair.compact_tier_.size();
+    snapshot.reserve(total_size);
+    
+    // 添加紧凑层记录
+    for (const auto& record : tier_pair.compact_tier_) {
+        if (record) {
+            snapshot.push_back(std::make_shared<const VectorRecord>(*record));
+        }
+    }
+    
+    // 添加写层记录
+    for (const auto& record : tier_pair.write_tier_) {
+        if (record) {
+            snapshot.push_back(std::make_shared<const VectorRecord>(*record));
+        }
+    }
+    
+    return snapshot;
+}
+
+bool TwoTierWindowState::containsUid(uint64_t uid, size_t subtask_index) const {
+    std::shared_lock lock(partitions_[subtask_index].mutex_);
+    
+    const auto& tier_pair = partitions_[subtask_index];
+    
+    // 首先检查是否已过期
+    if (tier_pair.expired_uids_.count(uid) > 0) {
+        return false;
+    }
+    
+    // 检查紧凑层
+    for (const auto& record : tier_pair.compact_tier_) {
+        if (record && record->uid_ == uid) {
+            return true;
+        }
+    }
+    
+    // 检查写层
+    for (const auto& record : tier_pair.write_tier_) {
+        if (record && record->uid_ == uid) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+std::unordered_set<uint64_t> TwoTierWindowState::getUidSet(size_t subtask_index) const {
+    std::shared_lock lock(partitions_[subtask_index].mutex_);
+    
+    const auto& tier_pair = partitions_[subtask_index];
+    std::unordered_set<uint64_t> uid_set;
+    
+    size_t total_size = tier_pair.write_tier_.size() + tier_pair.compact_tier_.size();
+    uid_set.reserve(total_size);
+    
+    // 添加紧凑层 UIDs
+    for (const auto& record : tier_pair.compact_tier_) {
+        if (record) {
+            uid_set.insert(record->uid_);
+        }
+    }
+    
+    // 添加写层 UIDs
+    for (const auto& record : tier_pair.write_tier_) {
+        if (record) {
+            uid_set.insert(record->uid_);
+        }
+    }
+    
+    return uid_set;
+}
+
 void TwoTierWindowState::evictExpired(int64_t current_timestamp,
                                       int64_t window_size,
                                       size_t subtask_index) {
@@ -65,6 +145,7 @@ void TwoTierWindowState::evictExpired(int64_t current_timestamp,
     // 1. 清理紧凑层（从头部删除，因为头部是旧记录）
     while (!tier_pair.compact_tier_.empty() &&
            tier_pair.compact_tier_.front()->timestamp_ < expiry_threshold) {
+        tier_pair.expired_uids_.insert(tier_pair.compact_tier_.front()->uid_);
         tier_pair.compact_tier_.erase(tier_pair.compact_tier_.begin());
         ++evicted_count;
     }
@@ -72,6 +153,7 @@ void TwoTierWindowState::evictExpired(int64_t current_timestamp,
     // 2. 清理写层（从头部删除）
     while (!tier_pair.write_tier_.empty() &&
            tier_pair.write_tier_.front()->timestamp_ < expiry_threshold) {
+        tier_pair.expired_uids_.insert(tier_pair.write_tier_.front()->uid_);
         tier_pair.write_tier_.pop_front();
         ++evicted_count;
     }
@@ -82,6 +164,24 @@ void TwoTierWindowState::evictExpired(int64_t current_timestamp,
             "Evicted {} expired records from partition {}", 
             evicted_count, subtask_index);
     }
+}
+
+bool TwoTierWindowState::isExpired(uint64_t uid, size_t subtask_index) const {
+    std::shared_lock lock(partitions_[subtask_index].mutex_);
+    return partitions_[subtask_index].expired_uids_.count(uid) > 0;
+}
+
+size_t TwoTierWindowState::getExpiredCount(size_t subtask_index) const {
+    std::shared_lock lock(partitions_[subtask_index].mutex_);
+    return partitions_[subtask_index].expired_uids_.size();
+}
+
+std::vector<uint64_t> TwoTierWindowState::flushExpiredUids(size_t subtask_index) {
+    std::unique_lock lock(partitions_[subtask_index].mutex_);
+    auto& expired = partitions_[subtask_index].expired_uids_;
+    std::vector<uint64_t> result(expired.begin(), expired.end());
+    expired.clear();
+    return result;
 }
 
 size_t TwoTierWindowState::size(size_t subtask_index) const {

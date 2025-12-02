@@ -74,15 +74,6 @@ class HDRTreeMethod final : public BaseMethod {
       -> std::vector<std::unique_ptr<VectorRecord>> override;
 
   /**
-   * @brief Lazy 执行模式（批量查询）
-   * @param query_records 查询记录列表
-   * @param query_slot 查询来源槽位（0=左，1=右）
-   * @return 候选结果列表
-   */
-  auto ExecuteLazy(const std::deque<std::unique_ptr<VectorRecord>>& query_records, int query_slot)
-      -> std::vector<std::unique_ptr<VectorRecord>> override;
-
-  /**
    * @brief 获取配置
    * @return 配置引用
    */

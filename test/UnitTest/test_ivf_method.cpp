@@ -410,49 +410,6 @@ TEST_F(IVFMethodTest, ExecuteEager_SlotRouting) {
 }
 
 // =============================================================================
-// Lazy 模式测试
-// =============================================================================
-
-TEST_F(IVFMethodTest, ExecuteLazy_EmptyQueries) {
-    IVFMethod method(default_threshold_);
-    method.open(*context_, left_state_.get(), right_state_.get());
-    
-    std::deque<std::unique_ptr<VectorRecord>> empty_queries;
-    auto results = method.ExecuteLazy(empty_queries, 0);
-    
-    EXPECT_TRUE(results.empty());
-    
-    method.close();
-}
-
-TEST_F(IVFMethodTest, ExecuteLazy_MultipleQueries) {
-    IVFMethod method(default_threshold_);
-    method.open(*context_, left_state_.get(), right_state_.get());
-    
-    // 添加一些记录到右窗口
-    auto base_vec = createNormalizedVector(default_dim_, 42);
-    for (uint64_t i = 10; i < 15; ++i) {
-        auto similar_vec = createSimilarVector(base_vec, 0.85, 100 + i);
-        auto record = createRecord(i, similar_vec);
-        right_state_->addRecord(std::move(record), 0);
-    }
-    
-    // 创建多个查询
-    std::deque<std::unique_ptr<VectorRecord>> queries;
-    for (uint64_t i = 1; i <= 3; ++i) {
-        auto query_vec = createSimilarVector(base_vec, 0.9, 50 + i);
-        queries.push_back(createRecord(i, query_vec));
-    }
-    
-    auto results = method.ExecuteLazy(queries, 0);
-    
-    // 由于相似度生成的随机性，只检查有结果返回
-    EXPECT_GE(results.size(), 1);  // 至少应该有一些匹配
-    
-    method.close();
-}
-
-// =============================================================================
 // 索引统计测试
 // =============================================================================
 

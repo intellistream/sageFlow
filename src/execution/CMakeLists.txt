@@ -7,6 +7,7 @@ add_lib(
         execution_graph.cpp
         execution_vertex.cpp
         input_gate.cpp
+        partitioner_factory.cpp
         result_partition.cpp
         ring_buffer_queue.cpp
         vector_space_partitioner.cpp

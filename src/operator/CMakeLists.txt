@@ -12,6 +12,9 @@ add_lib(
         aggregate_operator.cpp
         distance_verifier.cpp
         async_candidate_generator.cpp
+        join_strategy_config.cpp
+        join_strategy_factory.cpp
+        join_method_registry.cpp
         join_operator_methods/base_method.cpp
         join_operator_methods/bruteforce.cpp
         join_operator_methods/bruteforce_baseline.cpp

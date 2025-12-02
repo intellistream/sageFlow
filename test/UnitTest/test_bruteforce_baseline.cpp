@@ -294,42 +294,6 @@ TEST_F(BruteForceBaselineTest, ExecuteEager_SlotDirection) {
 }
 
 // =============================================================================
-// Lazy 模式测试
-// =============================================================================
-
-TEST_F(BruteForceBaselineTest, ExecuteLazy_EmptyQueries) {
-    method_->open(*context_, left_state_.get(), right_state_.get());
-    
-    std::deque<std::unique_ptr<VectorRecord>> empty_queries;
-    
-    auto results = method_->ExecuteLazy(empty_queries, 0);
-    EXPECT_TRUE(results.empty());
-}
-
-TEST_F(BruteForceBaselineTest, ExecuteLazy_MultipleQueries) {
-    method_->open(*context_, left_state_.get(), right_state_.get());
-    
-    // 添加一些记录到右窗口
-    auto base_vec = createNormalizedVector(default_dim_, 42);
-    right_state_->addRecord(createRecord(100, base_vec), 0);
-    
-    auto similar_vec = createSimilarVector(base_vec, 0.9, 200);
-    right_state_->addRecord(createRecord(101, similar_vec), 0);
-    
-    // 创建多个查询
-    std::deque<std::unique_ptr<VectorRecord>> queries;
-    queries.push_back(createRecord(1, base_vec));
-    queries.push_back(createRecord(2, similar_vec));
-    
-    auto results = method_->ExecuteLazy(queries, 0);
-    
-    // 每个查询都应该能匹配到两条记录
-    // 但是 uid=100 查询会跳过 uid=100 的记录（自匹配由 uid 判断）
-    // 实际上查询是 uid=1 和 uid=2，所以都不会自匹配
-    EXPECT_GE(results.size(), 2);
-}
-
-// =============================================================================
 // 阈值边界测试
 // =============================================================================
 

@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/s3j_method.h"
+#include "operator/join_method_registry.h"
 
 #include <algorithm>
 #include <chrono>
@@ -114,23 +115,6 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteLazy(
-    const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-    int query_slot) {
-    
-    std::vector<std::unique_ptr<VectorRecord>> all_results;
-    
-    for (const auto& qr : query_records) {
-        if (!qr) continue;
-        
-        auto results = ExecuteEager(*qr, query_slot);
-        for (auto& r : results) {
-            all_results.push_back(std::move(r));
-        }
-    }
-    
-    return all_results;
-}
 
 void S3JMethod::close() {
     initialized_ = false;
@@ -335,3 +319,36 @@ std::vector<float> S3JMethod::extractFloatVector(const VectorRecord& record) con
 }
 
 }  // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::S3J,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "S3J",
+        "DEBS'23 Adaptive Distributed Streaming Similarity Joins. "
+        "Uses centroid-based partitioning and adaptive zone grouping. "
+        "Supports load-aware self-adjustment.",
+        sageFlow::JoinAlgorithm::S3J,
+        true,   // supports_eager
+        true,   // supports_lazy
+        sageFlow::PartitionStrategy::CENTROID,
+        sageFlow::WindowStateType::PARTITIONED,
+        "Siachamis et al., DEBS 2023, DOI: 10.1145/3583678.3596891"
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int left_idx,
+       int right_idx) {
+        sageFlow::S3JConfig s3j_config;
+        s3j_config.similarity_threshold = config.similarity_threshold;
+        s3j_config.num_partitions = config.s3j_num_centroids;
+        s3j_config.adapt_interval_ms = config.s3j_adapt_interval_ms;
+        s3j_config.load_threshold = config.s3j_load_threshold;
+        s3j_config.enable_adaptive = config.s3j_enable_adaptive;
+        s3j_config.dimension = config.dimension;
+        s3j_config.nlist = config.ivf_nlist;
+        s3j_config.nprobes = config.ivf_nprobes;
+        return std::make_unique<sageFlow::S3JMethod>(
+            left_idx, right_idx, config.similarity_threshold, cm, s3j_config);
+    });

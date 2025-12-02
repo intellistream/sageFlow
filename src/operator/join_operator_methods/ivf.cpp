@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/ivf.h"
+#include "operator/join_method_registry.h"
 #include "utils/logger.h"
 #include <deque>
 
@@ -27,21 +28,29 @@ std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteEager(const Vec
   return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteLazy(const std::deque<std::unique_ptr<VectorRecord>> &query_records, int query_slot) {
-  std::vector<std::unique_ptr<VectorRecord>> all_results;
-  if (!concurrency_manager_) return all_results;
-  int idx = (query_slot == 0) ? right_index_id_ : left_index_id_;
-  if (idx == -1) [[unlikely]] {
-    return all_results;
-  }
-  for (auto &qr : query_records) {
-    if (!qr) continue;
-    auto candidates = concurrency_manager_->query_for_join(idx, *qr, join_similarity_threshold_);
-    for (auto &c : candidates) {
-      if (c) all_results.emplace_back(std::make_unique<VectorRecord>(*c));
-    }
-  }
-  return all_results;
-}
 
 } // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::IVF,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "IVF",
+        "IVF (Inverted File Index) based approximate nearest neighbor join. "
+        "Uses k-means clustering for space partitioning. "
+        "Balanced recall-speed tradeoff.",
+        sageFlow::JoinAlgorithm::IVF,
+        true,   // supports_eager
+        true,   // supports_lazy
+        sageFlow::PartitionStrategy::ROUND_ROBIN,
+        sageFlow::WindowStateType::SHARED,
+        "Faiss, IEEE TBD 2017"
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int left_idx,
+       int right_idx) {
+        return std::make_unique<sageFlow::IvfJoinMethod>(
+            left_idx, right_idx, config.similarity_threshold, cm);
+    });
