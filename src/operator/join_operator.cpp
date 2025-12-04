@@ -7,6 +7,7 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_metrics.h"
+#include "execution/partitioner_factory.h"
 #include "utils/monitoring.h"
 
 #include <algorithm>
@@ -15,6 +16,9 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <thread>
+#include <set>
+#include <unordered_set>
 
 #include "utils/logger.h"
 
@@ -114,18 +118,22 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         use_shared_state_ = true;
         
         // 计算 IVF 参数
+        // 注意：IVF 是为批处理设计的近似索引，在流式场景下有以下限制：
+        // 1. 聚类质心在数据量少时不准确
+        // 2. 新插入的向量可能被分配到错误的簇
+        // 3. 召回率依赖于 nprobes/nlist 比例
         int64_t window_size = join_func_->getWindowSize();
         int64_t step_size = join_func_->getStepSize();
         int64_t vector_count = (step_size > 0) ? (window_size / step_size) : window_size;
         int nlist = std::max(1, static_cast<int>(4.0 * std::sqrt(static_cast<double>(vector_count))));
-        // nprobes 设为 30%，平衡召回率和查询速度
-        // IVF 是近似索引，只搜索 nprobes 个聚类
-        int nprobes = std::max(3, nlist * 30 / 100);
+        // nprobes 设为 80%，牺牲性能换取高召回率
+        // 流式 Join 需要高召回率（>90%），所以使用高 nprobes/nlist 比例
+        int nprobes = std::max(5, nlist * 50 / 100);
         
         // IVF 需要使用索引加速，创建索引对
         IVFParameters ivf_params{
             .nlist = nlist,
-            .rebuild_threshold = 0.2,
+            .rebuild_threshold = 2.0,
             .nprobes = nprobes
         };
         
@@ -795,31 +803,90 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     // 保存数据指针副本用于后续 join
     auto data_for_join = std::make_unique<VectorRecord>(*data_ptr);
     
-    // ====== 关键修复：使用序列化锁确保"插入 + 查询"原子性 ======
-    // 问题：高并行度下，两个相似记录 L 和 R 可能同时被不同线程处理：
-    //   Thread A: insert(L) -> query(R_window) // L 还没在 R 的视野中
-    //   Thread B: insert(R) -> query(L_window) // R 还没在 L 的视野中
-    // 结果：(L, R) 对永远不会被匹配！
-    // 
-    // 解决方案：序列化"插入 + 查询"操作，确保每条记录被插入后，
-    // 后续所有查询都能看到它。
+    // ====== 自适应并发策略 ======
+    // 根据并行度选择不同的策略
+    
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
-    {
-        std::lock_guard<std::mutex> lock(join_sequence_mutex_);
+    
+    if (context.getParallelism() <= 1) {
+        // ====== 单线程：QIQ 策略（无锁） ======
+        std::unordered_set<uint64_t> matched_uids;
         
-        // 更新当前侧窗口
-        bool trigger_flag = updateSideWithState(
-            current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
-        
-        // Eager 模式下，每条记录都应该执行 join，不依赖 trigger_flag
-        // trigger_flag 主要用于控制窗口滑动，但在 Eager 模式下仍应处理所有记录
-        
-        // 执行 Join 操作
-        // 所有方法均使用 Eager 模式：只用当前记录与对面窗口进行 join
+        // 阶段1：第一次 Query
         executeJoinWithState(data_for_join.get(), opposite_state, slot, 
                             subtask_index, local_return_pool);
+        
+        for (const auto& p : local_return_pool) {
+            if (p.second) {
+                matched_uids.insert(p.second->uid_);
+            }
+        }
+        
+        // 阶段2：Insert
+        updateSideWithState(
+            current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
+        
+        // 阶段3：第二次 Query（捕获同时插入的记录）
+        {
+            std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> second_query_results;
+            executeJoinWithState(data_for_join.get(), opposite_state, slot, 
+                                subtask_index, second_query_results);
+            
+            for (auto& p : second_query_results) {
+                if (p.second && matched_uids.find(p.second->uid_) == matched_uids.end()) {
+                    matched_uids.insert(p.second->uid_);
+                    local_return_pool.push_back(std::move(p));
+                }
+            }
+        }
+    } else {
+        // ====== 高并行度：全局读写锁 + QIQ 策略 ======
+        // 结合读写锁和 QIQ，保证高召回率
+        // 
+        // 问题：即使用锁，如果只查询一次（Insert 之前），两个同时到达的记录
+        // A 和 B 可能互相丢失：
+        //   - A 的 Query 在 B 的 Insert 之前 → A 找不到 B
+        //   - B 的 Query 在 A 的 Insert 之前 → B 找不到 A
+        // 
+        // 解决：Query1 -> Insert -> Query2，与低并行度一致
+        
+        std::unordered_set<uint64_t> matched_uids;
+        
+        // 阶段1：第一次 Query（读锁，可并行）
+        {
+            std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
+            executeJoinWithState(data_for_join.get(), opposite_state, slot, 
+                                subtask_index, local_return_pool);
+        }
+        
+        for (const auto& p : local_return_pool) {
+            if (p.second) {
+                matched_uids.insert(p.second->uid_);
+            }
+        }
+        
+        // 阶段2：Insert（写锁，独占）
+        {
+            std::unique_lock<std::shared_mutex> write_lock(join_rw_mutex_);
+            updateSideWithState(
+                current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
+        }
+        
+        // 阶段3：第二次 Query（读锁，捕获同时插入的记录）
+        {
+            std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
+            std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> second_query_results;
+            executeJoinWithState(data_for_join.get(), opposite_state, slot, 
+                                subtask_index, second_query_results);
+            
+            for (auto& p : second_query_results) {
+                if (p.second && matched_uids.find(p.second->uid_) == matched_uids.end()) {
+                    matched_uids.insert(p.second->uid_);
+                    local_return_pool.push_back(std::move(p));
+                }
+            }
+        }
     }
-    // ====== 序列化锁结束 ======
     
     // 调试：记录匹配数量
     static std::atomic<uint64_t> total_matches{0};
@@ -1105,6 +1172,30 @@ void JoinOperator::closeVSJoinComponents() {
     if (vsjoin_config_.enabled) {
         SAGEFLOW_LOG_INFO("JOIN", "VSJoin components closed");
     }
+}
+
+std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
+    int dimension, int num_partitions) const {
+    // 根据 Join 配置返回适当的分区器
+    
+    if (vsjoin_config_.enabled) {
+        // VSJoin 模式：使用 LSH 分区器
+        // 如果没有指定维度/分区数，使用 VSJoin 配置的值
+        int actual_dim = (dimension > 0) ? dimension : 128;  // 默认维度
+        int actual_partitions = (num_partitions > 0) ? num_partitions : vsjoin_config_.num_partitions;
+        
+        return std::make_unique<LSHIPartitioner>(
+            actual_dim,
+            8,  // num_hash_functions
+            actual_partitions,
+            42,  // seed
+            0.1  // boundary_threshold
+        );
+    }
+    
+    // 共享索引 Join（bruteforce/ivf）：使用 RoundRobin 实现负载均衡
+    // 返回 nullptr 让 ConnectionStrategy 使用默认的 RoundRobin
+    return nullptr;
 }
 
 } // namespace sageFlow

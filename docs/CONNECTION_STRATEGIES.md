@@ -1,19 +1,22 @@
-# SageFlow 连接策略详解：分区模式 vs 共享队列模式
+# SageFlow 统一连接策略详解
 
 ## 概述
 
-SageFlow 支持两种算子间的连接策略，用于控制数据在上下游算子之间的流动方式：
+SageFlow 采用**统一的 SPSC 队列矩阵**连接策略，在上下游算子之间建立 a×b 个点对点队列：
 
-| 策略 | 类名 | 适用场景 |
-|------|------|----------|
-| **分区模式** | `PartitionedConnectionStrategy` | 基于分区的 Join、常规流处理 |
-| **共享队列模式** | `SharedQueueConnectionStrategy` | 共享索引的 Join、负载均衡场景 |
+| 属性 | 值 |
+|------|------|
+| **队列数量** | upstream_parallelism × downstream_parallelism |
+| **队列类型** | RingBufferQueue (SPSC, Lock-Free) |
+| **生产者:消费者** | 1:1 (Single Producer Single Consumer) |
+
+这种设计最大化吞吐量，同时通过 `WindowState` 抽象层处理状态共享需求。
 
 ---
 
-## 1. 架构对比
+## 1. 架构
 
-### 1.1 分区模式 (Partitioned)
+### 1.1 SPSC 队列矩阵
 
 ```
                     上游算子 (parallelism=2)
@@ -22,287 +25,248 @@ SageFlow 支持两种算子间的连接策略，用于控制数据在上下游�
                 │   Thread-0  │   Thread-1  │
                 └──────┬──────┴──────┬──────┘
                        │             │
-          ResultPartition    ResultPartition
-          output=[Q0]        output=[Q1]
+          Partitioner  │             │  Partitioner
+          选择目标队列  │             │  选择目标队列
                        │             │
-                       ▼             ▼
-                    ┌─────┐       ┌─────┐
-                    │ Q0  │       │ Q1  │     ← 队列数 = 上游并行度
-                    └─────┘       └─────┘
+          ┌────────────┼─────────────┼────────────┐
+          │            │             │            │
+          ▼            ▼             ▼            ▼
+       ┌─────┐      ┌─────┐      ┌─────┐      ┌─────┐
+       │Q[0] │      │Q[1] │      │Q[2] │      │Q[3] │  ← 4个 SPSC 队列
+       │ 0→0 │      │ 0→1 │      │ 1→0 │      │ 1→1 │    (2×2 矩阵)
+       └──┬──┘      └──┬──┘      └──┬──┘      └──┬──┘
+          │            │             │            │
+          └────────────┼─────────────┼────────────┘
                        │             │
-                       └──────┬──────┘
-                              │
-                    ┌─────────▼─────────┐
-                    │     InputGate     │
-                    │ input=[Q0, Q1]    │  ← 每个下游读取所有队列
-                    └─────────┬─────────┘
-                              │
-                ┌─────────────┴─────────────┐
+                ┌──────┴──────┬──────┴──────┐
+                │ InputGate   │ InputGate   │
+                │ 轮询 Q[0,2] │ 轮询 Q[1,3] │
+                └──────┬──────┴──────┬──────┘
+                       │             │
+                ┌──────┴──────┬──────┴──────┐
                 │  Vertex[0]  │  Vertex[1]  │
                 │   Thread-2  │   Thread-3  │
                 └─────────────┴─────────────┘
                     下游算子 (parallelism=2)
 ```
 
-**特点**：
-- 队列数量 = **上游并行度**
-- 每个上游实例有**独立的输出队列**
-- 每个下游实例从**所有队列**轮询读取
-- 数据通过 Partitioner 决定发往哪个队列
+### 1.2 队列索引计算
 
-### 1.2 共享队列模式 (Shared Queue)
+```cpp
+// 队列索引公式
+queue_index(upstream_i, downstream_j) = upstream_i × downstream_parallelism + downstream_j
 
-```
-                    上游算子 (parallelism=2)
-                ┌─────────────┬─────────────┐
-                │  Vertex[0]  │  Vertex[1]  │
-                │   Thread-0  │   Thread-1  │
-                └──────┬──────┴──────┬──────┘
-                       │             │
-          ResultPartition    ResultPartition
-          output=[Q0,Q1]     output=[Q0,Q1]
-                       │             │
-                       └──────┬──────┘
-                              │ (都写入共享队列池)
-                              ▼
-                    ┌─────┐ ┌─────┐
-                    │ Q0  │ │ Q1  │     ← 队列数 = 下游并行度
-                    └─────┘ └─────┘
-                       │       │
-                       ▼       ▼
-                    ┌─────┐ ┌─────┐
-                    │Input│ │Input│     ← 每个下游只读一个队列
-                    │Gate │ │Gate │
-                    │[Q0] │ │[Q1] │
-                    └──┬──┘ └──┬──┘
-                       │       │
-                ┌──────┴───────┴──────┐
-                │  Vertex[0]  Vertex[1]│
-                │   Thread-2  Thread-3 │
-                └─────────────────────┘
-                    下游算子 (parallelism=2)
+// 示例：upstream=3, downstream=4
+// upstream_0: [0, 1, 2, 3]
+// upstream_1: [4, 5, 6, 7]
+// upstream_2: [8, 9, 10, 11]
 ```
 
-**特点**：
-- 队列数量 = **下游并行度**
-- 所有上游实例**共享同一组队列**
-- 每个下游实例只从**对应的一个队列**读取
-- 数据通过轮询分发到各共享队列
+### 1.3 上下游配置
+
+**上游 (ResultPartition)**:
+- 上游实例 i 可以写入队列 `[i×D, i×D+1, ..., i×D+D-1]`
+- 通过 `Partitioner` 选择具体目标队列
+
+**下游 (InputGate)**:
+- 下游实例 j 从队列 `[0×D+j, 1×D+j, 2×D+j, ...]` 轮询读取
+- 无锁轮询，非阻塞
 
 ---
 
-## 2. 代码实现对比
+## 2. 代码实现
 
-### 2.1 队列创建
-
-| 维度 | 分区模式 | 共享队列模式 |
-|------|----------|--------------|
-| 队列数量 | `upstream_parallelism` | `downstream_parallelism` |
-| 队列类型 | Join用BlockingQueue，其他用RingBufferQueue | 始终用BlockingQueue |
-| 生产者:消费者 | 1:N (单生产者多消费者) | M:1 (多生产者单消费者) |
+### 2.1 连接策略类
 
 ```cpp
-// PartitionedConnectionStrategy::createQueues
-size_t queue_count = upstream_parallelism;  // ← 与上游一致
+// include/execution/connection_strategy.h
 
-// SharedQueueConnectionStrategy::createQueues
-size_t queue_count = downstream_parallelism;  // ← 与下游一致
+class ConnectionStrategy {
+public:
+    /**
+     * @brief 创建 SPSC 队列矩阵
+     * @param upstream_parallelism 上游并行度
+     * @param downstream_parallelism 下游并行度  
+     * @param use_blocking 是否使用阻塞队列（用于特殊场景）
+     * @return queue_count = upstream × downstream 个队列
+     */
+    std::vector<QueuePtr> createQueues(
+        size_t upstream_parallelism,
+        size_t downstream_parallelism);
+
+    /**
+     * @brief 配置上游输出通道
+     * 上游 i 连接到队列 [i*D, i*D+1, ..., i*D+D-1]
+     * 使用下游算子指定的分区器，或默认 RoundRobin
+     */
+    void setupResultPartition(
+        ResultPartition& partition,
+        const std::vector<QueuePtr>& queues,
+        size_t upstream_index,
+        size_t upstream_parallelism,
+        size_t downstream_parallelism,
+        int slot,
+        std::unique_ptr<IPartitioner> partitioner = nullptr);
+
+    /**
+     * @brief 配置下游输入网关
+     * 下游 j 读取队列 [0*D+j, 1*D+j, 2*D+j, ...]
+     */
+    void setupInputGate(
+        InputGate& gate,
+        const std::vector<QueuePtr>& queues,
+        size_t downstream_index,
+        size_t upstream_parallelism,
+        size_t downstream_parallelism);
+};
 ```
 
-### 2.2 上游配置 (ResultPartition)
+### 2.2 分区器选择
 
-| 维度 | 分区模式 | 共享队列模式 |
-|------|----------|--------------|
-| 输出通道 | 自己对应的队列（或全部队列） | 所有共享队列 |
-| 分区策略 | RoundRobin 分发 | RoundRobin 分发 |
+下游算子可以通过 `getPreferredPartitioner()` 方法指定期望的分区器：
 
 ```cpp
-// PartitionedConnectionStrategy::setupResultPartition
-if (downstream_parallelism == 1) {
-    output_channels.push_back(queues[upstream_index % queues.size()]);
-} else {
-    for (size_t j = 0; j < downstream_parallelism; ++j) {
-        output_channels.push_back(queues[j % queues.size()]);
+// include/operator/operator.h
+
+class Operator {
+    // ...
+    
+    /**
+     * @brief 获取算子期望的输入分区器
+     * 默认返回 nullptr（使用 RoundRobin）
+     * JoinOperator 可重写以支持不同策略
+     */
+    virtual std::unique_ptr<IPartitioner> getPreferredPartitioner(
+        int dimension = 0, int num_partitions = 0) const;
+};
+
+// JoinOperator 根据配置返回适当的分区器：
+// - 共享索引 Join (bruteforce/ivf): RoundRobin（负载均衡）
+// - VSJoin: LSH 分区器（向量空间分区）
+```
+
+### 2.3 队列创建
+
+```cpp
+// src/execution/connection_strategy.cpp
+
+std::vector<QueuePtr> ConnectionStrategy::createQueues(
+    size_t upstream_parallelism,
+    size_t downstream_parallelism,
+    bool use_blocking) {
+    
+    size_t queue_count = upstream_parallelism * downstream_parallelism;
+    std::vector<QueuePtr> queues;
+    queues.reserve(queue_count);
+    
+    for (size_t i = 0; i < queue_count; ++i) {
+        if (use_blocking) {
+            queues.push_back(std::make_shared<BlockingQueue>(capacity_));
+        } else {
+            queues.push_back(std::make_shared<RingBufferQueue>(capacity_));
+        }
     }
+    return queues;
 }
-
-// SharedQueueConnectionStrategy::setupResultPartition
-for (const auto& queue : queues) {
-    output_channels.push_back(queue);  // 所有上游都连接所有队列
-}
-```
-
-### 2.3 下游配置 (InputGate)
-
-| 维度 | 分区模式 | 共享队列模式 |
-|------|----------|--------------|
-| 输入队列 | 所有上游队列 | 仅自己对应的队列 |
-| 竞争关系 | 无（各读各的） | 多上游竞争写入 |
-
-```cpp
-// PartitionedConnectionStrategy::setupInputGate
-for (size_t j = 0; j < upstream_parallelism; ++j) {
-    input_queues.push_back(queues[j]);  // 读取所有队列
-}
-
-// SharedQueueConnectionStrategy::setupInputGate
-input_queues.push_back(queues[downstream_index]);  // 只读自己的队列
 ```
 
 ---
 
-## 3. 数据流对比
+## 3. 数据流与状态管理
 
-### 3.1 分区模式数据流
+### 3.1 数据分发模式
 
+通过 `Partitioner` 控制数据路由：
+
+| Partitioner | 路由逻辑 | 适用场景 |
+|-------------|----------|----------|
+| `RoundRobinPartitioner` | 轮询分发，负载均衡 | 共享索引 Join |
+| `KeyPartitioner` | 按 key hash 到固定分区 | 分区 Join |
+| `VectorHashPartitioner` | 按向量 hash 分区 | 向量分区 |
+| `BroadcastPartitioner` | 广播到所有下游 | 全局聚合 |
+
+### 3.2 与 WindowState 配合
+
+| Partitioner | 推荐 WindowState | 说明 |
+|-------------|------------------|------|
+| `RoundRobinPartitioner` | `SharedWindowState` | 数据可能到达任意下游，需共享状态 |
+| `KeyPartitioner` | `PartitionedWindowState` | 同 key 数据到达同一下游 |
+| `VectorHashPartitioner` | `PartitionedWindowState` | 相似向量到达同一下游 |
+
+### 3.3 锁分析
+
+**SPSC 队列 + SharedWindowState (推荐的共享索引场景)**:
 ```
-时间线 ────────────────────────────────────────────────────────▶
-
-上游[0] 产生数据 D1
-    │
-    ▼ emit(D1) → Partitioner选择 Q0
-    │
-    └──▶ Q0.push(D1)
-              │
-              ▼
-         下游[0] 从 Q0 读取 D1
-         下游[1] 从 Q0 读取 (轮询到时)
-
-上游[1] 产生数据 D2
-    │
-    ▼ emit(D2) → Partitioner选择 Q1
-    │
-    └──▶ Q1.push(D2)
-              │
-              ▼
-         下游[0] 从 Q1 读取 D2 (轮询到时)
-         下游[1] 从 Q1 读取 D2
-
-特点：
-- D1 只在 Q0 中
-- D2 只在 Q1 中
-- 下游需要轮询多个队列才能获取所有数据
+每条数据的锁开销：
+  队列操作：0 锁 (SPSC 无锁)
+  状态操作：1 锁 (SharedWindowState 全局锁)
+  总计：1 锁/tuple
 ```
 
-### 3.2 共享队列模式数据流
-
+**SPSC 队列 + PartitionedWindowState (分区场景)**:
 ```
-时间线 ────────────────────────────────────────────────────────▶
-
-上游[0] 产生数据 D1
-    │
-    ▼ emit(D1) → RoundRobin选择 Q0
-    │
-    └──▶ Q0.push(D1)
-              │
-              ▼
-         下游[0] 从 Q0 读取 D1  ← 只有下游[0]能读到
-
-上游[1] 产生数据 D2
-    │
-    ▼ emit(D2) → RoundRobin选择 Q1
-    │
-    └──▶ Q1.push(D2)
-              │
-              ▼
-         下游[1] 从 Q1 读取 D2  ← 只有下游[1]能读到
-
-上游[0] 产生数据 D3
-    │
-    ▼ emit(D3) → RoundRobin选择 Q1 (轮转)
-    │
-    └──▶ Q1.push(D3)
-              │
-              ▼
-         下游[1] 从 Q1 读取 D3  ← 只有下游[1]能读到
-
-特点：
-- 同一数据只会被一个下游实例处理
-- 自动负载均衡（轮询分发）
-- 不同数据可能被不同下游处理
+每条数据的锁开销：
+  队列操作：0 锁 (SPSC 无锁)
+  状态操作：0 锁 (分区隔离，无竞争)
+  总计：0 锁/tuple
 ```
 
 ---
 
-## 4. 与状态管理的配合
+## 4. Join 算子的多上游处理
 
-### 4.1 分区模式 + PartitionedWindowState
-
-```
-推荐组合：PARTITIONED + PartitionedWindowState
-
-                    数据流向
-    ┌────────────────────────────────────────┐
-    │                                        │
-    │  上游[0] ───D1,D3───▶ Q0 ───▶ 下游[0]  │
-    │                              │         │
-    │                              ▼         │
-    │                        WindowState     │
-    │                        Partition[0]    │
-    │                                        │
-    │  上游[1] ───D2,D4───▶ Q1 ───▶ 下游[1]  │
-    │                              │         │
-    │                              ▼         │
-    │                        WindowState     │
-    │                        Partition[1]    │
-    └────────────────────────────────────────┘
-
-特点：
-- 数据按分区隔离
-- 每个下游只处理特定分区的数据
-- 状态也按分区隔离，无锁竞争
-- Recall 取决于数据分布（可能丢失跨分区匹配）
-```
-
-### 4.2 共享队列模式 + SharedWindowState
+Join 算子有两个输入流（left/right），每个上游都建立独立的队列矩阵：
 
 ```
-推荐组合：SHARED_QUEUE + SharedWindowState
-
-                    数据流向
-    ┌─────────────────────────────────────────────┐
-    │                                             │
-    │  上游[0] ──┬──D1───▶ Q0 ───▶ 下游[0] ──┐    │
-    │            │                           │    │
-    │            └──D3───▶ Q1 ───▶ 下游[1] ──┤    │
-    │                                        │    │
-    │  上游[1] ──┬──D2───▶ Q0 ───▶ 下游[0] ──┤    │
-    │            │                           │    │
-    │            └──D4───▶ Q1 ───▶ 下游[1] ──┤    │
-    │                                        ▼    │
-    │                                 ┌───────────┐│
-    │                                 │  Shared   ││
-    │                                 │ WindowState│
-    │                                 │ (全局锁)  ││
-    │                                 └───────────┘│
-    └─────────────────────────────────────────────┘
-
-特点：
-- 数据按轮询分发，负载均衡
-- 每个下游可能处理任意上游的数据
-- 状态全局共享，需要读写锁
-- Recall 可以达到 100%（所有数据都可见）
+                Left Stream                    Right Stream
+                (parallelism=2)                (parallelism=2)
+                ┌────┬────┐                    ┌────┬────┐
+                │ L0 │ L1 │                    │ R0 │ R1 │
+                └─┬──┴──┬─┘                    └─┬──┴──┬─┘
+                  │     │                        │     │
+            ┌─────┴─────┴─────┐            ┌─────┴─────┴─────┐
+            │  slot=0 队列    │            │  slot=1 队列    │
+            │  [Q0,Q1,Q2,Q3]  │            │  [Q4,Q5,Q6,Q7]  │
+            └────────┬────────┘            └────────┬────────┘
+                     │                              │
+                     └──────────────┬───────────────┘
+                                    │
+                              ┌─────┴─────┐
+                              │ InputGate │  轮询两组队列
+                              │ 合并读取  │
+                              └─────┬─────┘
+                                    │
+                              ┌─────┴─────┐
+                              │  Join[j]  │
+                              └───────────┘
 ```
+
+**InputGate 轮询策略**:
+- 依次从 slot=0 和 slot=1 的队列集合中轮询
+- 非阻塞读取，避免单流饥饿
+- 通过 `TaggedResponse.slot` 标识数据来源
 
 ---
 
 ## 5. 使用方式
 
-### 5.1 API 层面
+### 5.1 API
 
 ```cpp
-// 方式1：使用默认分区模式
-env.addOperator(join_op);  // 默认 ConnectionType::PARTITIONED
+// 添加算子（使用统一连接策略）
+graph.addOperator(filter_op);
+graph.addOperator(join_op);
 
-// 方式2：显式指定连接类型
-env.addOperator(join_op, ConnectionType::PARTITIONED);
-env.addOperator(join_op, ConnectionType::SHARED_QUEUE);
+// 连接算子
+graph.connectOperators(source, filter);
+graph.connectOperators(filter, join, /*slot=*/0);  // left stream
+graph.connectOperators(other, join, /*slot=*/1);   // right stream
 ```
 
-### 5.2 完整配置示例
+### 5.2 完整示例
 
 ```cpp
-// 分区模式配置
+// 创建共享索引 Join
 auto join_op = std::make_shared<JoinOperator>(
     join_func,
     concurrency_manager,
@@ -310,91 +274,46 @@ auto join_op = std::make_shared<JoinOperator>(
     0.8,                    // similarity_threshold
     false,                  // enable_profiling
     "",                     // profile_output_path
-    false);                 // use_shared_state = false → PartitionedWindowState
-env.addOperator(join_op, ConnectionType::PARTITIONED);
-
-// 共享队列模式配置
-auto join_op = std::make_shared<JoinOperator>(
-    join_func,
-    concurrency_manager,
-    "ivf_lazy",
-    0.8,
-    false,
-    "",
     true);                  // use_shared_state = true → SharedWindowState
-env.addOperator(join_op, ConnectionType::SHARED_QUEUE);
+
+graph.addOperator(join_op);
+graph.connectOperators(left_source, join_op, 0);
+graph.connectOperators(right_source, join_op, 1);
+
+// RoundRobinPartitioner 会自动用于负载均衡
 ```
 
 ---
 
-## 6. 性能对比
+## 6. 性能特点
 
-| 维度 | 分区模式 | 共享队列模式 |
-|------|----------|--------------|
-| **锁竞争** | 低（分区隔离） | 高（共享状态需要全局锁） |
-| **负载均衡** | 取决于分区策略 | 自动均衡（轮询） |
-| **Recall** | 可能丢失跨分区匹配 | 100%（所有数据可见） |
-| **吞吐量** | 高（无锁或细粒度锁） | 中（全局锁开销） |
-| **延迟** | 低 | 可能因锁等待增加 |
-| **内存** | 分散在各分区 | 集中在共享状态 |
-
----
-
-## 7. 选择指南
-
-```
-                        ┌─────────────────────────────┐
-                        │      需要 100% Recall?       │
-                        └─────────────┬───────────────┘
-                                      │
-                      ┌───────────────┴───────────────┐
-                      │                               │
-                      ▼ Yes                           ▼ No
-            ┌─────────────────┐             ┌─────────────────┐
-            │  SHARED_QUEUE   │             │   PARTITIONED   │
-            │      +          │             │        +        │
-            │ SharedWindowState│            │PartitionedWindow│
-            └─────────────────┘             └─────────────────┘
-                      │                               │
-                      ▼                               ▼
-            ┌─────────────────┐             ┌─────────────────┐
-            │ 适用场景:        │             │ 适用场景:        │
-            │ - 共享索引 Join  │             │ - 分区 Join     │
-            │ - 小规模数据     │             │ - 大规模数据    │
-            │ - 低并行度       │             │ - 高并行度      │
-            │ - 准确性优先     │             │ - 吞吐量优先    │
-            └─────────────────┘             └─────────────────┘
-```
+| 维度 | SPSC 矩阵设计 |
+|------|--------------|
+| **队列吞吐** | 极高 (无锁 SPSC) |
+| **延迟** | 低 (无锁操作) |
+| **CPU 缓存** | 友好 (每队列独立内存) |
+| **内存开销** | 中等 (a×b 个队列) |
+| **负载均衡** | 通过 Partitioner 控制 |
+| **状态同步** | 通过 WindowState 抽象 |
 
 ---
 
-## 8. 实现文件清单
+## 7. 实现文件清单
 
 | 文件 | 说明 |
 |------|------|
-| `include/execution/connection_strategy.h` | `IConnectionStrategy` 接口定义 |
-| `include/execution/partitioned_connection_strategy.h` | 分区策略头文件 |
-| `include/execution/shared_queue_connection_strategy.h` | 共享队列策略头文件 |
-| `src/execution/partitioned_connection_strategy.cpp` | 分区策略实现 |
-| `src/execution/shared_queue_connection_strategy.cpp` | 共享队列策略实现 |
-| `src/execution/execution_graph.cpp` | 策略选择与应用 |
+| `include/execution/connection_strategy.h` | 统一连接策略接口 |
+| `src/execution/connection_strategy.cpp` | 策略实现 |
+| `src/execution/execution_graph.cpp` | 策略应用 |
+| `include/execution/ring_buffer_queue.h` | SPSC 无锁队列 |
 | `include/state/window_state.h` | 状态抽象接口 |
 | `include/state/partitioned_window_state.h` | 分区状态实现 |
 | `include/state/shared_window_state.h` | 共享状态实现 |
 
 ---
 
-## 9. 未来扩展
-
-1. **动态策略切换**：运行时根据负载自动切换策略
-2. **混合模式**：部分算子用分区，部分用共享
-3. **自定义 Partitioner**：支持 Hash、Range 等分区策略
-4. **背压机制**：队列满时的流控策略
-5. **状态后端**：支持 RocksDB 等持久化状态后端
-
----
-
 ## 更新日志
 
-- **2025-11-26**：初始版本，基于 refactor-sageflow-multithreading 分支
+- **2025-01-XX**：统一为单一 SPSC 矩阵策略，移除 SHARED_QUEUE 模式
+- **2025-11-26**：初始版本，支持分区和共享队列两种模式
 

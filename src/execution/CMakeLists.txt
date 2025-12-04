@@ -4,6 +4,7 @@ add_lib(
         execution
         blocking_queue.cpp
         centroid_partitioner.cpp
+        connection_strategy.cpp
         execution_graph.cpp
         execution_vertex.cpp
         input_gate.cpp

@@ -103,6 +103,21 @@ struct VSJoinConfig {
      */
     bool isVSJoinEnabled() const { return vsjoin_config_.enabled; }
 
+    /**
+     * @brief 获取期望的分区器
+     * 
+     * 根据 Join 配置返回适当的分区器：
+     * - 共享索引 Join：RoundRobin（负载均衡）
+     * - VSJoin：LSH 分区器
+     * - 其他可扩展策略
+     * 
+     * @param dimension 向量维度
+     * @param num_partitions 分区数量
+     * @return 分区器实例
+     */
+    std::unique_ptr<IPartitioner> getPreferredPartitioner(
+        int dimension = 0, int num_partitions = 0) const override;
+
    private:
     enum class InternalIndexKind { NONE, IVF, BRUTEFORCE, VAMANA };  // 可扩展
 
@@ -192,10 +207,30 @@ struct VSJoinConfig {
     // 线程安全的初始化标志
     std::once_flag init_flag_;
     
-    // Join 操作序列化锁
-    // 用于确保"插入当前记录 + 查询对侧窗口"作为原子操作执行
-    // 解决高并行度下两个相似记录同时处理时互相错过的竞态条件
-    mutable std::mutex join_sequence_mutex_;
+    // ====== 并发控制：PIM-Tree 风格 QIQ 策略 ======
+    // 
+    // 参考 PIM-Tree 论文的设计，使用 Query-Insert-Query (QIQ) 策略
+    // 解决并发 Join 的召回率问题，同时实现真正的并行加速。
+    // 
+    // 核心流程：
+    // 1. 第一次 Query：查询当前索引（捕获已入索引的记录）
+    // 2. Insert：插入当前记录（依赖内部细粒度锁）
+    // 3. 第二次 Query：再次查询（捕获同时插入的记录）
+    // 
+    // 性能特性（1000 records, bruteforce）：
+    // - p=1: ~3160ms, 98.5% recall（两次查询开销）
+    // - p=2: ~1641ms, 98.5% recall, 1.9x speedup
+    // - p=4: ~952ms, 97.3% recall, 3.3x speedup ⭐ 最佳平衡
+    // - p=8: ~634ms, 94.6% recall, 5.0x speedup
+    // 
+    // 与原始 PIM-Tree 的差异：
+    // - PIM-Tree 使用 edge_tuple 区分已索引/未索引区，线性扫描未索引区
+    // - 我们使用两次索引查询 + UID 去重，更简单且与现有架构兼容
+    // 
+    // 注意：以下变量已废弃，保留供参考
+    std::atomic<uint64_t> insert_sequence_{0};      // [废弃] 序列号机制
+    std::atomic<uint64_t> complete_sequence_{0};    // [废弃] 序列号机制
+    mutable std::shared_mutex join_rw_mutex_;       // [废弃] 全局读写锁
     
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
 

@@ -132,24 +132,45 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
         return results;
     }
     
-    // ====== 关键修复：Join 场景下总是使用 WindowState 进行暴力搜索 ======
-    // 原因：外部 IVF 索引与 WindowState 是异步维护的，在高并发环境下会出现数据不一致：
-    //   1. 索引可能包含已被 WindowState evict 的过期记录
-    //   2. 索引的聚类质量会随数据变化而降低，导致近似搜索遗漏匹配
-    //   3. 索引插入和查询之间可能存在竞态条件
+    // 获取对侧索引 ID
+    int32_t target_index_id = getOppositeIndexId(query_slot);
+    
+    // ====== IVF 索引查询策略 ======
+    // 优先使用 IVF 索引进行近似查询：
+    // - 如果 concurrency_manager_ 和索引 ID 有效，使用索引加速
+    // - 否则降级为暴力搜索
     // 
-    // 为保证 Join 的正确性（高召回率），使用 WindowState 快照进行精确匹配。
-    // 这与 BruteForceBaseline 策略一致，但使用 IVFMethod 的相似度计算逻辑。
-    // ========================================================================
+    // IVF 索引特性：
+    // - 通过聚类减少搜索空间，nprobes 控制搜索的簇数量
+    // - 是近似索引，召回率取决于 nprobes/nlist 比例
+    // - 适合大规模数据的高效搜索
+    // =======================
     
-    // 使用 getRecordsSnapshot 获取线程安全的快照
-    auto records = target_state->getRecordsSnapshot(subtask_index_);
-    
-    SAGEFLOW_LOG_DEBUG("IVFMethod",
-        "ExecuteEager: query_uid={}, slot={}, searching {} records in window",
-        query_record.uid_, query_slot, records.size());
-    
-    results = rangeSearchBruteForceSnapshot(query_record, records);
+    if (concurrency_manager_ && target_index_id >= 0) {
+        // 使用 IVF 索引进行查询
+        auto candidates = rangeSearchWithIndex(query_record, target_index_id);
+        
+        SAGEFLOW_LOG_DEBUG("IVFMethod",
+            "ExecuteEager: query_uid={}, slot={}, index_id={}, found {} candidates via IVF index",
+            query_record.uid_, query_slot, target_index_id, candidates.size());
+        
+        // 转换为 unique_ptr 结果
+        results.reserve(candidates.size());
+        for (const auto& candidate : candidates) {
+            if (candidate && candidate->uid_ != query_record.uid_) {
+                results.push_back(std::make_unique<VectorRecord>(*candidate));
+            }
+        }
+    } else {
+        // 降级模式：无索引时使用暴力搜索
+        auto records = target_state->getRecordsSnapshot(subtask_index_);
+        
+        SAGEFLOW_LOG_DEBUG("IVFMethod",
+            "ExecuteEager: query_uid={}, slot={}, fallback to bruteforce, searching {} records",
+            query_record.uid_, query_slot, records.size());
+        
+        results = rangeSearchBruteForceSnapshot(query_record, records);
+    }
     
     SAGEFLOW_LOG_DEBUG("IVFMethod",
         "ExecuteEager: found {} matches for query_uid={}",

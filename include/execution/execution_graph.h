@@ -5,22 +5,16 @@
 #include <unordered_map>
 #include "execution/execution_vertex.h"
 #include "execution/ring_buffer_queue.h"
-#include "execution/blocking_queue.h"
 #include "execution/partitioner.h"
 #include "execution/connection_strategy.h"
 #include "operator/operator.h"
 
 namespace sageFlow {
 
-// 前向声明
-class IConnectionStrategy;
-
 struct OperatorInfo {
     std::shared_ptr<Operator> op;
     size_t parallelism;
     std::vector<std::unique_ptr<ExecutionVertex>> vertices;
-    // 该算子的连接策略类型（默认为分区模型）
-    ConnectionType connection_type = ConnectionType::PARTITIONED;
 };
 
 class ExecutionGraph {
@@ -30,9 +24,6 @@ public:
 
     // 添加算子到执行图
     void addOperator(std::shared_ptr<Operator> op);
-
-    // 添加算子到执行图，并指定连接策略类型
-    void addOperator(std::shared_ptr<Operator> op, ConnectionType connection_type);
 
     // 连接两个算子之间的数据流
     void connectOperators(std::shared_ptr<Operator> upstream,
@@ -60,22 +51,15 @@ private:
 
     // 执行期持有的所有队列，用于统一 stop()
     std::vector<QueuePtr> all_queues_;
+    
+    // 统一的连接策略
+    ConnectionStrategy connection_strategy_;
 
     // 创建队列连接上下游
     void createConnections();
 
     // 为特定算子创建执行顶点
     void createVerticesForOperator(std::shared_ptr<Operator> op);
-
-    // 获取适当的连接策略（基于下游算子的连接类型）
-    std::unique_ptr<IConnectionStrategy> getConnectionStrategy(
-        std::shared_ptr<Operator> downstream_op);
-
-    // 获取适当的队列类型（阻塞队列或环形缓冲队列）
-    // 已弃用：由连接策略负责队列创建
-    std::vector<QueuePtr> createQueues(size_t upstream_parallelism,
-                                      size_t downstream_parallelism,
-                                      bool is_join_operator = false);
 };
 
 } // namespace sageFlow

@@ -96,7 +96,7 @@ The `ExecutionGraph` is the core execution engine that manages the DAG of operat
 ```cpp
 // ExecutionGraph: Manages operator DAG and parallel execution
 class ExecutionGraph {
-    void addOperator(std::shared_ptr<Operator> op, ConnectionType type);
+    void addOperator(std::shared_ptr<Operator> op);
     void connectOperators(upstream, downstream, slot);
     void buildGraph();  // Creates ExecutionVertex instances
     void start();       // Launches all worker threads
@@ -134,20 +134,25 @@ class ResultPartition {
 // - BroadcastPartitioner: Send to all downstream instances
 ```
 
-#### 3. Connection Strategies
+#### 3. Connection Strategy (Unified SPSC Matrix)
 
-Two modes for connecting upstream/downstream operators:
+SageFlow uses a unified a×b SPSC queue matrix for all operator connections:
 
-| Strategy | Class | Queue Count | Use Case |
-|----------|-------|-------------|----------|
-| **Partitioned** | `PartitionedConnectionStrategy` | = upstream parallelism | Share-nothing, partition-based Join |
-| **Shared Queue** | `SharedQueueConnectionStrategy` | = downstream parallelism | Shared index, load balancing |
+| Property | Value |
+|----------|-------|
+| **Queue Count** | upstream_parallelism × downstream_parallelism |
+| **Queue Type** | RingBufferQueue (SPSC, Lock-Free) |
+| **Routing** | Partitioner selects target queue |
 
 ```cpp
-enum class ConnectionType { PARTITIONED, SHARED_QUEUE };
+// Queue index formula
+queue_index(upstream_i, downstream_j) = upstream_i × downstream_parallelism + downstream_j
 
-// Partitioned: Each upstream has dedicated queue, all downstreams poll all queues
-// Shared Queue: All upstreams share queue pool, each downstream reads one queue
+// Upstream i writes to queues [i*D, i*D+1, ..., i*D+D-1]
+// Downstream j polls from queues [0*D+j, 1*D+j, 2*D+j, ...]
+
+// Use SharedWindowState for shared index (RoundRobin partitioner)
+// Use PartitionedWindowState for partition-based join (Key/Hash partitioner)
 ```
 
 #### 4. RuntimeContext
@@ -538,3 +543,9 @@ Third-party libraries are fetched via CMake's FetchContent:
 11. **Parallel Execution**: Consider subtask index when accessing partitioned state
 12. **Join Strategy Compatibility**: Ensure partition strategy matches window state type (see compatibility table above)
 13. **Baseline Methods**: Each baseline has recommended partition and window state - use `JoinStrategyConfig::inferDefaults()` when implementing
+14. **Join Integration Test**: **CRITICAL** - When modifying code that may affect Join pipeline (connection strategy, queue routing, WindowState, Partitioner, JoinOperator, etc.), MUST run `test_join_datasource_modes` to verify correctness:
+    ```bash
+    ./build/bin/test_join_datasource_modes
+    ```
+    This test validates Join recall/precision across multiple parallelism levels (1,2,4,8,16) and methods (bruteforce, ivf).
+

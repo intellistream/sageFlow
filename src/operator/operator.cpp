@@ -55,3 +55,9 @@ void sageFlow::Operator::set_parallelism(const size_t p) {
 auto sageFlow::Operator::get_parallelism() const -> size_t {
   return parallelism_;
 }
+
+// 默认实现：返回 nullptr，使用默认的 RoundRobin 分区器
+std::unique_ptr<sageFlow::IPartitioner> sageFlow::Operator::getPreferredPartitioner(
+    int dimension, int num_partitions) const {
+  return nullptr;
+}
