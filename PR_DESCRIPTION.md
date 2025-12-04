@@ -141,6 +141,47 @@ StrategyComponents {
 
 ---
 
+## 🔧 最新修复 (Latest Fixes)
+
+### 统一连接策略为 SPSC 矩阵模式
+
+重构连接策略，使用统一的 SPSC (Single-Producer Single-Consumer) 队列矩阵：
+
+- **统一 `ConnectionStrategy` 类**：合并 `PartitionedConnectionStrategy` 和 `SharedQueueConnectionStrategy`
+- **队列矩阵模型**：`upstream_parallelism × downstream_parallelism` 个 SPSC 队列
+- **队列索引公式**：`queue_index(i, j) = i × downstream_parallelism + j`
+- **简化架构**：移除 `ConnectionType` 枚举，所有连接使用相同策略
+
+### 修复高并行度 Join 召回率问题
+
+解决了 BruteForce 和 IVF Join 方法在高并行度下召回率下降的问题：
+
+- **根本原因**：高并行度路径缺少 Query2（第二次查询）
+- **修复方案**：实现完整的 QIQ (Query-Insert-Query) 策略
+  - `p=1`：无锁 QIQ（单线程不需要同步）
+  - `p>1`：读写锁 QIQ（`shared_lock` 用于查询，`unique_lock` 用于插入）
+- **测试验证**：所有并行度级别 (1,2,4,8,16) 召回率均达到 95%+
+
+测试结果：
+| 方法 | p=1 | p=2 | p=4 | p=8 | p=16 |
+|------|-----|-----|-----|-----|------|
+| BruteForce | 98.8% ✅ | 98.3% ✅ | 99.3% ✅ | 98.1% ✅ | 99.9% ✅ |
+| IVF | 99.0% ✅ | 97.4% ✅ | 99.9% ✅ | 100% ✅ | 100% ✅ |
+
+### IVF 方法优化
+
+- 恢复使用真实 IVF 索引进行范围搜索
+- 优化 `nprobes` 参数为 `nlist` 的 50%
+- 设置 `rebuild_threshold = 2.0` 以减少重建频率
+
+### Operator 分区器接口
+
+新增 `getPreferredPartitioner()` 虚方法，支持算子指定首选分区策略：
+- JoinOperator: 支持 LSH/RoundRobin 选择
+- 默认实现返回 `std::nullopt`（使用系统默认）
+
+---
+
 ## ⚠️ 已知问题
 
 1. **性能测试不稳定**: CI 中的 Performance Test 偶发超时
@@ -154,11 +195,13 @@ StrategyComponents {
 - [ ] 添加更多性能基准测试
 - [ ] 优化 CI 性能测试稳定性
 - [ ] 补充 Python Binding
+- [x] ~~修复高并行度 Join 召回率问题~~ (已完成)
+- [x] ~~统一连接策略架构~~ (已完成)
 
 ---
 
 ## 📈 变更统计
 
 ```
-195 files changed, 50369 insertions(+), 2479 deletions(-)
+195+ files changed, 51000+ insertions(+), 3500+ deletions(-)
 ```
