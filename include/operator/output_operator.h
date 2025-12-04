@@ -18,9 +18,16 @@ class OutputOperator final : public Operator {
 
   auto open() -> void override;
 
+  // New method with RuntimeContext support
+  auto open(const RuntimeContext& context) -> void override;
+
   auto process(Response &data, int slot = 0) -> std::optional<Response> override;
 
   auto apply(Response&& record, int slot, Collector& collector) -> void override;
+
+  // New method with RuntimeContext support
+  auto apply(Response&& record, int slot, Collector& collector, 
+             const RuntimeContext& context) -> void override;
 
   auto run(Collector& collector) -> void;
 

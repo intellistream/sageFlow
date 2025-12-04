@@ -86,3 +86,14 @@ auto sageFlow::OutputOperator::apply(Response&& record, int slot, Collector& col
     }
   }
 }
+
+auto sageFlow::OutputOperator::open(const RuntimeContext& context) -> void {
+  // OutputOperator 不需要 RuntimeContext 信息，直接调用无参版本
+  open();
+}
+
+auto sageFlow::OutputOperator::apply(Response&& record, int slot, Collector& collector, 
+                                     const RuntimeContext& context) -> void {
+  // OutputOperator 不需要 RuntimeContext 信息，直接委托给旧方法
+  apply(std::move(record), slot, collector);
+}

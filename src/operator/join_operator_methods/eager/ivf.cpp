@@ -114,32 +114,4 @@ std::vector<std::unique_ptr<VectorRecord>> IvfEager::ExecuteEager(
     return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> IvfEager::ExecuteLazy(
-    const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-    int query_slot) {
-    if (!concurrency_manager_) {
-        return std::vector<std::unique_ptr<VectorRecord>>();
-    }
-
-    int query_index_id = (query_slot == 0) ? right_ivf_index_id_ : left_ivf_index_id_;
-    if (query_index_id == -1) {
-        return std::vector<std::unique_ptr<VectorRecord>>();
-    }
-
-    std::vector<std::unique_ptr<VectorRecord>> all_results;
-
-    for (const auto& query_record : query_records) {
-        if (!query_record) continue;
-        std::vector<std::shared_ptr<const VectorRecord>> candidates =
-            concurrency_manager_->query_for_join(query_index_id, *query_record, join_similarity_threshold_);
-        for (const auto& candidate : candidates) {
-            if (candidate) {
-                all_results.emplace_back(std::make_unique<VectorRecord>(*candidate));
-            }
-        }
-    }
-
-    return all_results;
-}
-
 } // namespace sageFlow

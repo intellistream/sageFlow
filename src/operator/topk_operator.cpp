@@ -57,3 +57,9 @@ auto sageFlow::TopkOperator::apply(Response&& record, int slot, Collector& colle
     collector.collect(std::make_unique<Response>(std::move(response)), slot);
   }
 }
+
+auto sageFlow::TopkOperator::apply(Response&& record, int slot, Collector& collector, 
+                                   const RuntimeContext& context) -> void {
+  // TopkOperator 不需要 RuntimeContext 信息，直接委托给旧方法
+  apply(std::move(record), slot, collector);
+}

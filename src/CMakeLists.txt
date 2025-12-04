@@ -29,7 +29,13 @@ add_subdirectory(
        storage
 )
 add_subdirectory(
+        state
+)
+add_subdirectory(
         stream
+)
+add_subdirectory(
+        coordination
 )
 
 # 收集所有源文件生成动态库（像 sageDB 一样）
@@ -44,7 +50,9 @@ file(GLOB_RECURSE SAGEFLOW_SOURCES
     operator/*.cpp
     query/*.cpp
     storage/*.cpp
+    state/*.cpp
     stream/*.cpp
+    coordination/*.cpp
 )
 
 # 排除测试和示例文件

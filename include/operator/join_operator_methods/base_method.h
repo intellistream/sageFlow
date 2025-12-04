@@ -8,11 +8,14 @@
 
 namespace sageFlow {
 
+/// @brief Join 方法类型枚举（已简化，所有方法均为 Eager 模式）
 enum class JoinMethodType {
-  BRUTEFORCE_EAGER,
-  BRUTEFORCE_LAZY,
-  IVF_EAGER,
-  IVF_LAZY
+  BRUTEFORCE,
+  IVF,
+  HNSW,
+  HDR_TREE,
+  CLUSTERED_JOIN,
+  S3J
 };
 
 class BaseMethod {
@@ -28,14 +31,18 @@ class BaseMethod {
                        std::list<std::unique_ptr<VectorRecord>> &left_records,
                        std::list<std::unique_ptr<VectorRecord>> &right_records);
 
-   // 新的优化接口：Eager模式 - 只传递单个查询记录，返回所有候选结果
+   /**
+    * @brief 执行 Eager 模式的 Join 查询
+    * 
+    * 对单个查询记录，在对侧窗口中搜索满足相似度阈值的候选向量。
+    * 所有 Join 方法均使用 Eager 模式，即每条记录到达时立即执行查询。
+    * 
+    * @param query_record 查询记录
+    * @param query_slot 查询来源的 slot（0=左流，1=右流）
+    * @return 满足阈值的候选向量列表
+    */
    virtual std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
        const VectorRecord& query_record,
-       int query_slot) = 0;
-
-   // 新的优化接口：Lazy模式 - 传递一批查询记录，返回所有候选结果 (容器改为 deque)
-   virtual std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-       const std::deque<std::unique_ptr<VectorRecord>>& query_records,
        int query_slot) = 0;
 
    virtual void Excute(std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,

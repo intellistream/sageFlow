@@ -1,0 +1,287 @@
+# config/join_strategies.toml
+#
+# SageFlow Join 策略配置文件
+# 定义各种 Join 算法的预设配置
+#
+
+# ============================================================
+# 默认配置（可被具体策略覆盖）
+# ============================================================
+[default]
+similarity_threshold = 0.8
+dimension = 128
+window_size_ms = 10000
+step_size_ms = 2500
+is_eager = false
+
+# ============================================================
+# Baseline 策略配置
+# ============================================================
+
+# BruteForce Baseline - Ground Truth 参考
+# 使用共享窗口状态和共享索引
+[strategies.bruteforce_baseline]
+algorithm = "bruteforce"
+is_eager = false
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+
+[strategies.bruteforce_eager]
+algorithm = "bruteforce"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+
+# IVF Baseline - 基于倒排索引的近似 Join
+[strategies.ivf_baseline]
+algorithm = "ivf"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 10
+ivf_rebuild_threshold = 0.3
+
+[strategies.ivf_lazy]
+algorithm = "ivf"
+is_eager = false
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 10
+ivf_rebuild_threshold = 0.3
+
+# HNSW Baseline - 基于层次化小世界图的近似 Join
+[strategies.hnsw_baseline]
+algorithm = "hnsw"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
+
+[strategies.hnsw_high_recall]
+algorithm = "hnsw"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 32
+hnsw_ef_construction = 400
+hnsw_ef_search = 100
+
+# HDR-Tree Baseline - 基于 PCA 降维的 Join
+[strategies.hdr_tree_baseline]
+algorithm = "hdr_tree"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hdr_projected_dim = 8
+hdr_max_node_size = 100
+hdr_delta_buffer_size = 1000
+hdr_pca_sample_size = 10000
+
+# ============================================================
+# 分布式/分区策略
+# ============================================================
+
+# ClusteredJoin - VectraFlow 风格的质心分区 Join
+[strategies.clustered_join_baseline]
+algorithm = "clustered_join"
+is_eager = true
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_border_replication = true
+clustered_training_samples = 1000
+
+# S3J - DEBS'23 自适应流式相似度 Join
+[strategies.s3j_baseline]
+algorithm = "s3j"
+is_eager = true
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+s3j_num_centroids = 16
+num_partitions = 16
+s3j_adapt_interval_ms = 1000
+s3j_load_threshold = 0.3
+s3j_enable_adaptive = true
+
+[strategies.s3j_static]
+algorithm = "s3j"
+is_eager = true
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+s3j_num_centroids = 16
+num_partitions = 16
+s3j_enable_adaptive = false
+
+# ============================================================
+# VSJoin - 我们的方法
+# ============================================================
+
+[strategies.vsjoin]
+algorithm = "vsjoin"
+is_eager = true
+partition_strategy = "lsh"
+window_state_type = "partitioned_vector"
+index_strategy = "partitioned"
+num_partitions = 8
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_async_threads = 2
+vsjoin_allowed_lateness = 1000
+two_tier_compact_threshold = 100
+two_tier_enable_boundary_tracking = true
+
+[strategies.vsjoin_high_partitions]
+algorithm = "vsjoin"
+is_eager = true
+partition_strategy = "lsh"
+window_state_type = "partitioned_vector"
+index_strategy = "partitioned"
+num_partitions = 16
+vsjoin_num_hash_functions = 12
+vsjoin_boundary_threshold = 0.15
+vsjoin_async_threads = 4
+vsjoin_allowed_lateness = 2000
+
+[strategies.vsjoin_low_latency]
+algorithm = "vsjoin"
+is_eager = true
+partition_strategy = "lsh"
+window_state_type = "partitioned_vector"
+index_strategy = "partitioned"
+num_partitions = 4
+vsjoin_num_hash_functions = 6
+vsjoin_boundary_threshold = 0.05
+vsjoin_async_threads = 1
+vsjoin_allowed_lateness = 500
+
+# ============================================================
+# 高维数据配置
+# ============================================================
+
+[strategies.ivf_high_dim]
+algorithm = "ivf"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+dimension = 512
+ivf_nlist = 200
+ivf_nprobes = 20
+ivf_rebuild_threshold = 0.25
+
+[strategies.hnsw_high_dim]
+algorithm = "hnsw"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+dimension = 512
+hnsw_m = 24
+hnsw_ef_construction = 300
+hnsw_ef_search = 80
+
+# ============================================================
+# 大规模数据配置
+# ============================================================
+
+[strategies.ivf_large_scale]
+algorithm = "ivf"
+is_eager = true
+partition_strategy = "key_hash"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+ivf_nlist = 500
+ivf_nprobes = 30
+ivf_rebuild_threshold = 0.2
+num_partitions = 8
+
+[strategies.s3j_large_scale]
+algorithm = "s3j"
+is_eager = true
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+s3j_num_centroids = 32
+num_partitions = 32
+s3j_adapt_interval_ms = 2000
+s3j_load_threshold = 0.25
+s3j_enable_adaptive = true
+
+# ============================================================
+# 低延迟配置
+# ============================================================
+
+[strategies.bruteforce_low_latency]
+algorithm = "bruteforce"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+window_size_ms = 1000
+step_size_ms = 250
+
+[strategies.ivf_low_latency]
+algorithm = "ivf"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 50
+ivf_nprobes = 5
+window_size_ms = 2000
+step_size_ms = 500
+
+# ============================================================
+# 高召回率配置
+# ============================================================
+
+[strategies.ivf_high_recall]
+algorithm = "ivf"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 50  # 更多探测
+ivf_rebuild_threshold = 0.1
+
+[strategies.vsjoin_high_recall]
+algorithm = "vsjoin"
+is_eager = true
+partition_strategy = "lsh"
+window_state_type = "partitioned_vector"
+index_strategy = "partitioned"
+num_partitions = 4
+vsjoin_num_hash_functions = 4  # 更少哈希函数，更多碰撞
+vsjoin_boundary_threshold = 0.2  # 更宽的边界
+
+# ============================================================
+# 测试专用配置
+# ============================================================
+
+[strategies.test_minimal]
+algorithm = "bruteforce"
+is_eager = false
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+dimension = 64
+window_size_ms = 5000
+step_size_ms = 1000
+similarity_threshold = 0.7

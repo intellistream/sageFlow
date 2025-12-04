@@ -125,37 +125,4 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceLazy::ExecuteEager(
   return std::vector<std::unique_ptr<VectorRecord>>();
 }
 
-std::vector<std::unique_ptr<VectorRecord>> BruteForceLazy::ExecuteLazy(
-    const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-    int query_slot) {
-
-  if (!using_knn_ || !concurrency_manager_) {
-    return std::vector<std::unique_ptr<VectorRecord>>();
-  }
-
-  int query_index_id = (query_slot == 0) ? right_knn_index_id_ : left_knn_index_id_;
-  if (query_index_id == -1) {
-    return std::vector<std::unique_ptr<VectorRecord>>();
-  }
-
-  std::vector<std::unique_ptr<VectorRecord>> all_results;
-
-  // 对每个查询记录进行KNN索引查询
-  for (const auto& query_record : query_records) {
-    if (!query_record) continue;
-
-    std::vector<std::shared_ptr<const VectorRecord>> candidates =
-        concurrency_manager_->query_for_join(query_index_id, *query_record, join_similarity_threshold_);
-
-    // 将候选项添加到结果中
-    for (const auto& candidate : candidates) {
-      if (candidate) {
-        all_results.emplace_back(std::make_unique<VectorRecord>(*candidate));
-      }
-    }
-  }
-
-  return all_results;
-}
-
 }  // namespace sageFlow

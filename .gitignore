@@ -103,3 +103,18 @@ docs/_build/
 # data/generated/
 # examples/output/
 install/*
+
+# Test results (generated)
+test/result/
+
+# Documentation guides (task-specific)
+docs/tasks/GROUP_*.md
+docs/tasks/group_*/
+
+
+# Test data (generated)
+test/data/
+
+
+# Task documentation (internal use only)
+docs/tasks/

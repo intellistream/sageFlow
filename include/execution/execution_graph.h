@@ -5,8 +5,8 @@
 #include <unordered_map>
 #include "execution/execution_vertex.h"
 #include "execution/ring_buffer_queue.h"
-#include "execution/blocking_queue.h"
 #include "execution/partitioner.h"
+#include "execution/connection_strategy.h"
 #include "operator/operator.h"
 
 namespace sageFlow {
@@ -51,17 +51,15 @@ private:
 
     // 执行期持有的所有队列，用于统一 stop()
     std::vector<QueuePtr> all_queues_;
+    
+    // 统一的连接策略
+    ConnectionStrategy connection_strategy_;
 
     // 创建队列连接上下游
     void createConnections();
 
     // 为特定算子创建执行顶点
     void createVerticesForOperator(std::shared_ptr<Operator> op);
-
-    // 获取适当的队列类型（阻塞队列或环形缓冲队列）
-    std::vector<QueuePtr> createQueues(size_t upstream_parallelism,
-                                      size_t downstream_parallelism,
-                                      bool is_join_operator = false);
 };
 
 } // namespace sageFlow

@@ -70,12 +70,38 @@ endfunction()
 set(UNIT_TEST_SPECS
     test_join_bruteforce           UnitTest/test_join_bruteforce.cpp          300 UNIT
     test_join_ivf                  UnitTest/test_join_ivf.cpp                 300 UNIT
+    test_join_hnsw                 UnitTest/test_join_hnsw.cpp                300 UNIT
+    test_join_operator_state       UnitTest/test_join_operator_state.cpp      300 UNIT
+    test_bruteforce_baseline       UnitTest/test_bruteforce_baseline.cpp      300 UNIT
+    test_ivf_method                UnitTest/test_ivf_method.cpp               300 UNIT
+    test_hdr_tree                  UnitTest/test_hdr_tree.cpp                 300 UNIT
+    test_clustered_join            UnitTest/test_clustered_join.cpp           300 UNIT
+    test_s3j_method                UnitTest/test_s3j_method.cpp               300 UNIT
     test_partitioner               UnitTest/test_partitioner.cpp              120 UNIT
     test_compute_engine            UnitTest/test_compute_engine.cpp           180 UNIT
     test_file_stream_source        UnitTest/test_file_stream_source.cpp       120 UNIT
     test_data_source               UnitTest/test_data_source.cpp              120 UNIT
     test_data_persistence          UnitTest/test_data_persistence.cpp         120 UNIT
     test_join_data_source          UnitTest/test_join_data_source.cpp         120 UNIT
+    test_connection_strategy       UnitTest/test_connection_strategy.cpp      120 UNIT
+    test_runtime_context           UnitTest/test_runtime_context.cpp          120 UNIT
+    test_window_state              UnitTest/test_window_state.cpp             120 UNIT
+    test_two_tier_window_state     UnitTest/test_two_tier_window_state.cpp    120 UNIT
+    test_boundary_tracker          UnitTest/test_boundary_tracker.cpp         120 UNIT
+    test_late_arrival_handler      UnitTest/test_late_arrival_handler.cpp     120 UNIT
+    test_vector_space_partitioner  UnitTest/test_vector_space_partitioner.cpp 120 UNIT
+    test_partition_coordinator     UnitTest/test_partition_coordinator.cpp    120 UNIT
+    test_distance_verifier         UnitTest/test_distance_verifier.cpp        120 UNIT
+    test_pca                       UnitTest/test_pca.cpp                      120 UNIT
+    test_simd_distance             UnitTest/test_simd_distance.cpp            180 UNIT
+    test_partitioned_index         UnitTest/test_partitioned_index.cpp        180 UNIT
+    test_partitioned_vector_state  UnitTest/test_partitioned_vector_state.cpp 180 UNIT
+    test_async_candidate_generator UnitTest/test_async_candidate_generator.cpp 180 UNIT
+    test_join_strategy_factory     UnitTest/test_join_strategy_factory.cpp    180 UNIT
+    test_partitioner_factory       UnitTest/test_partitioner_factory.cpp      120 UNIT
+    test_window_state_factory      UnitTest/test_window_state_factory.cpp     120 UNIT
+    test_join_method_registry      UnitTest/test_join_method_registry.cpp     180 UNIT
+    test_join_config_validator     UnitTest/test_join_config_validator.cpp    120 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)
@@ -93,8 +119,6 @@ endforeach()
 # 性能测试 (Performance) - 特别启用METRICS收集
 # -----------------------------------------------------------------------------
 set(PERF_TEST_SPECS
-    test_join_perf_scaling         Performance/test_join_perf_scaling.cpp     900 PERF
-    test_join_performance_methods  Performance/test_join_performance_methods.cpp 900 PERF
     test_window_pipeline           Performance/test_window_pipeline.cpp       600 PERF
     test_join_datasource_modes     Performance/test_join_datasource_modes.cpp 900 PERF
 )
@@ -127,8 +151,8 @@ endif()
 # -----------------------------------------------------------------------------
 set(INTEG_TEST_SPECS
     test_pipeline_basic            IntegrationTest/test_pipeline_basic.cpp    600 INTEGRATION
-#    test_pipeline                  IntegrationTest/test_pipeline.cpp          600 INTEGRATION
-#    test_pipeline_execution        IntegrationTest/test_pipeline_execution.cpp 600 INTEGRATION
+    test_pipeline_execution        IntegrationTest/test_pipeline_execution.cpp 600 INTEGRATION
+    test_vsjoin_integration        IntegrationTest/test_vsjoin_integration.cpp 600 INTEGRATION
 )
 
 list(LENGTH INTEG_TEST_SPECS _ilen)
@@ -154,8 +178,8 @@ endif()
 # -----------------------------------------------------------------------------
 # 仅依赖已创建的测试可执行（未显式依赖 ctest 运行，方便 IDE 构建）
 set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_partitioner test_compute_engine test_file_stream_source test_data_source test_data_persistence test_join_data_source)
-set(ALL_PERF_TARGETS test_join_perf_scaling test_join_performance_methods test_window_pipeline IndexTest)
-set(ALL_INTEG_TARGETS test_pipeline_basic test_pipeline test_pipeline_execution)
+set(ALL_PERF_TARGETS test_window_pipeline test_join_datasource_modes IndexTest)
+set(ALL_INTEG_TARGETS test_pipeline_basic test_pipeline_execution test_vsjoin_integration)
 
 add_custom_target(build_unit_tests DEPENDS ${ALL_UNIT_TARGETS})
 add_custom_target(build_perf_tests DEPENDS ${ALL_PERF_TARGETS})

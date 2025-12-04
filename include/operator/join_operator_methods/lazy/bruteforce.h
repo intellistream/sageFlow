@@ -34,10 +34,6 @@ class BruteForceLazy final : public BaseMethod {
         const VectorRecord& query_record,
         int slot) override;
 
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteLazy(
-        const std::deque<std::unique_ptr<VectorRecord>>& query_records,
-        int query_slot) override;
-
  private:
     // KNN索引相关成员
     int left_knn_index_id_ = -1;

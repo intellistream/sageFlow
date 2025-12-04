@@ -87,6 +87,12 @@ auto sageFlow::WindowOperator::apply(Response&& record, int slot, Collector& col
   collector.collect(std::make_unique<Response>(std::move(record)), slot);
 }
 
+auto sageFlow::WindowOperator::apply(Response&& record, int slot, Collector& collector, 
+                                     const RuntimeContext& context) -> void {
+  // WindowOperator 基类不需要 RuntimeContext 信息，直接委托给旧方法
+  apply(std::move(record), slot, collector);
+}
+
 auto sageFlow::TumblingWindowOperator::apply(Response&& record, int slot, Collector& collector) -> void {
   std::lock_guard<std::mutex> lock(window_mutex_);
 
@@ -107,6 +113,12 @@ auto sageFlow::TumblingWindowOperator::apply(Response&& record, int slot, Collec
     Response window_result{ResponseType::List, std::move(records)};
     collector.collect(std::make_unique<Response>(std::move(window_result)), slot);
   }
+}
+
+auto sageFlow::TumblingWindowOperator::apply(Response&& record, int slot, Collector& collector, 
+                                             const RuntimeContext& context) -> void {
+  // TumblingWindowOperator 不需要 RuntimeContext 信息，直接委托给旧方法
+  apply(std::move(record), slot, collector);
 }
 
 auto sageFlow::SlidingWindowOperator::apply(Response&& record, int slot, Collector& collector) -> void {
@@ -133,4 +145,10 @@ auto sageFlow::SlidingWindowOperator::apply(Response&& record, int slot, Collect
     Response window_result{ResponseType::List, std::move(records)};
     collector.collect(std::make_unique<Response>(std::move(window_result)), slot);
   }
+}
+
+auto sageFlow::SlidingWindowOperator::apply(Response&& record, int slot, Collector& collector, 
+                                            const RuntimeContext& context) -> void {
+  // SlidingWindowOperator 不需要 RuntimeContext 信息，直接委托给旧方法
+  apply(std::move(record), slot, collector);
 }

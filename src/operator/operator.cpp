@@ -23,6 +23,12 @@ auto sageFlow::Operator::getType() const -> OperatorType { return type_; }
 
 auto sageFlow::Operator::open() -> void { is_open_ = true; }
 
+// New open method with RuntimeContext - default implementation delegates to legacy open()
+auto sageFlow::Operator::open(const RuntimeContext& context) -> void {
+  open();  // Call legacy open() for backward compatibility
+  // Subclasses can override this to use the RuntimeContext
+}
+
 auto sageFlow::Operator::close() -> void { is_open_ = false; }
 
 auto sageFlow::Operator::process(Response&record, int slot) -> std::optional<Response> {
@@ -34,6 +40,13 @@ auto sageFlow::Operator::apply(Response&& record, int slot, Collector& collector
   collector.collect(std::make_unique<Response>(std::move(record)), slot);
 }
 
+// New apply method with RuntimeContext - default implementation delegates to legacy apply()
+auto sageFlow::Operator::apply(Response&& record, int slot, Collector& collector, 
+                               const RuntimeContext& context) -> void {
+  apply(std::move(record), slot, collector);  // Call legacy apply() for backward compatibility
+  // Subclasses can override this to use the RuntimeContext
+}
+
 void sageFlow::Operator::set_parallelism(const size_t p) {
   if (p > 0) {
     parallelism_ = p;
@@ -41,4 +54,10 @@ void sageFlow::Operator::set_parallelism(const size_t p) {
 }
 auto sageFlow::Operator::get_parallelism() const -> size_t {
   return parallelism_;
+}
+
+// 默认实现：返回 nullptr，使用默认的 RoundRobin 分区器
+std::unique_ptr<sageFlow::IPartitioner> sageFlow::Operator::getPreferredPartitioner(
+    int dimension, int num_partitions) const {
+  return nullptr;
 }
