@@ -2,7 +2,7 @@
 
 ## 📋 概述
 
- PR 实现了 SageFlow 的 **VSJoin 流式向量相似性连接引**，包含完整的多线程架构重构和多种 Baseline 算法实现。这是一个大规模重构，包含 **195 个文件变更**，新增约 **50,000+ 行代码**。
+本 PR 实现了 SageFlow 的 **VSJoin 流式向量相似性连接引擎**，包含完整的多线程架构重构和多种 Baseline 算法实现。这是一个大规模重构，包含 **195 个文件变更**，新增约 **50,000+ 行代码**。
 
 ---
 
@@ -16,9 +16,9 @@
 
 ### 2. 窗口状态抽象层
 
-                state.addRecord(createTestRecord(t * 1000 + i, 1000 + i * 10), t); `WindowState` 接口，支持多种状态实现：
+新增 `WindowState` 接口，支持多种状态实现：
 
-| 状态类型 | 描述 | 适用场/root/sageFlow |
+| 状态类型 | 描述 | 适用场景 |
 |---------|------|---------|
 | `SharedWindowState` | 所有实例共享同一状态 | RoundRobin 分区 |
 | `PartitionedWindowState` | 每个 subtask 独立状态 | Key/VectorHash 分区 |
@@ -27,10 +27,10 @@
 
 ### 3. 连接策略
 
-                state.addRecord(createTestRecord(t * 1000 + i, 1000 + i * 10), t);
+统一的 SPSC 队列矩阵连接策略：
 
-- **PartitionedConnectionStrategy**: 每个上游有专属队列，适合 share-nothing 架构
-- **SharedQueueConnectionStrategy**: 共享队列池，适合负载均衡场景
+- **ConnectionStrategy**: 统一的连接策略，使用 `upstream × downstream` 个 SPSC 队列
+- 支持不同的分区器（RoundRobin、KeyHash、VectorHash、LSH、Centroid）
 
 ---
 
@@ -58,12 +58,12 @@ StrategyComponents {
 - `include/operator/join_strategy_config.h` - 统一配置结构
 - `include/operator/join_strategy_factory.h` - 策略工厂
 - `include/operator/join_method_registry.h` - 方法注册中心
-- `include/operator/join_config_validator.h` - 配置验证/root/sageFlow
-- `include/execution/partitioner_factory.h` - 分区/root/sageFlow
-- `include/state/window_state_factory.h` - 状态工
+- `include/operator/join_config_validator.h` - 配置验证器
+- `include/execution/partitioner_factory.h` - 分区器工厂
+- `include/state/window_state_factory.h` - 状态工厂
 - `config/join_strategies.toml` - 策略配置文件
 
-
+### 向量空间分区器
 
 - **VectorSpacePartitioner**: 抽象接口
   - `LSHPartitioner`: 局部敏感哈希分区 (VSJoin)
@@ -72,7 +72,7 @@ StrategyComponents {
 
 ### 并发与索引管理
 
-                state.addRecord(createTestRecord(t * 1000 + i, 1000 + i * 10), t);
+- **ConcurrencyManager**: 线程安全的索引管理
 - **ConcurrencyController**: 索引级别的并发控制
 - **PartitionedIndex**: 向量空间分区索引
 
@@ -104,15 +104,15 @@ StrategyComponents {
 
 ### 新增单元测试 (19 个测试文件)
 
-- `test_join_strategy_factory.cpp` - 策略工
+- `test_join_strategy_factory.cpp` - 策略工厂测试
 - `test_join_config_validator.cpp` - 配置验证测试
 - `test_join_method_registry.cpp` - 注册中心测试
 - `test_partitioner_factory.cpp` - 分区器工厂测试
 - `test_window_state_factory.cpp` - 状态工厂测试
 - `test_window_state.cpp` - 窗口状态基础测试
 - `test_two_tier_window_state.cpp` - 两层状态测试
-- `test_partitioned_vector_state.
-- `test_vector_space_partitioner.cpp` - 空间分/root/sageFlow
+- `test_partitioned_vector_state.cpp` - 分区向量状态测试
+- `test_vector_space_partitioner.cpp` - 空间分区器测试
 - `test_partitioned_index.cpp` - 分区索引测试
 - `test_partition_coordinator.cpp` - 协调器测试
 - `test_late_arrival_handler.cpp` - 延迟处理测试
@@ -123,6 +123,7 @@ StrategyComponents {
 ### 集成测试
 
 - `test_join_pipeline.cpp` - 端到端 Join 流水线测试
+- `test_join_datasource_modes.cpp` - 多并行度召回率测试
 
 ### 性能测试
 
@@ -133,7 +134,7 @@ StrategyComponents {
 
 ## 📚 文档更新
 
-- `docs/ARCHITECTURE_REFACTORING.md` - 架
+- `docs/ARCHITECTURE_REFACTORING.md` - 架构重构指南
 - `docs/CONNECTION_STRATEGIES.md` - 连接策略详解
 - `docs/JOIN_PIPELINE_GUIDE.md` - Join 流水线指南
 - `docs/VSJOIN_IMPLEMENTATION_ROADMAP.md` - VSJoin 实现路线图
@@ -163,6 +164,7 @@ StrategyComponents {
 - **测试验证**：所有并行度级别 (1,2,4,8,16) 召回率均达到 95%+
 
 测试结果：
+
 | 方法 | p=1 | p=2 | p=4 | p=8 | p=16 |
 |------|-----|-----|-----|-----|------|
 | BruteForce | 98.8% ✅ | 98.3% ✅ | 99.3% ✅ | 98.1% ✅ | 99.9% ✅ |
@@ -177,6 +179,7 @@ StrategyComponents {
 ### Operator 分区器接口
 
 新增 `getPreferredPartitioner()` 虚方法，支持算子指定首选分区策略：
+
 - JoinOperator: 支持 LSH/RoundRobin 选择
 - 默认实现返回 `std::nullopt`（使用系统默认）
 
