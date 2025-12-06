@@ -8,6 +8,8 @@
 #include "index/ivf.h"
 #include "index/knn.h"
 #include "index/vectraflow.h"
+#include "index/hdr_forest.h"
+#include "index/hdr_tree.h"
 
 sageFlow::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
 
@@ -27,6 +29,12 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
       break;
     case IndexType::Vectraflow:
       index = std::make_shared<VectraFlow>();
+      break;
+    case IndexType::HDRForest:
+      index = std::make_shared<HDRForest>();
+      break;
+    case IndexType::HDRTree:
+      index = std::make_shared<HDRTree>(dimension);
       break;
     case IndexType::BruteForce:
     default:
@@ -73,6 +81,16 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
       break;
     case IndexType::Vectraflow:
       index = std::make_shared<VectraFlow>();
+      break;
+    case IndexType::HDRForest:
+      if (auto* hdr_params = std::get_if<HDRForestParameters>(&params)) {
+        index = std::make_shared<HDRForest>(hdr_params->n_clusters, hdr_params->f_sections);
+      } else {
+        index = std::make_shared<HDRForest>();
+      }
+      break;
+    case IndexType::HDRTree:
+      index = std::make_shared<HDRTree>(dimension);
       break;
     case IndexType::BruteForce:
     default:

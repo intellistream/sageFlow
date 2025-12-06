@@ -1,90 +1,81 @@
 #include "operator/join_operator_methods/hdr_tree_method.h"
 #include "operator/join_method_registry.h"
-
-#include <unordered_set>
-
 #include "utils/logger.h"
 
 namespace sageFlow {
 
-HDRTreeMethod::HDRTreeMethod(int left_index_id, int right_index_id, double similarity_threshold,
-                             const std::shared_ptr<ConcurrencyManager>& concurrency_manager,
+HDRTreeMethod::HDRTreeMethod(int left_index_id, int right_index_id, 
+                             double join_similarity_threshold,
+                             std::shared_ptr<ConcurrencyManager> concurrency_manager,
                              const Config& config)
-    : BaseMethod(similarity_threshold),
-      config_(config),
+    : BaseMethod(join_similarity_threshold),
       left_index_id_(left_index_id),
       right_index_id_(right_index_id),
-      concurrency_manager_(concurrency_manager) {
-  // 更新配置中的相似度阈值
-  config_.similarity_threshold = similarity_threshold;
-
-  SAGEFLOW_LOG_DEBUG("HDRTreeMethod", "Created HDRTreeMethod: left_idx={}, right_idx={}, "
-                     "threshold={}, projected_dim={}",
-                     left_index_id_, right_index_id_,
-                     config_.similarity_threshold, config_.projected_dim);
+      concurrency_manager_(std::move(concurrency_manager)),
+      config_(config) {
 }
 
-auto HDRTreeMethod::ExecuteEager(const VectorRecord& query_record, int query_slot)
-    -> std::vector<std::unique_ptr<VectorRecord>> {
-  std::vector<std::unique_ptr<VectorRecord>> results;
-
-  if (!concurrency_manager_) {
-    SAGEFLOW_LOG_WARN("HDRTreeMethod", "ConcurrencyManager is null");
-    return results;
-  }
-
-  int idx = otherIndexId(query_slot);
-  if (idx == -1) {
-    SAGEFLOW_LOG_WARN("HDRTreeMethod", "Invalid index ID for slot {}", query_slot);
-    return results;
-  }
-
-  SAGEFLOW_LOG_DEBUG("HDRTreeMethod", "ExecuteEager: querying index {} with threshold {}",
-                     idx, join_similarity_threshold_);
-
-  // 使用 ConcurrencyManager 进行查询
-  // 底层会调用对应索引的 query_for_join 方法
-  auto candidates = concurrency_manager_->query_for_join(idx, query_record,
-                                                          join_similarity_threshold_);
-
-  results.reserve(candidates.size());
-  for (auto& c : candidates) {
-    if (c) {
-      results.emplace_back(std::make_unique<VectorRecord>(*c));
+std::vector<std::unique_ptr<VectorRecord>> HDRTreeMethod::ExecuteEager(
+    const VectorRecord& query_record,
+    int query_slot) {
+    
+    std::vector<std::unique_ptr<VectorRecord>> results;
+    
+    // Determine which index to query
+    // If query comes from Left (slot 0), query Right index
+    // If query comes from Right (slot 1), query Left index
+    int target_index_id = (query_slot == 0) ? right_index_id_ : left_index_id_;
+    
+    if (target_index_id == -1) {
+        SAGEFLOW_LOG_WARN("HDRTree", "Target index id is -1 for slot {}", query_slot);
+        return results;
     }
-  }
-
-  SAGEFLOW_LOG_DEBUG("HDRTreeMethod", "ExecuteEager: found {} candidates", results.size());
-
-  return results;
+    
+    // Use ConcurrencyManager to query the HDR Forest index
+    // The index implementation handles pruning and PCA logic
+    auto shared_results = concurrency_manager_->query_for_join(
+        target_index_id, query_record, join_similarity_threshold_);
+        
+    // Convert shared_ptr to unique_ptr (copy)
+    results.reserve(shared_results.size());
+    for (const auto& rec : shared_results) {
+        if (rec) {
+            results.push_back(std::make_unique<VectorRecord>(*rec));
+        }
+    }
+    
+    return results;
 }
 
-
-}  // namespace sageFlow
-
-// ==================== 方法自注册 ====================
+// Register the method
 REGISTER_JOIN_METHOD(
     sageFlow::JoinAlgorithm::HDR_TREE,
     (sageFlow::JoinMethodRegistry::MethodInfo{
-        "HDR-Tree",
-        "HDR-Tree baseline with PCA dimensionality reduction "
-        "and R-tree spatial indexing. Optimized for dynamic updates.",
+        "HDRTree",
+        "HDR Forest Baseline with Lazy/Batch Updates and Pruning",
         sageFlow::JoinAlgorithm::HDR_TREE,
-        true,   // supports_eager
-        true,   // supports_lazy
-        sageFlow::PartitionStrategy::KEY_HASH,
-        sageFlow::WindowStateType::PARTITIONED,
-        "Ukey et al., ADC 2022, DOI: 10.1007/978-3-031-15512-3_5"
+        true,  // supports_eager
+        false, // supports_lazy
+        sageFlow::PartitionStrategy::VECTOR_HASH, // Recommended partition strategy
+        sageFlow::WindowStateType::PARTITIONED,   // Recommended window state
+        "Efficient continuous kNN join over dynamic high-dimensional data"
     }),
-    [](const sageFlow::JoinStrategyConfig& config,
-       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
-       int /*dim*/,
-       int left_idx,
+    [](const JoinStrategyConfig& config, 
+       std::shared_ptr<ConcurrencyManager> cm, 
+       int dim, 
+       int left_idx, 
        int right_idx) {
-        sageFlow::HDRTreeMethod::Config hdr_config;
+        HDRTreeMethod::Config hdr_config;
         hdr_config.similarity_threshold = config.similarity_threshold;
         hdr_config.projected_dim = config.hdr_projected_dim;
         hdr_config.pca_sample_size = config.hdr_pca_sample_size;
-        return std::make_unique<sageFlow::HDRTreeMethod>(
-            left_idx, right_idx, config.similarity_threshold, cm, hdr_config);
-    });
+        
+        return std::make_unique<HDRTreeMethod>(
+            left_idx, right_idx, 
+            config.similarity_threshold, 
+            cm, 
+            hdr_config);
+    }
+);
+
+} // namespace sageFlow

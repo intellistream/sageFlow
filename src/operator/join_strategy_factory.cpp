@@ -436,7 +436,7 @@ IndexType JoinStrategyFactory::getIndexType(const JoinStrategyConfig& config) {
         case JoinAlgorithm::HNSW:
             return IndexType::HNSW;
         case JoinAlgorithm::HDR_TREE:
-            return IndexType::HDRTree;
+            return IndexType::HDRForest;
         case JoinAlgorithm::VSJOIN:
         case JoinAlgorithm::S3J:
         case JoinAlgorithm::CLUSTERED_JOIN:
@@ -464,6 +464,12 @@ IndexParameters JoinStrategyFactory::getIndexParameters(const JoinStrategyConfig
             params.m = config.hnsw_m;
             params.ef_construction = config.hnsw_ef_construction;
             params.ef_search = config.hnsw_ef_search;
+            return params;
+        }
+        case JoinAlgorithm::HDR_TREE: {
+            HDRForestParameters params;
+            params.n_clusters = config.hdr_projected_dim; // Mapping projected_dim to n_clusters for now as placeholder
+            params.f_sections = config.hdr_max_node_size; // Mapping max_node_size to f_sections for now
             return params;
         }
         default:
