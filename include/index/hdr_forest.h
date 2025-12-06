@@ -68,6 +68,7 @@ public:
     
 private:
     std::vector<std::shared_ptr<LocalHDRTree>> forest_;
+    std::vector<std::vector<float>> cluster_centroids_;
     
     // RkNN Table for Deletions: Item ID -> List of User IDs
     std::unordered_map<uint64_t, std::vector<uint64_t>> rknn_table_; 

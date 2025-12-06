@@ -142,3 +142,59 @@ TEST_F(HDRForestTest, QueryForJoin) {
     }
     EXPECT_TRUE(found_1);
 }
+
+TEST_F(HDRForestTest, BuildForestAndRouting) {
+    int n = 50;
+    std::vector<std::shared_ptr<VectorRecord>> records;
+    
+    // Create data with 2 distinct clusters
+    for(int i=0; i<n; ++i) {
+        std::vector<float> vec(dimension_);
+        if (i < n/2) {
+            // Cluster 1: around 0.0
+            for(int d=0; d<dimension_; ++d) vec[d] = 0.0f + (float)i*0.001f;
+        } else {
+            // Cluster 2: around 10.0
+            for(int d=0; d<dimension_; ++d) vec[d] = 10.0f + (float)(i-n/2)*0.001f;
+        }
+        
+        // Insert into storage (needed for query later)
+        storage_manager_->insert(createRecord(i, vec));
+        
+        // Create shared_ptr copy for build_forest
+        float* data_ptr = new float[dimension_];
+        std::copy(vec.begin(), vec.end(), data_ptr);
+        auto rec = std::make_shared<VectorRecord>(
+            (uint64_t)i, 0, dimension_, DataType::Float32, reinterpret_cast<char*>(data_ptr)
+        );
+        records.push_back(rec);
+    }
+    
+    // Build forest explicitly
+    index_->build_forest(records);
+    
+    // Query for a point near Cluster 2
+    auto query_rec = createRecord(999, {10.0f, 10.0f, 10.0f, 10.0f});
+    auto results = index_->query(*query_rec, 5);
+    
+    ASSERT_FALSE(results.empty());
+    for(auto uid : results) {
+        // Should belong to the second cluster (ids >= 25)
+        EXPECT_GE(uid, n/2);
+    }
+    
+    // Insert a new point dynamically that belongs to Cluster 1
+    // ID = 100, Vector = {0.0, ...}
+    storage_manager_->insert(createRecord(100, {0.0f, 0.0f, 0.0f, 0.0f}));
+    index_->insert(100);
+    
+    // Query near Cluster 1
+    auto query_rec2 = createRecord(1000, {0.0f, 0.0f, 0.0f, 0.0f});
+    auto results2 = index_->query(*query_rec2, 5);
+    
+    bool found = false;
+    for(auto uid : results2) {
+        if(uid == 100) found = true;
+    }
+    EXPECT_TRUE(found);
+}
