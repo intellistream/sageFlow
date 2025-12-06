@@ -8,25 +8,28 @@
 #include "common/data_types.h"
 #include "compute_engine/compute_engine.h"
 #include "storage/storage_manager.h"
+#include "utils/logger.h"
 
 using namespace sageFlow;
 
 class HDRForestTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        // Setup storage manager
+        // 初始化存储管理器
         storage_manager_ = std::make_shared<StorageManager>();
         storage_manager_->engine_ = std::make_shared<ComputeEngine>();
         
-        // Setup index
-        // n_clusters=2, f_sections=5 for testing
+        // 初始化索引
+        // 测试配置：n_clusters=2, f_sections=5
         index_ = std::make_shared<HDRForest>(2, 5);
         index_->dimension_ = dimension_;
         index_->storage_manager_ = storage_manager_;
+
+        SAGEFLOW_LOG_INFO("HDRForestTest", "SetUp: Initialized HDRForest with dim={}, clusters=2, sections=5", dimension_);
     }
 
     std::unique_ptr<VectorRecord> createRecord(uint64_t uid, const std::vector<float>& values) {
-        // VectorRecord takes ownership of the data pointer
+        // VectorRecord 接管数据指针的所有权
         float* data_ptr = new float[dimension_];
         std::copy(values.begin(), values.end(), data_ptr);
         
@@ -45,7 +48,8 @@ protected:
 };
 
 TEST_F(HDRForestTest, InsertionAndExactQuery) {
-    // Insert some vectors
+    SAGEFLOW_LOG_INFO("HDRForestTest", ">>> Test: InsertionAndExactQuery");
+    // 插入一些向量
     std::vector<std::vector<float>> data = {
         {1.0f, 0.0f, 0.0f, 0.0f}, // 0
         {0.0f, 1.0f, 0.0f, 0.0f}, // 1
@@ -58,19 +62,24 @@ TEST_F(HDRForestTest, InsertionAndExactQuery) {
         storage_manager_->insert(createRecord(i, data[i]));
         index_->insert(i);
     }
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Inserted {} records", data.size());
 
-    // Query for vector closest to {1.0, 0.0, 0.0, 0.0} -> should be 0
+    // 查询距离 {1.0, 0.0, 0.0, 0.0} 最近的向量 -> 应该是 0
     auto query_rec = createRecord(999, {0.9f, 0.1f, 0.0f, 0.0f});
     auto results = index_->query(*query_rec, 1);
     
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Query result size: {}", results.size());
+    if (!results.empty()) {
+        SAGEFLOW_LOG_INFO("HDRForestTest", "Top result ID: {}", results[0]);
+    }
+
     ASSERT_EQ(results.size(), 1);
     EXPECT_EQ(results[0], 0);
 }
 
 TEST_F(HDRForestTest, BatchInsertion) {
-    // HDRForest uses a buffer. We want to ensure batch processing works.
-    // We insert enough items to trigger batch processing or force it.
-    // The default buffer size might be large, but we can check if insert works logically.
+    SAGEFLOW_LOG_INFO("HDRForestTest", ">>> Test: BatchInsertion");
+    // HDRForest 使用缓冲区。我们需要确保批量处理正常工作。
     
     int num_items = 20;
     for (int i = 0; i < num_items; ++i) {
@@ -78,13 +87,16 @@ TEST_F(HDRForestTest, BatchInsertion) {
         storage_manager_->insert(createRecord(i, vec));
         index_->insert(i);
     }
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Inserted {} items for batch processing", num_items);
     
-    // Query something
+    // 执行查询
     auto query_rec = createRecord(999, {0.0f, 0.0f, 0.0f, 0.0f});
     auto results = index_->query(*query_rec, 5);
     
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Query returned {} results", results.size());
+
     EXPECT_LE(results.size(), 5);
-    // 0 should be closest to 0,0,0,0
+    // 0 应该是距离 0,0,0,0 最近的
     bool found_0 = false;
     for(auto uid : results) {
         if(uid == 0) found_0 = true;
@@ -93,48 +105,48 @@ TEST_F(HDRForestTest, BatchInsertion) {
 }
 
 TEST_F(HDRForestTest, Erase) {
-    // Insert
+    SAGEFLOW_LOG_INFO("HDRForestTest", ">>> Test: Erase");
+    // 插入
     storage_manager_->insert(createRecord(1, {1.0f, 1.0f, 1.0f, 1.0f}));
     index_->insert(1);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Inserted record 1");
     
-    // Verify it exists
+    // 验证其存在
     auto query_rec = createRecord(999, {1.0f, 1.0f, 1.0f, 1.0f});
     auto results = index_->query(*query_rec, 1);
     ASSERT_FALSE(results.empty());
     EXPECT_EQ(results[0], 1);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Verified record 1 exists");
     
-    // Erase
+    // 删除
     index_->erase(1);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Erased record 1");
     
-    // Verify it's gone (or at least not returned if we query)
-    // Note: HDRForest erase might be lazy or complex.
-    // If we query, it should ideally not return the erased item.
-    
-    // However, if it's the ONLY item, query might return empty.
+    // 验证其已消失（或至少查询时不返回）
     results = index_->query(*query_rec, 1);
     if (!results.empty()) {
         EXPECT_NE(results[0], 1);
     }
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Verified record 1 is gone (or not top 1)");
 }
 
 TEST_F(HDRForestTest, QueryForJoin) {
-    // Insert data
+    SAGEFLOW_LOG_INFO("HDRForestTest", ">>> Test: QueryForJoin");
+    // 插入数据
     storage_manager_->insert(createRecord(1, {1.0f, 0.0f, 0.0f, 0.0f}));
     index_->insert(1);
     
     storage_manager_->insert(createRecord(2, {0.0f, 1.0f, 0.0f, 0.0f}));
     index_->insert(2);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Inserted records 1 and 2");
     
-    // Query with threshold
-    // Vector {0.9, 0.0, ...} should be close to 1
+    // 带阈值的查询
     auto query_rec = createRecord(999, {0.9f, 0.0f, 0.0f, 0.0f});
     
-    // Threshold logic depends on implementation (similarity vs distance).
-    // Assuming similarity threshold (e.g. cosine or derived).
-    // If query_for_join uses distance threshold internally derived from similarity.
-    
-    // Let's assume high similarity threshold
-    auto results = index_->query_for_join(*query_rec, 0.8); 
+    // 假设高相似度阈值
+    double threshold = 0.8;
+    auto results = index_->query_for_join(*query_rec, threshold); 
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Query for join with threshold {}, found {} results", threshold, results.size());
     
     bool found_1 = false;
     for(auto uid : results) {
@@ -144,24 +156,23 @@ TEST_F(HDRForestTest, QueryForJoin) {
 }
 
 TEST_F(HDRForestTest, BuildForestAndRouting) {
+    SAGEFLOW_LOG_INFO("HDRForestTest", ">>> Test: BuildForestAndRouting");
     int n = 50;
     std::vector<std::shared_ptr<VectorRecord>> records;
     
-    // Create data with 2 distinct clusters
+    // 创建具有 2 个不同簇的数据
     for(int i=0; i<n; ++i) {
         std::vector<float> vec(dimension_);
         if (i < n/2) {
-            // Cluster 1: around 0.0
+            // 簇 1：在 0.0 附近
             for(int d=0; d<dimension_; ++d) vec[d] = 0.0f + (float)i*0.001f;
         } else {
-            // Cluster 2: around 10.0
+            // 簇 2：在 10.0 附近
             for(int d=0; d<dimension_; ++d) vec[d] = 10.0f + (float)(i-n/2)*0.001f;
         }
         
-        // Insert into storage (needed for query later)
         storage_manager_->insert(createRecord(i, vec));
         
-        // Create shared_ptr copy for build_forest
         float* data_ptr = new float[dimension_];
         std::copy(vec.begin(), vec.end(), data_ptr);
         auto rec = std::make_shared<VectorRecord>(
@@ -170,27 +181,29 @@ TEST_F(HDRForestTest, BuildForestAndRouting) {
         records.push_back(rec);
     }
     
-    // Build forest explicitly
+    // 显式构建森林
     index_->build_forest(records);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Built forest with {} records", n);
     
-    // Query for a point near Cluster 2
+    // 查询簇 2 附近的点
     auto query_rec = createRecord(999, {10.0f, 10.0f, 10.0f, 10.0f});
     auto results = index_->query(*query_rec, 5);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Query near Cluster 2 returned {} results", results.size());
     
     ASSERT_FALSE(results.empty());
     for(auto uid : results) {
-        // Should belong to the second cluster (ids >= 25)
         EXPECT_GE(uid, n/2);
     }
     
-    // Insert a new point dynamically that belongs to Cluster 1
-    // ID = 100, Vector = {0.0, ...}
+    // 动态插入一个属于簇 1 的新点
     storage_manager_->insert(createRecord(100, {0.0f, 0.0f, 0.0f, 0.0f}));
     index_->insert(100);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Inserted dynamic record 100 near Cluster 1");
     
-    // Query near Cluster 1
+    // 查询簇 1 附近
     auto query_rec2 = createRecord(1000, {0.0f, 0.0f, 0.0f, 0.0f});
     auto results2 = index_->query(*query_rec2, 5);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Query near Cluster 1 returned {} results", results2.size());
     
     bool found = false;
     for(auto uid : results2) {
@@ -200,10 +213,10 @@ TEST_F(HDRForestTest, BuildForestAndRouting) {
 }
 
 TEST_F(HDRForestTest, IntegrationWithLocalHDRTree) {
-    int n = 100; // Enough data to trigger PCA training (min 10 per section)
+    SAGEFLOW_LOG_INFO("HDRForestTest", ">>> Test: IntegrationWithLocalHDRTree");
+    int n = 100; 
     std::vector<std::shared_ptr<VectorRecord>> records;
     
-    // Generate random data
     std::mt19937 gen(42);
     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
     
@@ -221,49 +234,27 @@ TEST_F(HDRForestTest, IntegrationWithLocalHDRTree) {
         records.push_back(rec);
     }
     
-    // Build forest
     index_->build_forest(records);
-    
-    // Verify that we can query and get results
-    // This implicitly tests that the underlying HDRTree (R-Tree) is working
-    // because query() prefers using rtree_index if PCA is trained.
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Built forest with {} random records", n);
     
     auto query_rec = createRecord(999, {0.5f, 0.5f, 0.5f, 0.5f});
     auto results = index_->query(*query_rec, 10);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Query returned {} results", results.size());
     
     EXPECT_FALSE(results.empty());
     EXPECT_LE(results.size(), 10);
-    
-    // We can't easily access private members to check isPCATrained() directly 
-    // without friend classes or public accessors, but successful query implies it works.
-    // (Or we could add a public accessor for testing, but let's stick to black-box testing for now)
 }
 
 TEST_F(HDRForestTest, PruningLogic) {
-    // Construct a scenario where pruning should happen
-    // Cluster 1: [0, 0] -> Center [0, 0], min_dist=0, max_dist=1
-    // Cluster 2: [100, 100] -> Center [100, 100], min_dist=0, max_dist=1
-    
-    // We manually construct the forest to control max_dknn
-    // Since we can't easily access private members, we rely on the fact that
-    // if pruning works, querying near Cluster 1 should NOT search Cluster 2.
-    // But standard query returns results anyway.
-    
-    // To verify pruning, we can check if we get results from a cluster that SHOULD be pruned
-    // if we force a very small k.
-    
-    // Actually, a better way is to use the fact that if we set max_dknn to be small,
-    // and query far away, it should skip.
-    
-    // Let's build a forest with 2 clusters far apart.
+    SAGEFLOW_LOG_INFO("HDRForestTest", ">>> Test: PruningLogic");
     int n = 20;
     std::vector<std::shared_ptr<VectorRecord>> records;
     for(int i=0; i<n; ++i) {
         std::vector<float> vec(dimension_);
         if (i < n/2) {
-            for(int d=0; d<dimension_; ++d) vec[d] = 0.0f; // Cluster 1
+            for(int d=0; d<dimension_; ++d) vec[d] = 0.0f; // 簇 1
         } else {
-            for(int d=0; d<dimension_; ++d) vec[d] = 100.0f; // Cluster 2
+            for(int d=0; d<dimension_; ++d) vec[d] = 100.0f; // 簇 2
         }
         storage_manager_->insert(createRecord(i, vec));
         
@@ -276,19 +267,15 @@ TEST_F(HDRForestTest, PruningLogic) {
     }
     
     index_->build_forest(records);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Built forest with 2 distant clusters");
     
-    // Query near Cluster 1
+    // 查询簇 1 附近
     auto query_rec = createRecord(999, {0.0f, 0.0f, 0.0f, 0.0f});
     auto results = index_->query(*query_rec, 5);
+    SAGEFLOW_LOG_INFO("HDRForestTest", "Query near Cluster 1 returned {} results", results.size());
     
-    // Should find items from Cluster 1 (ID < 10)
+    // 应该找到簇 1 中的项 (ID < 10)
     for(auto uid : results) {
         EXPECT_LT(uid, 10);
     }
-    
-    // Note: To truly verify "Pruning" (skipping computation), we would need internal metrics/counters.
-    // But functionally, it should still return correct results (nearest neighbors).
-    // The pruning just optimizes speed.
-    // However, if pruning is WRONG (prunes too much), we would miss valid neighbors.
-    // So this test verifies that pruning does NOT break correctness.
 }
