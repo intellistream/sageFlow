@@ -10,7 +10,7 @@
 
 namespace sageFlow {
 
-// Helper to compute L2 distance
+// 计算 L2 距离的辅助函数
 float compute_l2_dist(const float* a, const float* b, int dim) {
     float dist = 0.0f;
     for(int i=0; i<dim; ++i) {
@@ -24,7 +24,7 @@ auto HDRForest::insert(uint64_t id) -> bool {
     std::lock_guard<std::mutex> lock(mutex_);
     insert_buffer_.push_back(id);
     
-    // Process immediately for testing correctness without waiting for batch
+    // 为了测试正确性，立即处理，不等待批量更新
     process_batch_updates();
     return true;
 }
@@ -33,7 +33,7 @@ void HDRForest::process_batch_updates() {
     if (forest_.empty()) {
         auto tree = std::make_shared<LocalHDRTree>();
         tree->tree_id = 0;
-        // Initialize bounds to avoid pruning everything initially
+        // 初始化边界，避免初始时修剪所有内容
         tree->min_dist = 0.0f;
         tree->max_dist = std::numeric_limits<float>::max();
         tree->max_dknn = std::numeric_limits<float>::max(); 
@@ -50,12 +50,12 @@ void HDRForest::process_batch_updates() {
 auto HDRForest::erase(uint64_t id) -> bool {
     std::lock_guard<std::mutex> lock(mutex_);
     
-    // Remove from forest
+    // 从森林中移除
     for(auto& tree : forest_) {
         tree->user_ids.erase(id);
     }
     
-    // Remove from buffer if present
+    // 如果存在于缓冲区中，则移除
     auto it = std::remove(insert_buffer_.begin(), insert_buffer_.end(), id);
     insert_buffer_.erase(it, insert_buffer_.end());
     
@@ -73,14 +73,14 @@ auto HDRForest::query(const VectorRecord &record, int k) -> std::vector<uint64_t
     const float* query_data = reinterpret_cast<const float*>(record.data_.data_.get());
     int dim = record.data_.dim_;
     
-    // Collect all IDs
+    // 收集所有 ID
     std::vector<uint64_t> all_ids;
     for(const auto& tree : forest_) {
         all_ids.insert(all_ids.end(), tree->user_ids.begin(), tree->user_ids.end());
     }
     all_ids.insert(all_ids.end(), insert_buffer_.begin(), insert_buffer_.end());
     
-    // Remove duplicates
+    // 去重
     std::sort(all_ids.begin(), all_ids.end());
     all_ids.erase(std::unique(all_ids.begin(), all_ids.end()), all_ids.end());
     
@@ -93,10 +93,10 @@ auto HDRForest::query(const VectorRecord &record, int k) -> std::vector<uint64_t
         }
     }
     
-    // Sort by distance
+    // 按距离排序
     std::sort(candidates.begin(), candidates.end());
     
-    // Return top k
+    // 返回前 k 个结果
     for(int i=0; i<k && i<candidates.size(); ++i) {
         result.push_back(candidates[i].second);
     }
@@ -114,12 +114,12 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
         }
     }
     
-    // Also add buffer
+    // 同时添加缓冲区中的内容
     for(auto uid : insert_buffer_) {
         results.push_back(uid);
     }
     
-    // Deduplicate
+    // 去重
     std::sort(results.begin(), results.end());
     results.erase(std::unique(results.begin(), results.end()), results.end());
     
@@ -147,7 +147,7 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
         tree->user_ids.insert(rec->uid_);
     }
     
-    // Initialize bounds
+    // 初始化边界
     tree->min_dist = 0.0f;
     tree->max_dist = std::numeric_limits<float>::max();
     tree->max_dknn = std::numeric_limits<float>::max();
