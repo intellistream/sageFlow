@@ -238,3 +238,57 @@ TEST_F(HDRForestTest, IntegrationWithLocalHDRTree) {
     // without friend classes or public accessors, but successful query implies it works.
     // (Or we could add a public accessor for testing, but let's stick to black-box testing for now)
 }
+
+TEST_F(HDRForestTest, PruningLogic) {
+    // Construct a scenario where pruning should happen
+    // Cluster 1: [0, 0] -> Center [0, 0], min_dist=0, max_dist=1
+    // Cluster 2: [100, 100] -> Center [100, 100], min_dist=0, max_dist=1
+    
+    // We manually construct the forest to control max_dknn
+    // Since we can't easily access private members, we rely on the fact that
+    // if pruning works, querying near Cluster 1 should NOT search Cluster 2.
+    // But standard query returns results anyway.
+    
+    // To verify pruning, we can check if we get results from a cluster that SHOULD be pruned
+    // if we force a very small k.
+    
+    // Actually, a better way is to use the fact that if we set max_dknn to be small,
+    // and query far away, it should skip.
+    
+    // Let's build a forest with 2 clusters far apart.
+    int n = 20;
+    std::vector<std::shared_ptr<VectorRecord>> records;
+    for(int i=0; i<n; ++i) {
+        std::vector<float> vec(dimension_);
+        if (i < n/2) {
+            for(int d=0; d<dimension_; ++d) vec[d] = 0.0f; // Cluster 1
+        } else {
+            for(int d=0; d<dimension_; ++d) vec[d] = 100.0f; // Cluster 2
+        }
+        storage_manager_->insert(createRecord(i, vec));
+        
+        float* data_ptr = new float[dimension_];
+        std::copy(vec.begin(), vec.end(), data_ptr);
+        auto rec = std::make_shared<VectorRecord>(
+            (uint64_t)i, 0, dimension_, DataType::Float32, reinterpret_cast<char*>(data_ptr)
+        );
+        records.push_back(rec);
+    }
+    
+    index_->build_forest(records);
+    
+    // Query near Cluster 1
+    auto query_rec = createRecord(999, {0.0f, 0.0f, 0.0f, 0.0f});
+    auto results = index_->query(*query_rec, 5);
+    
+    // Should find items from Cluster 1 (ID < 10)
+    for(auto uid : results) {
+        EXPECT_LT(uid, 10);
+    }
+    
+    // Note: To truly verify "Pruning" (skipping computation), we would need internal metrics/counters.
+    // But functionally, it should still return correct results (nearest neighbors).
+    // The pruning just optimizes speed.
+    // However, if pruning is WRONG (prunes too much), we would miss valid neighbors.
+    // So this test verifies that pruning does NOT break correctness.
+}
