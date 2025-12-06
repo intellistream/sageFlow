@@ -63,8 +63,14 @@ set_target_properties(_sage_flow PROPERTIES
 # SOTA: Conditional install based on build context
 if(DEFINED SKBUILD)
     if(SKBUILD_STATE STREQUAL "editable")
-        # Editable install: install to source tree directly
-        set(_install_dest "${CMAKE_CURRENT_SOURCE_DIR}/../../python")
+        # Editable install: use parent-defined install dir if available, else fallback
+        if(DEFINED SAGE_FLOW_INSTALL_DIR)
+            set(_install_dest "${SAGE_FLOW_INSTALL_DIR}")
+            message(STATUS "sage_flow: Using parent-defined install dir: ${_install_dest}")
+        else()
+            set(_install_dest "${CMAKE_CURRENT_SOURCE_DIR}/../../python")
+            message(STATUS "sage_flow: Using default editable install dir: ${_install_dest}")
+        endif()
     else()
         # Wheel build: install to wheel platlib
         set(_install_dest "${SKBUILD_PLATLIB_DIR}/sage/middleware/components/sage_flow/python")
