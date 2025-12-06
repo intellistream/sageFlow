@@ -103,6 +103,23 @@ void HDRForest::process_batch_updates() {
          tree->min_dist = 0.0f;
          tree->max_dist = std::numeric_limits<float>::max();
          
+         // 初始化 HDRTree
+         if (storage_manager_) {
+             // 假设维度为 128，实际应从数据获取
+             // 这里我们尝试从 insert_buffer 获取维度
+             int dim = 128; 
+             if (!insert_buffer_.empty()) {
+                 auto rec = storage_manager_->getVectorByUid(insert_buffer_[0]);
+                 if (rec) dim = rec->data_.dim_;
+             }
+             
+             HDRTree::Config config;
+             config.projected_dim = std::min(dim, 16); // 降维到 16 或更小
+             config.pca_sample_size = 100; // 小样本用于测试
+             tree->rtree_index = std::make_shared<HDRTree>(dim, config);
+             tree->rtree_index->storage_manager_ = storage_manager_;
+         }
+
          // 尝试初始化中心为 0 向量
          if (!insert_buffer_.empty() && storage_manager_) {
              auto rec = storage_manager_->getVectorByUid(insert_buffer_[0]);
@@ -136,12 +153,12 @@ void HDRForest::process_batch_updates() {
         }
 
         // 2. 找到该簇中对应的分段 (Section)
-        // 假设森林按簇顺序排列：[c * f, (c+1) * f)
         size_t start_idx = static_cast<size_t>(best_cluster * f_sections_);
         size_t end_idx = start_idx + f_sections_;
         
         if (start_idx >= forest_.size()) {
             // 索引越界回退
+            if (forest_[0]->rtree_index) forest_[0]->rtree_index->insert(item_id);
             forest_[0]->user_ids.insert(item_id);
             continue;
         }
@@ -155,7 +172,7 @@ void HDRForest::process_batch_updates() {
             }
         }
         
-        // 如果超出所有范围（通常是大于最后一个 max_dist），放入该簇的最后一个树
+        // 如果超出所有范围，放入该簇的最后一个树
         if (!target_tree && end_idx > 0) {
             size_t last_tree_idx = std::min(forest_.size()-1, end_idx-1);
             target_tree = forest_[last_tree_idx];
@@ -163,6 +180,10 @@ void HDRForest::process_batch_updates() {
         
         if (target_tree) {
             target_tree->user_ids.insert(item_id);
+            if (target_tree->rtree_index) {
+                target_tree->rtree_index->insert(item_id);
+            }
+            
             // 动态扩展边界
             if (min_dist_to_center > target_tree->max_dist) {
                 target_tree->max_dist = min_dist_to_center;
@@ -205,7 +226,7 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
         cluster_points[best_c].push_back({static_cast<int>(i), min_d});
     }
     
-    // 3. 创建分段 (Sectioning)
+    // 3. 创建分段 (Sectioning) 并训练局部 PCA
     int tree_id_counter = 0;
     for(size_t c=0; c<cluster_centroids_.size(); ++c) {
         auto& points = cluster_points[c];
@@ -224,8 +245,17 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
             tree->tree_id = tree_id_counter++;
             tree->center = cluster_centroids_[c];
             
+            // 初始化 HDRTree
+            HDRTree::Config config;
+            config.projected_dim = std::min(dim, 16);
+            config.pca_sample_size = std::max(10, section_size); // 确保样本足够
+            tree->rtree_index = std::make_shared<HDRTree>(dim, config);
+            tree->rtree_index->storage_manager_ = storage_manager_;
+            
             int start = s * section_size;
             int end = std::min(start + section_size, total_points);
+            
+            std::vector<std::vector<float>> training_samples;
             
             if (start >= total_points) {
                 // 空分段
@@ -236,7 +266,22 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
                 tree->max_dist = points[end-1].dist;
                 
                 for(int k=start; k<end; ++k) {
-                    tree->user_ids.insert(initial_data[points[k].index]->uid_);
+                    auto& rec = initial_data[points[k].index];
+                    tree->user_ids.insert(rec->uid_);
+                    
+                    // 收集训练样本
+                    std::vector<float> vec(dim);
+                    const float* ptr = reinterpret_cast<const float*>(rec->data_.data_.get());
+                    std::copy(ptr, ptr + dim, vec.begin());
+                    training_samples.push_back(std::move(vec));
+                }
+            }
+            
+            // 训练局部 PCA 并插入数据
+            if (!training_samples.empty() && training_samples.size() >= static_cast<size_t>(config.projected_dim)) {
+                tree->rtree_index->trainPCA(training_samples);
+                for(int k=start; k<end; ++k) {
+                    tree->rtree_index->insert(initial_data[points[k].index]->uid_);
                 }
             }
             
@@ -254,6 +299,9 @@ auto HDRForest::erase(uint64_t id) -> bool {
     
     for(auto& tree : forest_) {
         tree->user_ids.erase(id);
+        if (tree->rtree_index) {
+            tree->rtree_index->erase(id);
+        }
     }
     
     auto it = std::remove(insert_buffer_.begin(), insert_buffer_.end(), id);
@@ -268,34 +316,47 @@ auto HDRForest::query(const VectorRecord &record, int k) -> std::vector<uint64_t
     
     if (!storage_manager_) return result;
     
-    std::vector<std::pair<float, uint64_t>> candidates;
+    // 使用 R-Tree 进行查询
+    // 收集所有候选
+    std::vector<uint64_t> all_candidates;
     
+    // 遍历所有树 (后续可优化为只遍历相关树)
+    for(const auto& tree : forest_) {
+        if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
+            // 使用 HDRTree 的 query (它内部会做 PCA 投影和 R-Tree 搜索)
+            // 注意：HDRTree::query 返回的是 top-k 结果，不是候选集
+            // 但我们可以利用它来获取该局部树认为最好的 k 个
+            auto local_results = tree->rtree_index->query(record, k);
+            all_candidates.insert(all_candidates.end(), local_results.begin(), local_results.end());
+        } else {
+            // 回退到全量扫描该树
+            all_candidates.insert(all_candidates.end(), tree->user_ids.begin(), tree->user_ids.end());
+        }
+    }
+    all_candidates.insert(all_candidates.end(), insert_buffer_.begin(), insert_buffer_.end());
+    
+    // 去重
+    std::sort(all_candidates.begin(), all_candidates.end());
+    all_candidates.erase(std::unique(all_candidates.begin(), all_candidates.end()), all_candidates.end());
+    
+    // 全局验证和排序
+    std::vector<std::pair<float, uint64_t>> final_candidates;
     const float* query_data = reinterpret_cast<const float*>(record.data_.data_.get());
     int dim = record.data_.dim_;
     
-    // 收集所有 ID (目前仍遍历所有树，后续可优化剪枝)
-    std::vector<uint64_t> all_ids;
-    for(const auto& tree : forest_) {
-        all_ids.insert(all_ids.end(), tree->user_ids.begin(), tree->user_ids.end());
-    }
-    all_ids.insert(all_ids.end(), insert_buffer_.begin(), insert_buffer_.end());
-    
-    std::sort(all_ids.begin(), all_ids.end());
-    all_ids.erase(std::unique(all_ids.begin(), all_ids.end()), all_ids.end());
-    
-    for(auto uid : all_ids) {
+    for(auto uid : all_candidates) {
         auto rec_ptr = storage_manager_->getVectorByUid(uid);
         if(rec_ptr) {
             const float* vec_data = reinterpret_cast<const float*>(rec_ptr->data_.data_.get());
             float dist = compute_l2_dist(query_data, vec_data, dim);
-            candidates.push_back({dist, uid});
+            final_candidates.push_back({dist, uid});
         }
     }
     
-    std::sort(candidates.begin(), candidates.end());
+    std::sort(final_candidates.begin(), final_candidates.end());
     
-    for(int i=0; i<k && i<static_cast<int>(candidates.size()); ++i) {
-        result.push_back(candidates[i].second);
+    for(int i=0; i<k && i<static_cast<int>(final_candidates.size()); ++i) {
+        result.push_back(final_candidates[i].second);
     }
     
     return result;
@@ -306,8 +367,14 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
     std::vector<uint64_t> results;
     
     for (const auto& tree : forest_) {
-        for (auto uid : tree->user_ids) {
-            results.push_back(uid);
+        if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
+            auto local_results = tree->rtree_index->query_for_join(record, join_similarity_threshold);
+            results.insert(results.end(), local_results.begin(), local_results.end());
+        } else {
+            // Fallback
+            for (auto uid : tree->user_ids) {
+                results.push_back(uid);
+            }
         }
     }
     

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "index/index.h"
+#include "index/hdr_tree.h"
 #include <vector>
 #include <unordered_map>
 #include <memory>
@@ -40,6 +41,9 @@ struct LocalHDRTree {
     // Users managed by this local tree
     std::set<uint64_t> user_ids;
     
+    // The actual R-Tree structure for this local partition
+    std::shared_ptr<HDRTree> rtree_index;
+
     // Bounds for pruning (distance from cluster center)
     float min_dist = 0.0f;
     float max_dist = 0.0f;
