@@ -114,12 +114,14 @@ void HDRTree::tryAutoTrainPCA() {
 }
 
 auto HDRTree::extractFloatVector(const VectorData& data) -> std::vector<float> {
+  SAGEFLOW_LOG_INFO("HDRTree", "Inside extractFloatVector dim={} type={} ptr={}", data.dim_, (int)data.type_, (void*)data.data_.get());
+  if (!data.data_) { SAGEFLOW_LOG_ERROR("HDRTree", "VectorData data_ is null! dim={}, type={}", data.dim_, static_cast<int>(data.type_)); throw std::runtime_error("VectorData data_ is null"); }
   std::vector<float> result(data.dim_);
 
   switch (data.type_) {
     case DataType::Float32: {
       const auto* ptr = reinterpret_cast<const float*>(data.data_.get());
-      std::copy(ptr, ptr + data.dim_, result.begin());
+      SAGEFLOW_LOG_INFO("HDRTree", "Copying Float32: ptr={}, result_ptr={}, dim={}", (void*)ptr, (void*)result.data(), data.dim_); for (int i = 0; i < data.dim_; ++i) { result[i] = ptr[i]; }
       break;
     }
     case DataType::Float64: {
@@ -148,6 +150,7 @@ auto HDRTree::projectVector(const VectorData& data) const -> std::vector<float> 
     throw std::runtime_error("PCA not trained yet");
   }
 
+  SAGEFLOW_LOG_INFO("HDRTree", "Inside projectVector");
   auto vec = extractFloatVector(data);
   return pca_->transform(vec);
 }
@@ -183,6 +186,7 @@ auto HDRTree::insert(uint64_t uid) -> bool {
   }
 
   // 投影向量
+  SAGEFLOW_LOG_INFO("HDRTree", "Calling projectVector");
   auto projected = projectVector(record->data_);
 
   // 存储映射

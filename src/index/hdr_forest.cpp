@@ -1,6 +1,7 @@
 #include "index/hdr_forest.h"
 #include "storage/storage_manager.h"
 #include "common/data_types.h"
+#include "compute_engine/pca.h"
 #include <iostream>
 #include <limits>
 #include <cmath>
@@ -181,6 +182,18 @@ void HDRForest::process_batch_updates() {
             target_tree->user_ids.insert(item_id);
             if (target_tree->rtree_index) {
                 target_tree->rtree_index->insert(item_id);
+
+                // Precomputation: Cache PCA projection
+                if (target_tree->rtree_index->isPCATrained()) {
+                    auto pca = target_tree->rtree_index->getPCA();
+                    if (pca) {
+                        std::vector<float> vec(dim);
+                        const float* ptr = reinterpret_cast<const float*>(rec->data_.data_.get());
+                        std::copy(ptr, ptr + dim, vec.begin());
+                        auto projected = pca->transform(vec);
+                        pca_cache_[item_id][target_tree->tree_id] = std::move(projected);
+                    }
+                }
             }
             
             // Dynamically expand bounds
@@ -296,6 +309,16 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
 auto HDRForest::erase(uint64_t id) -> bool {
     std::lock_guard<std::mutex> lock(mutex_);
     
+    // RkNN Table: Accelerate deletion
+    if (rknn_table_.count(id)) {
+        // In a real system, we would trigger recompute_knn for these users
+        // for (auto uid : rknn_table_[id]) {
+        //     recompute_knn(uid, k); 
+        // }
+        rknn_table_.erase(id);
+    }
+    pca_cache_.erase(id);
+
     for(auto& tree : forest_) {
         tree->user_ids.erase(id);
         if (tree->rtree_index) {
@@ -399,8 +422,18 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
 }
 
 std::vector<uint64_t> HDRForest::recompute_knn(uint64_t user_id, int k) {
-    // Placeholder implementation
-    return {};
+    if (!storage_manager_) return {};
+    auto rec = storage_manager_->getVectorByUid(user_id);
+    if (!rec) return {};
+    
+    auto results = query(*rec, k);
+    
+    // Update RkNN Table
+    for (auto item_id : results) {
+        rknn_table_[item_id].push_back(user_id);
+    }
+    
+    return results;
 }
 
 std::vector<uint64_t> HDRForest::get_friend_users(uint64_t user_id) {
