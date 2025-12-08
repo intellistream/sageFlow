@@ -101,7 +101,13 @@ public:
 
 private:
   // SPSC 环形缓冲队列容量
-  static constexpr size_t RING_BUFFER_CAPACITY = 1024;
+  // TODO: 根据流速或上游数据量动态调整队列大小
+  // Issue URL: https://github.com/intellistream/sageFlow/issues/81
+  //       可考虑的方案：
+  //       1. 基于背压(backpressure)的动态扩容
+  //       2. 根据上游算子的预估输出量在 buildGraph 时计算合适容量
+  //       3. 使用可增长的队列实现替代固定大小的环形缓冲
+  static constexpr size_t RING_BUFFER_CAPACITY = 8192;
 };
 
 } // namespace sageFlow
