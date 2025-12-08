@@ -75,6 +75,7 @@ set(UNIT_TEST_SPECS
     test_bruteforce_baseline       UnitTest/test_bruteforce_baseline.cpp      300 UNIT
     test_ivf_method                UnitTest/test_ivf_method.cpp               300 UNIT
     test_hdr_tree                  UnitTest/test_hdr_tree.cpp                 300 UNIT
+    test_hdr_rknn                  UnitTest/test_hdr_rknn.cpp                 300 UNIT
     test_clustered_join            UnitTest/test_clustered_join.cpp           300 UNIT
     test_s3j_method                UnitTest/test_s3j_method.cpp               300 UNIT
     test_partitioner               UnitTest/test_partitioner.cpp              120 UNIT

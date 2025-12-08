@@ -11,6 +11,7 @@
 #include <random>
 #include <numeric>
 #include <map>
+#include <shared_mutex>
 
 namespace sageFlow {
 
@@ -88,7 +89,7 @@ std::vector<std::vector<float>> perform_kmeans(
 }
 
 auto HDRForest::insert(uint64_t id) -> bool {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     insert_buffer_.push_back(id);
     
     // 为了测试目的立即处理
@@ -205,13 +206,14 @@ void HDRForest::process_batch_updates() {
             if (min_dist_to_center > target_tree->max_dist) {
                 target_tree->max_dist = min_dist_to_center;
             }
+            recompute_knn(item_id, 20);
         }
     }
     insert_buffer_.clear();
 }
 
 void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& initial_data) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     forest_.clear();
     cluster_centroids_.clear();
     
@@ -312,14 +314,14 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
 }
 
 auto HDRForest::erase(uint64_t id) -> bool {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::unique_lock<std::shared_mutex> lock(mutex_);
     
     // RkNN 表：加速删除
     if (rknn_table_.count(id)) {
-        // 在真实系统中，我们会为这些用户触发 recompute_knn
-        // for (auto uid : rknn_table_[id]) {
-        //     recompute_knn(uid, k); 
-        // }
+        int default_k = 20; // 默认维护的 k 值
+        for (auto uid : rknn_table_[id]) {
+            recompute_knn(uid, default_k); 
+        }
         rknn_table_.erase(id);
     }
     pca_cache_.erase(id);
@@ -338,7 +340,11 @@ auto HDRForest::erase(uint64_t id) -> bool {
 }
 
 auto HDRForest::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::shared_lock<std::shared_mutex> lock(mutex_);
+    return query_internal(record, k);
+}
+
+auto HDRForest::query_internal(const VectorRecord &record, int k) -> std::vector<uint64_t> {
     std::vector<uint64_t> result;
     
     if (!storage_manager_) return result;
@@ -363,8 +369,11 @@ auto HDRForest::query(const VectorRecord &record, int k) -> std::vector<uint64_t
         }
 
         if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
-            // 使用 HDRTree 查询（它执行 PCA 投影和 R-Tree 搜索）
-            auto local_results = tree->rtree_index->query(record, k);
+            std::vector<float> projected;
+            if (pca_cache_.count(record.uid_) && pca_cache_[record.uid_].count(tree->tree_id)) {
+                projected = pca_cache_[record.uid_][tree->tree_id];
+            }
+            auto local_results = tree->rtree_index->query(record, projected, k);
             all_candidates.insert(all_candidates.end(), local_results.begin(), local_results.end());
         } else {
             // 回退到此树的全扫描
@@ -401,12 +410,16 @@ auto HDRForest::query(const VectorRecord &record, int k) -> std::vector<uint64_t
 }
 
 auto HDRForest::query_for_join(const VectorRecord &record, double join_similarity_threshold) -> std::vector<uint64_t> {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::shared_lock<std::shared_mutex> lock(mutex_);
     std::vector<uint64_t> results;
     
     for (const auto& tree : forest_) {
         if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
-            auto local_results = tree->rtree_index->query_for_join(record, join_similarity_threshold);
+            std::vector<float> projected;
+            if (pca_cache_.count(record.uid_) && pca_cache_[record.uid_].count(tree->tree_id)) {
+                projected = pca_cache_[record.uid_][tree->tree_id];
+            }
+            auto local_results = tree->rtree_index->query_for_join(record, projected, join_similarity_threshold);
             results.insert(results.end(), local_results.begin(), local_results.end());
         } else {
             // 回退
@@ -431,7 +444,8 @@ std::vector<uint64_t> HDRForest::recompute_knn(uint64_t user_id, int k) {
     auto rec = storage_manager_->getVectorByUid(user_id);
     if (!rec) return {};
     
-    auto results = query(*rec, k);
+    // 使用内部无锁查询，因为 recompute_knn 通常在持有锁的情况下调用
+    auto results = query_internal(*rec, k);
     
     // 更新 RkNN 表
     for (auto item_id : results) {

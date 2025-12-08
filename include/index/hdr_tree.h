@@ -79,7 +79,9 @@ class HDRTree final : public Index {
   auto insert(uint64_t uid, const std::vector<float>& projected) -> bool;
   auto erase(uint64_t uid) -> bool override;
   auto query(const VectorRecord& record, int k) -> std::vector<uint64_t> override;
+  auto query(const VectorRecord& record, const std::vector<float>& projected, int k) -> std::vector<uint64_t>;
   auto query_for_join(const VectorRecord& record, double threshold) -> std::vector<uint64_t> override;
+  auto query_for_join(const VectorRecord& record, const std::vector<float>& projected, double threshold) -> std::vector<uint64_t>;
 
   [[nodiscard]] auto size() const -> size_t { return uid_to_projected_.size(); }
   [[nodiscard]] auto getConfig() const -> const Config& { return config_; }

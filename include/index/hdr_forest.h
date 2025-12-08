@@ -5,7 +5,7 @@
 #include <vector>
 #include <unordered_map>
 #include <memory>
-#include <mutex>
+#include <shared_mutex>
 #include <set>
 #include <cmath>
 #include <algorithm>
@@ -83,7 +83,7 @@ private:
     std::unordered_map<uint64_t, std::unordered_map<int, std::vector<float>>> pca_cache_;
     std::unordered_map<uint64_t, float> user_dknn_;
     
-    std::mutex mutex_;
+    std::shared_mutex mutex_;
     int n_clusters_;
     int f_sections_;
 
@@ -99,6 +99,9 @@ private:
     // 返回用户的新 kNN
     std::vector<uint64_t> recompute_knn(uint64_t user_id, int k);
     
+    // 内部无锁查询函数
+    std::vector<uint64_t> query_internal(const VectorRecord &record, int k);
+
     // 查找好友用户（同一本地树中的用户）的辅助函数
     std::vector<uint64_t> get_friend_users(uint64_t user_id);
 };

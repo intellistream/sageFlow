@@ -75,7 +75,7 @@ auto HDRTree::RTreeNode::intersects(const std::vector<float>& query, float thres
       min_dist_sq += d * d;
     }
   }
-  return std::sqrt(min_dist_sq) <= threshold;
+  return min_dist_sq <= threshold * threshold;
 }
 
 void HDRTree::RTreeNode::expandMBR(const std::vector<float>& point) {
@@ -555,25 +555,33 @@ auto HDRTree::verifyCandidates(const VectorRecord& query, const std::vector<uint
 }
 
 auto HDRTree::query(const VectorRecord& record, int k) -> std::vector<uint64_t> {
+  return query(record, {}, k);
+}
+
+auto HDRTree::query_for_join(const VectorRecord& record, double threshold)
+    -> std::vector<uint64_t> {
+  return query_for_join(record, {}, threshold);
+}
+
+
+auto HDRTree::query(const VectorRecord& record, const std::vector<float>& projected, int k) -> std::vector<uint64_t> {
   std::shared_lock lock(mutex_);
   if (!pca_training_done_) return {};
 
-  auto projected_query = projectVector(record.data_);
+  std::vector<float> projected_query;
+  if (!projected.empty()) {
+      projected_query = projected;
+  } else {
+      projected_query = projectVector(record.data_);
+  }
   
-  // R-Tree kNN 搜索通常使用优先队列遍历
-  // 这里简化为：先进行大范围 Range Query 获取候选，再排序
-  // 估算搜索半径：假设分布均匀，根据 k 估算
-  // 简单起见，使用一个较大的固定阈值或逐步扩展
-  float search_radius = 10.0f; // 初始半径
-  
+  float search_radius = 10.0f; 
   auto candidates = searchRTree(projected_query, search_radius);
   
-  // 如果候选不足，扩大半径重试 (简化逻辑)
   if (static_cast<int>(candidates.size()) < k) {
       candidates = searchRTree(projected_query, search_radius * 5.0f);
   }
 
-  // 精确计算
   std::vector<std::pair<uint64_t, double>> distances;
   distances.reserve(candidates.size());
 
@@ -581,7 +589,6 @@ auto HDRTree::query(const VectorRecord& record, int k) -> std::vector<uint64_t> 
     auto rec = storage_manager_->getVectorByUid(uid);
     if (!rec) continue;
     float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_);
-    // 转换为距离用于排序 (1-sim)
     distances.emplace_back(uid, 1.0 - sim);
   }
 
@@ -598,16 +605,19 @@ auto HDRTree::query(const VectorRecord& record, int k) -> std::vector<uint64_t> 
   return results;
 }
 
-auto HDRTree::query_for_join(const VectorRecord& record, double threshold)
-    -> std::vector<uint64_t> {
+auto HDRTree::query_for_join(const VectorRecord& record, const std::vector<float>& projected, double threshold) -> std::vector<uint64_t> {
   std::shared_lock lock(mutex_);
   if (!pca_training_done_) return {};
 
-  auto projected_query = projectVector(record.data_);
+  std::vector<float> projected_query;
+  if (!projected.empty()) {
+      projected_query = projected;
+  } else {
+      projected_query = projectVector(record.data_);
+  }
   
-  // 相似度阈值转距离阈值
   float distance_threshold = std::sqrt(2.0F * (1.0F - static_cast<float>(threshold)));
-  float projected_threshold = distance_threshold * config_.distance_bound_ratio;
+  float projected_threshold = distance_threshold; 
 
   auto candidates = searchRTree(projected_query, projected_threshold);
   return verifyCandidates(record, candidates, threshold);
