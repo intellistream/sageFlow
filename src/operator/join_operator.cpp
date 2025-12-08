@@ -128,7 +128,7 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         int nlist = std::max(1, static_cast<int>(4.0 * std::sqrt(static_cast<double>(vector_count))));
         // nprobes 设为 80%，牺牲性能换取高召回率
         // 流式 Join 需要高召回率（>90%），所以使用高 nprobes/nlist 比例
-        int nprobes = std::max(5, nlist * 50 / 100);
+        int nprobes = std::max(3, nlist * 30 / 100);
         
         // IVF 需要使用索引加速，创建索引对
         IVFParameters ivf_params{
@@ -271,6 +271,9 @@ void JoinOperator::open(const RuntimeContext& context) {
       SAGEFLOW_LOG_INFO("JOIN", "Using PartitionedWindowState with parallelism={}", 
                        context.getParallelism());
   }
+  
+  left_state_->setEvictionBufferMultiplier(1.5);
+  right_state_->setEvictionBufferMultiplier(1.5);
   
   // 初始化新架构的 Join 方法（传入 WindowState）
   if (join_method_) {
@@ -651,14 +654,30 @@ auto JoinOperator::updateSideWithState(
         // 重试直到成功或发现更大的值
     }
     
-    // 安全 evict 策略：使用双侧的 max_seen_ts 的最小值
-    // 只有当左右两侧都已经处理过足够新的记录时，才能安全 evict
-    // 这确保了：
-    // 1. 当前侧的记录不会被另一侧的查询需要时删除
-    // 2. 处理乱序数据时不会过早删除
+    // 安全 evict 策略：
+    // - 多线程模式：使用双侧的 max_seen_ts 的最小值，确保乱序安全
+    // - 单线程模式：直接使用当前侧的时间戳，因为没有并发问题
+    // - 如果某一侧还没有记录（INT64_MIN），则使用另一侧的时间戳
     int64_t left_max = max_seen_left_ts_.load(std::memory_order_acquire);
     int64_t right_max = max_seen_right_ts_.load(std::memory_order_acquire);
-    int64_t safe_evict_ts = std::min(left_max, right_max);
+    
+    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    int64_t safe_evict_ts;
+    
+    // 处理初始状态：如果某侧还没有记录，使用另一侧的时间戳
+    if (left_max == kMinTimestamp && right_max == kMinTimestamp) {
+        // 两侧都没有记录，不需要 evict
+        safe_evict_ts = kMinTimestamp;
+    } else if (left_max == kMinTimestamp) {
+        // 左侧没有记录，使用右侧时间戳
+        safe_evict_ts = right_max;
+    } else if (right_max == kMinTimestamp) {
+        // 右侧没有记录，使用左侧时间戳
+        safe_evict_ts = left_max;
+    } else {
+        // 两侧都有记录，使用最小值确保安全
+        safe_evict_ts = std::min(left_max, right_max);
+    }
     {
         MetricsTimer t_window_evict(JoinMetrics::instance().window_insert_ns);
         state->evictExpired(safe_evict_ts, join_func_->getWindowSize(), subtask_index);
@@ -809,36 +828,24 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
     
     if (context.getParallelism() <= 1) {
-        // ====== 单线程：QIQ 策略（无锁） ======
-        std::unordered_set<uint64_t> matched_uids;
+        // ====== 单线程：IQ 策略（无锁，无需第二次查询） ======
+        // 
+        // 在单线程模式下，所有记录是串行处理的：
+        // 1. 当 L1 查询时，对侧窗口包含所有已处理的右流记录
+        // 2. Query2 查到的结果和 Query1 完全相同（因为中间没有其他记录被处理）
+        // 3. 匹配的完整性由"先 Insert 后 Query"保证：
+        //    - L1 的 Query 会搜索右窗口，找到所有已插入的 R*
+        //    - R1 的 Query 会搜索左窗口，找到 L1（因为 L1 已经 Insert 了）
+        // 
+        // 因此单线程下只需 Insert -> Query，无需 QIQ
         
-        // 阶段1：第一次 Query
-        executeJoinWithState(data_for_join.get(), opposite_state, slot, 
-                            subtask_index, local_return_pool);
-        
-        for (const auto& p : local_return_pool) {
-            if (p.second) {
-                matched_uids.insert(p.second->uid_);
-            }
-        }
-        
-        // 阶段2：Insert
+        // 阶段1：Insert 当前记录到对应窗口
         updateSideWithState(
             current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
         
-        // 阶段3：第二次 Query（捕获同时插入的记录）
-        {
-            std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> second_query_results;
-            executeJoinWithState(data_for_join.get(), opposite_state, slot, 
-                                subtask_index, second_query_results);
-            
-            for (auto& p : second_query_results) {
-                if (p.second && matched_uids.find(p.second->uid_) == matched_uids.end()) {
-                    matched_uids.insert(p.second->uid_);
-                    local_return_pool.push_back(std::move(p));
-                }
-            }
-        }
+        // 阶段2：Query 对侧窗口查找匹配
+        executeJoinWithState(data_for_join.get(), opposite_state, slot, 
+                            subtask_index, local_return_pool);
     } else {
         // ====== 高并行度：全局读写锁 + QIQ 策略 ======
         // 结合读写锁和 QIQ，保证高召回率
