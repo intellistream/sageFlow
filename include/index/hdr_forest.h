@@ -81,6 +81,7 @@ private:
     // 映射：Item ID -> (Tree ID -> 投影向量)
     // 注意：论文提到了 "Layer"，但这里我们简化为 Tree 级别或假设本地树只有 1 层
     std::unordered_map<uint64_t, std::unordered_map<int, std::vector<float>>> pca_cache_;
+    std::unordered_map<uint64_t, float> user_dknn_;
     
     std::mutex mutex_;
     int n_clusters_;

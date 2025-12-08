@@ -34,7 +34,7 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
       index = std::make_shared<HDRForest>();
       break;
     case IndexType::HDRTree:
-      index = std::make_shared<HDRTree>(dimension);
+      index = std::make_shared<HDRTree>(dimension, HDRTree::Config());
       break;
     case IndexType::BruteForce:
     default:
@@ -90,7 +90,7 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
       }
       break;
     case IndexType::HDRTree:
-      index = std::make_shared<HDRTree>(dimension);
+      index = std::make_shared<HDRTree>(dimension, HDRTree::Config());
       break;
     case IndexType::BruteForce:
     default:

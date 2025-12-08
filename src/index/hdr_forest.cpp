@@ -180,23 +180,28 @@ void HDRForest::process_batch_updates() {
         
         if (target_tree) {
             target_tree->user_ids.insert(item_id);
-            if (target_tree->rtree_index) {
-                target_tree->rtree_index->insert(item_id);
+            target_tree->is_dirty = true;
 
-                // 预计算：缓存 PCA 投影
-                if (target_tree->rtree_index->isPCATrained()) {
+            if (target_tree->rtree_index) {
+                std::vector<float> projected;
+                if (pca_cache_.count(item_id) && pca_cache_[item_id].count(target_tree->tree_id)) {
+                    projected = pca_cache_[item_id][target_tree->tree_id];
+                }
+
+                target_tree->rtree_index->insert(item_id, projected);
+
+                if (projected.empty() && target_tree->rtree_index->isPCATrained()) {
                     auto pca = target_tree->rtree_index->getPCA();
                     if (pca) {
                         std::vector<float> vec(dim);
                         const float* ptr = reinterpret_cast<const float*>(rec->data_.data_.get());
                         std::copy(ptr, ptr + dim, vec.begin());
-                        auto projected = pca->transform(vec);
-                        pca_cache_[item_id][target_tree->tree_id] = std::move(projected);
+                        auto new_projected = pca->transform(vec);
+                        pca_cache_[item_id][target_tree->tree_id] = std::move(new_projected);
                     }
                 }
             }
             
-            // 动态扩展边界
             if (min_dist_to_center > target_tree->max_dist) {
                 target_tree->max_dist = min_dist_to_center;
             }
@@ -431,6 +436,29 @@ std::vector<uint64_t> HDRForest::recompute_knn(uint64_t user_id, int k) {
     // 更新 RkNN 表
     for (auto item_id : results) {
         rknn_table_[item_id].push_back(user_id);
+    }
+
+    // Update max_dknn
+    if (!results.empty()) {
+        // Calculate distance to k-th neighbor
+        auto kth_id = results.back();
+        auto kth_rec = storage_manager_->getVectorByUid(kth_id);
+        if (kth_rec) {
+            float dist = compute_l2_dist(
+                reinterpret_cast<const float*>(rec->data_.data_.get()),
+                reinterpret_cast<const float*>(kth_rec->data_.data_.get()),
+                rec->data_.dim_
+            );
+            user_dknn_[user_id] = dist;
+            
+            // Update tree max_dknn
+            for(auto& tree : forest_) {
+                if (tree->user_ids.count(user_id)) {
+                    tree->max_dknn = std::max(tree->max_dknn, dist);
+                    break;
+                }
+            }
+        }
     }
     
     return results;

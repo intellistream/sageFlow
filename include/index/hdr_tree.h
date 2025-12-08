@@ -76,6 +76,7 @@ class HDRTree final : public Index {
   [[nodiscard]] auto isPCATrained() const -> bool { return pca_ && pca_->isFitted(); }
 
   auto insert(uint64_t uid) -> bool override;
+  auto insert(uint64_t uid, const std::vector<float>& projected) -> bool;
   auto erase(uint64_t uid) -> bool override;
   auto query(const VectorRecord& record, int k) -> std::vector<uint64_t> override;
   auto query_for_join(const VectorRecord& record, double threshold) -> std::vector<uint64_t> override;

@@ -21,9 +21,9 @@ std::vector<std::unique_ptr<VectorRecord>> HDRTreeMethod::ExecuteEager(
     
     std::vector<std::unique_ptr<VectorRecord>> results;
     
-    // Determine which index to query
-    // If query comes from Left (slot 0), query Right index
-    // If query comes from Right (slot 1), query Left index
+    // 确定要查询的索引
+    // 如果查询来自左侧（slot 0），则查询右侧索引
+    // 如果查询来自右侧（slot 1），则查询左侧索引
     int target_index_id = (query_slot == 0) ? right_index_id_ : left_index_id_;
     
     if (target_index_id == -1) {
@@ -31,12 +31,12 @@ std::vector<std::unique_ptr<VectorRecord>> HDRTreeMethod::ExecuteEager(
         return results;
     }
     
-    // Use ConcurrencyManager to query the HDR Forest index
-    // The index implementation handles pruning and PCA logic
+    // 使用 ConcurrencyManager 查询 HDR Forest 索引
+    // 索引实现处理剪枝和 PCA 逻辑
     auto shared_results = concurrency_manager_->query_for_join(
         target_index_id, query_record, join_similarity_threshold_);
         
-    // Convert shared_ptr to unique_ptr (copy)
+    // 将 shared_ptr 转换为 unique_ptr（复制）
     results.reserve(shared_results.size());
     for (const auto& rec : shared_results) {
         if (rec) {
@@ -47,18 +47,18 @@ std::vector<std::unique_ptr<VectorRecord>> HDRTreeMethod::ExecuteEager(
     return results;
 }
 
-// Register the method
+// 注册方法
 REGISTER_JOIN_METHOD(
     sageFlow::JoinAlgorithm::HDR_TREE,
     (sageFlow::JoinMethodRegistry::MethodInfo{
         "HDRTree",
-        "HDR Forest Baseline with Lazy/Batch Updates and Pruning",
+        "具有延迟/批量更新和剪枝功能的 HDR Forest 基线",
         sageFlow::JoinAlgorithm::HDR_TREE,
-        true,  // supports_eager
-        false, // supports_lazy
-        sageFlow::PartitionStrategy::VECTOR_HASH, // Recommended partition strategy
-        sageFlow::WindowStateType::PARTITIONED,   // Recommended window state
-        "Efficient continuous kNN join over dynamic high-dimensional data"
+        true,  // 支持 eager 模式
+        false, // 支持 lazy 模式
+        sageFlow::PartitionStrategy::VECTOR_HASH, // 推荐的分区策略
+        sageFlow::WindowStateType::PARTITIONED,   // 推荐的窗口状态
+        "动态高维数据上的高效连续 kNN 连接"
     }),
     [](const JoinStrategyConfig& config, 
        std::shared_ptr<ConcurrencyManager> cm, 

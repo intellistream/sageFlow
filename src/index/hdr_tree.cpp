@@ -172,13 +172,18 @@ auto HDRTree::projectVector(const VectorData& data) const -> std::vector<float> 
 }
 
 auto HDRTree::insert(uint64_t uid) -> bool {
+  return insert(uid, {});
+}
+
+auto HDRTree::insert(uint64_t uid, const std::vector<float>& precomputed_projection) -> bool {
   if (!storage_manager_) return false;
-  auto record = storage_manager_->getVectorByUid(uid);
-  if (!record) return false;
 
   std::unique_lock lock(mutex_);
 
   if (!pca_training_done_) {
+    auto record = storage_manager_->getVectorByUid(uid);
+    if (!record) return false;
+
     auto vec = extractFloatVector(record->data_);
     if (static_cast<int>(sample_buffer_.size()) < config_.pca_sample_size) {
       sample_buffer_.push_back(vec);
@@ -187,7 +192,15 @@ auto HDRTree::insert(uint64_t uid) -> bool {
     if (!pca_training_done_) return true; // 暂存缓冲区，等待训练
   }
 
-  auto projected = projectVector(record->data_);
+  std::vector<float> projected;
+  if (!precomputed_projection.empty()) {
+    projected = precomputed_projection;
+  } else {
+    auto record = storage_manager_->getVectorByUid(uid);
+    if (!record) return false;
+    projected = projectVector(record->data_);
+  }
+
   uid_to_projected_[uid] = projected;
   insertToRTree(uid, projected);
   return true;
@@ -287,6 +300,29 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
   }
 
   std::vector<uint64_t> group1, group2;
+
+  // 优化：如果所有点重合 (max_wasted_area ~ 0)，强制平分
+  if (max_wasted_area <= std::numeric_limits<float>::epsilon()) {
+      size_t mid = entries.size() / 2;
+      for(size_t i=0; i<entries.size(); ++i) {
+          if (i < mid) group1.push_back(entries[i]);
+          else group2.push_back(entries[i]);
+      }
+      
+      if (!group1.empty()) {
+          node->mbr_low = uid_to_projected_[group1[0]];
+          node->mbr_high = node->mbr_low;
+      }
+      if (!group2.empty()) {
+          new_node->mbr_low = uid_to_projected_[group2[0]];
+          new_node->mbr_high = new_node->mbr_low;
+      }
+      
+      node->entries = std::move(group1);
+      new_node->entries = std::move(group2);
+      return new_node;
+  }
+
   group1.push_back(entries[seed1]);
   group2.push_back(entries[seed2]);
 
@@ -303,7 +339,6 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
 
   // 2. Distribute remaining entries
   while (assigned_count < static_cast<int>(entries.size())) {
-    // 如果剩余条目必须全部分配给某一组以满足最小条目数
     if (config_.rtree_min_entries - static_cast<int>(group1.size()) == static_cast<int>(entries.size()) - assigned_count) {
       for (size_t i = 0; i < entries.size(); ++i) {
         if (!assigned[i]) group1.push_back(entries[i]);
@@ -317,33 +352,26 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
       break;
     }
 
-    // 选择下一个条目
     int best_idx = -1;
-    
-    // 寻找对两个组偏好差异最大的条目
     for (size_t i = 0; i < entries.size(); ++i) {
       if (assigned[i]) continue;
       best_idx = i;
-      break; // 简化：直接取下一个未分配的
+      break; 
     }
 
     if (best_idx != -1) {
       const auto& pt = uid_to_projected_[entries[best_idx]];
-      
-      // 极简实现：根据到两个种子点的距离决定
       float d1 = euclideanDistance(pt, uid_to_projected_[entries[seed1]]);
       float d2 = euclideanDistance(pt, uid_to_projected_[entries[seed2]]);
       
       if (d1 < d2) {
         group1.push_back(entries[best_idx]);
-        // 更新 MBR1
         for(size_t k=0; k<mbr1_low.size(); ++k) {
             mbr1_low[k] = std::min(mbr1_low[k], pt[k]);
             mbr1_high[k] = std::max(mbr1_high[k], pt[k]);
         }
       } else {
         group2.push_back(entries[best_idx]);
-        // 更新 MBR2
         for(size_t k=0; k<mbr2_low.size(); ++k) {
             mbr2_low[k] = std::min(mbr2_low[k], pt[k]);
             mbr2_high[k] = std::max(mbr2_high[k], pt[k]);
@@ -354,7 +382,6 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
     }
   }
 
-  // 更新节点
   node->entries = std::move(group1);
   node->mbr_low = mbr1_low;
   node->mbr_high = mbr1_high;
@@ -365,8 +392,6 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
 
   return new_node;
 }
-
-// 内部节点的二次分裂算法 (Quadratic Split)
 std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitInternalNode(RTreeNode* node) {
   auto new_node = std::make_unique<RTreeNode>(config_.projected_dim);
   new_node->is_leaf = false;
