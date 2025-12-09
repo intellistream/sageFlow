@@ -115,8 +115,9 @@ void HDRForest::process_batch_updates() {
              }
              
              HDRTree::Config config;
-             config.projected_dim = std::min(dim, 16); // 降维至 16 或更小
-             config.pca_sample_size = 100; // 用于测试的小样本
+             config.projected_dim = std::min(dim, 24); // Revert to 16
+             config.pca_sample_size = 2000;
+             config.distance_bound_ratio = 4.0f;
              tree->rtree_index = std::make_shared<HDRTree>(dim, config);
              tree->rtree_index->storage_manager_ = storage_manager_;
          }
@@ -184,23 +185,8 @@ void HDRForest::process_batch_updates() {
             target_tree->is_dirty = true;
 
             if (target_tree->rtree_index) {
-                std::vector<float> projected;
-                if (pca_cache_.count(item_id) && pca_cache_[item_id].count(target_tree->tree_id)) {
-                    projected = pca_cache_[item_id][target_tree->tree_id];
-                }
-
-                target_tree->rtree_index->insert(item_id, projected);
-
-                if (projected.empty() && target_tree->rtree_index->isPCATrained()) {
-                    auto pca = target_tree->rtree_index->getPCA();
-                    if (pca) {
-                        std::vector<float> vec(dim);
-                        const float* ptr = reinterpret_cast<const float*>(rec->data_.data_.get());
-                        std::copy(ptr, ptr + dim, vec.begin());
-                        auto new_projected = pca->transform(vec);
-                        pca_cache_[item_id][target_tree->tree_id] = std::move(new_projected);
-                    }
-                }
+                // 优化：移除 pca_cache_，直接插入
+                target_tree->rtree_index->insert(item_id);
             }
             
             if (min_dist_to_center > target_tree->max_dist) {
@@ -266,8 +252,9 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
             
             // 初始化 HDRTree
             HDRTree::Config config;
-            config.projected_dim = std::min(dim, 16);
-            config.pca_sample_size = std::max(10, section_size); // 确保有足够的样本
+            config.projected_dim = std::min(dim, 24);
+            config.pca_sample_size = 2000;
+            config.distance_bound_ratio = 4.0f;
             tree->rtree_index = std::make_shared<HDRTree>(dim, config);
             tree->rtree_index->storage_manager_ = storage_manager_;
             
@@ -317,14 +304,19 @@ auto HDRForest::erase(uint64_t id) -> bool {
     std::unique_lock<std::shared_mutex> lock(mutex_);
     
     // RkNN 表：加速删除
-    if (rknn_table_.count(id)) {
+    // 优化：使用 vector
+    if (id < rknn_table_.size() && !rknn_table_[id].empty()) {
         int default_k = 20; // 默认维护的 k 值
         for (auto uid : rknn_table_[id]) {
             recompute_knn(uid, default_k); 
         }
-        rknn_table_.erase(id);
+        rknn_table_[id].clear();
     }
-    pca_cache_.erase(id);
+    
+    // 清理 user_dknn_
+    if (id < user_dknn_.size()) {
+        user_dknn_[id] = 0.0f;
+    }
 
     for(auto& tree : forest_) {
         tree->user_ids.erase(id);
@@ -369,10 +361,8 @@ auto HDRForest::query_internal(const VectorRecord &record, int k) -> std::vector
         }
 
         if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
-            std::vector<float> projected;
-            if (pca_cache_.count(record.uid_) && pca_cache_[record.uid_].count(tree->tree_id)) {
-                projected = pca_cache_[record.uid_][tree->tree_id];
-            }
+            // 优化：即时投影，不使用缓存
+            std::vector<float> projected = tree->rtree_index->projectVector(record.data_);
             auto local_results = tree->rtree_index->query(record, projected, k);
             all_candidates.insert(all_candidates.end(), local_results.begin(), local_results.end());
         } else {
@@ -414,11 +404,27 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
     std::vector<uint64_t> results;
     
     for (const auto& tree : forest_) {
-        if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
-            std::vector<float> projected;
-            if (pca_cache_.count(record.uid_) && pca_cache_[record.uid_].count(tree->tree_id)) {
-                projected = pca_cache_[record.uid_][tree->tree_id];
+        // 剪枝逻辑 (Disabled)
+        /*
+        // 剪枝逻辑
+        if (!tree->center.empty()) {
+            const float* query_data = reinterpret_cast<const float*>(record.data_.data_.get());
+            float dist_to_center = compute_l2_dist(query_data, tree->center.data(), record.data_.dim_);
+            
+            // Join 阈值转换为距离阈值 r
+            // sim = 1 - dist^2 / 2  => dist = sqrt(2 * (1 - sim))
+            float r = std::sqrt(2.0f * (1.0f - static_cast<float>(join_similarity_threshold)));
+            
+            if (dist_to_center > tree->max_dist + r || 
+                dist_to_center < tree->min_dist - r) {
+                continue; // 已剪枝！
             }
+        }
+        */
+
+        if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
+            // 优化：即时投影
+            std::vector<float> projected = tree->rtree_index->projectVector(record.data_);
             auto local_results = tree->rtree_index->query_for_join(record, projected, join_similarity_threshold);
             results.insert(results.end(), local_results.begin(), local_results.end());
         } else {
@@ -447,8 +453,11 @@ std::vector<uint64_t> HDRForest::recompute_knn(uint64_t user_id, int k) {
     // 使用内部无锁查询，因为 recompute_knn 通常在持有锁的情况下调用
     auto results = query_internal(*rec, k);
     
-    // 更新 RkNN 表
+    // 更新 RkNN 表 (Vector)
     for (auto item_id : results) {
+        if (item_id >= rknn_table_.size()) {
+            rknn_table_.resize(item_id + 1000); // 预分配
+        }
         rknn_table_[item_id].push_back(user_id);
     }
 
@@ -463,6 +472,11 @@ std::vector<uint64_t> HDRForest::recompute_knn(uint64_t user_id, int k) {
                 reinterpret_cast<const float*>(kth_rec->data_.data_.get()),
                 rec->data_.dim_
             );
+            
+            // Update user_dknn_ (Vector)
+            if (user_id >= user_dknn_.size()) {
+                user_dknn_.resize(user_id + 1000, 0.0f);
+            }
             user_dknn_[user_id] = dist;
             
             // Update tree max_dknn

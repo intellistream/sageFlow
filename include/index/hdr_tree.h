@@ -86,6 +86,7 @@ class HDRTree final : public Index {
   [[nodiscard]] auto size() const -> size_t { return uid_to_projected_.size(); }
   [[nodiscard]] auto getConfig() const -> const Config& { return config_; }
   [[nodiscard]] auto getPCA() const -> const PCA* { return pca_.get(); }
+  [[nodiscard]] auto projectVector(const VectorData& data) const -> std::vector<float>;
 
  private:
   Config config_;
@@ -93,6 +94,7 @@ class HDRTree final : public Index {
   std::unique_ptr<RTreeNode> rtree_root_;
   std::unordered_map<uint64_t, std::vector<float>> uid_to_projected_;
   std::vector<std::vector<float>> sample_buffer_;
+  std::vector<uint64_t> sample_uids_;
   bool pca_training_done_ = false;
   mutable std::shared_mutex mutex_;
 
@@ -110,7 +112,6 @@ class HDRTree final : public Index {
   auto chooseLeaf(RTreeNode* node, const std::vector<float>& point) -> RTreeNode*;
 
   // 辅助函数
-  [[nodiscard]] auto projectVector(const VectorData& data) const -> std::vector<float>;
   [[nodiscard]] auto searchRTree(const std::vector<float>& projected_query, float threshold) const -> std::vector<uint64_t>;
   void searchRTreeNode(const RTreeNode* node, const std::vector<float>& query, float threshold, std::vector<uint64_t>& candidates) const;
   [[nodiscard]] auto verifyCandidates(const VectorRecord& query, const std::vector<uint64_t>& candidates, double threshold) const -> std::vector<uint64_t>;

@@ -187,6 +187,7 @@ auto HDRTree::insert(uint64_t uid, const std::vector<float>& precomputed_project
     auto vec = extractFloatVector(record->data_);
     if (static_cast<int>(sample_buffer_.size()) < config_.pca_sample_size) {
       sample_buffer_.push_back(vec);
+      sample_uids_.push_back(uid);
     }
     tryAutoTrainPCA();
     if (!pca_training_done_) return true; // 暂存缓冲区，等待训练
@@ -525,9 +526,16 @@ void HDRTree::searchRTreeNode(const RTreeNode* node, const std::vector<float>& q
 
   if (node->is_leaf) {
     for (auto uid : node->entries) {
-      // 进一步检查点到点的投影距离（可选，因为 MBR 已经过滤了）
-      // 这里直接加入候选
-      candidates.push_back(uid);
+      // 进一步检查点到点的投影距离
+      auto it = uid_to_projected_.find(uid);
+      if (it != uid_to_projected_.end()) {
+          float dist = euclideanDistance(query, it->second);
+          if (dist <= threshold) {
+              candidates.push_back(uid);
+          }
+      } else {
+          candidates.push_back(uid);
+      }
     }
   } else {
     for (const auto& child : node->children) {
@@ -617,7 +625,7 @@ auto HDRTree::query_for_join(const VectorRecord& record, const std::vector<float
   }
   
   float distance_threshold = std::sqrt(2.0F * (1.0F - static_cast<float>(threshold)));
-  float projected_threshold = distance_threshold; 
+  float projected_threshold = distance_threshold * config_.distance_bound_ratio; 
 
   auto candidates = searchRTree(projected_query, projected_threshold);
   return verifyCandidates(record, candidates, threshold);

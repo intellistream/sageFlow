@@ -169,9 +169,10 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         SAGEFLOW_LOG_INFO("JOIN", "BruteForce mode enabled (WindowState-based)");
         
     
-    } else if (algo == "hdrtree" || algo == "hdr_tree") {
-        // HDRTree 模式
-        use_shared_state_ = false; // HDRTree 推荐使用 PartitionedWindowState
+        } else if (algo == "hdrtree" || algo == "hdr_tree" || algo == "hdrforest") {
+        index_kind_ = InternalIndexKind::HDR_TREE;
+        // HDRTree 推荐使用 PartitionedWindowState
+        use_shared_state_ = false; 
         
         HDRForestParameters hdr_params;
         hdr_params.n_clusters = 10;
@@ -182,8 +183,8 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
             
             HDRTreeMethod::Config hdr_config;
             hdr_config.similarity_threshold = join_similarity_threshold_;
-            hdr_config.projected_dim = 8;
-            hdr_config.pca_sample_size = 1000;
+            hdr_config.projected_dim = 16;
+            hdr_config.pca_sample_size = 100;
             
             join_method_ = std::make_unique<HDRTreeMethod>(
                 left_index_id_, right_index_id_, 
@@ -191,12 +192,13 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
                 concurrency_manager_, 
                 hdr_config);
                 
-            SAGEFLOW_LOG_INFO("JOIN", "HDRTree mode enabled");
+            SAGEFLOW_LOG_INFO("JOIN", "HDRTree/Forest mode enabled");
         } else {
             use_index_ = false;
             join_method_ = std::make_unique<BruteForceBaseline>(join_similarity_threshold_);
             SAGEFLOW_LOG_WARN("JOIN", "Failed to create HDRTree index pair, falling back to BruteForce");
         }
+
 } else if (algo == "hnsw") {
         // HNSW 模式
         // HNSW 使用共享索引，需要 SharedWindowState 以确保所有并行实例看到完整窗口

@@ -75,13 +75,9 @@ private:
     std::vector<std::vector<float>> cluster_centroids_;
     
     // 用于删除的 RkNN 表：Item ID -> User IDs 列表
-    std::unordered_map<uint64_t, std::vector<uint64_t>> rknn_table_; 
+    std::vector<std::vector<uint64_t>> rknn_table_; 
     
-    // PCA 预计算缓存
-    // 映射：Item ID -> (Tree ID -> 投影向量)
-    // 注意：论文提到了 "Layer"，但这里我们简化为 Tree 级别或假设本地树只有 1 层
-    std::unordered_map<uint64_t, std::unordered_map<int, std::vector<float>>> pca_cache_;
-    std::unordered_map<uint64_t, float> user_dknn_;
+    std::vector<float> user_dknn_;
     
     std::shared_mutex mutex_;
     int n_clusters_;

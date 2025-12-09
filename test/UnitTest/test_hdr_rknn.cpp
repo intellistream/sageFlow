@@ -24,15 +24,18 @@ protected:
     }
 
     std::unique_ptr<VectorRecord> createRecord(uint64_t uid, const std::vector<float>& values) {
-        float* data_ptr = new float[dimension_];
+        char* raw_ptr = new char[dimension_ * sizeof(float)];
+        float* data_ptr = reinterpret_cast<float*>(raw_ptr);
         std::copy(values.begin(), values.end(), data_ptr);
         
+        std::unique_ptr<char[]> ptr(raw_ptr);
+
         return std::make_unique<VectorRecord>(
             uid,
             0, // timestamp
             dimension_,
             DataType::Float32,
-            reinterpret_cast<char*>(data_ptr)
+            std::move(ptr)
         );
     }
 
