@@ -29,8 +29,8 @@ class HDRTree final : public Index {
     int pca_sample_size;           ///< PCA 训练样本数
     float distance_bound_ratio;    ///< 距离上界比例因子
 
-    Config() : projected_dim(16), rtree_min_entries(4), rtree_max_entries(16),
-               pca_sample_size(10000), distance_bound_ratio(1.2f) {}
+    Config() : projected_dim(64), rtree_min_entries(4), rtree_max_entries(16),
+               pca_sample_size(500), distance_bound_ratio(0.9f) {}
   };
 
   /**
@@ -46,13 +46,13 @@ class HDRTree final : public Index {
     explicit RTreeNode(int dim);
 
     // 计算 MBR 面积（体积）
-    [[nodiscard]] auto area() const -> float;
+    [[nodiscard]] auto area() const -> double;
 
     // 计算包含新点所需的面积增量
-    [[nodiscard]] auto enlargement(const std::vector<float>& point) const -> float;
+    [[nodiscard]] auto enlargement(const std::vector<float>& point) const -> double;
 
     // 计算包含另一个 MBR 所需的面积增量
-    [[nodiscard]] auto enlargement(const RTreeNode& other) const -> float;
+    [[nodiscard]] auto enlargement(const RTreeNode& other) const -> double;
 
     // 检查相交
     [[nodiscard]] auto intersects(const std::vector<float>& query, float threshold) const -> bool;

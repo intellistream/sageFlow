@@ -35,7 +35,7 @@ protected:
             0, // timestamp
             dimension_,
             DataType::Float32,
-            std::move(ptr)
+            ptr.release()
         );
     }
 

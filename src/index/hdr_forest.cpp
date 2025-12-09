@@ -116,7 +116,7 @@ void HDRForest::process_batch_updates() {
              
              HDRTree::Config config;
              config.projected_dim = std::min(dim, 24); // Revert to 16
-             config.pca_sample_size = 2000;
+             config.pca_sample_size = std::max(50, dim * 5);
              config.distance_bound_ratio = 4.0f;
              tree->rtree_index = std::make_shared<HDRTree>(dim, config);
              tree->rtree_index->storage_manager_ = storage_manager_;
@@ -253,7 +253,7 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
             // 初始化 HDRTree
             HDRTree::Config config;
             config.projected_dim = std::min(dim, 24);
-            config.pca_sample_size = 2000;
+            config.pca_sample_size = std::max(50, dim * 5);
             config.distance_bound_ratio = 4.0f;
             tree->rtree_index = std::make_shared<HDRTree>(dim, config);
             tree->rtree_index->storage_manager_ = storage_manager_;
@@ -430,13 +430,33 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
         } else {
             // 回退
             for (auto uid : tree->user_ids) {
-                results.push_back(uid);
+                if (storage_manager_ && storage_manager_->engine_) {
+                    auto rec = storage_manager_->getVectorByUid(uid);
+                    if (rec) {
+                        float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_);
+                        if (sim >= join_similarity_threshold) {
+                            results.push_back(uid);
+                        }
+                    }
+                } else {
+                    results.push_back(uid);
+                }
             }
         }
     }
     
     for(auto uid : insert_buffer_) {
-        results.push_back(uid);
+        if (storage_manager_ && storage_manager_->engine_) {
+            auto rec = storage_manager_->getVectorByUid(uid);
+            if (rec) {
+                float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_);
+                if (sim >= join_similarity_threshold) {
+                    results.push_back(uid);
+                }
+            }
+        } else {
+            results.push_back(uid);
+        }
     }
     
     std::sort(results.begin(), results.end());

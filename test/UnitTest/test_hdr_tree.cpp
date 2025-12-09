@@ -42,7 +42,7 @@ protected:
             0, // timestamp
             dimension_,
             DataType::Float32,
-            std::move(ptr)
+            ptr.release()
         );
     }
 
@@ -164,7 +164,7 @@ TEST_F(HDRForestTest, BuildForestAndRouting) {
         std::unique_ptr<char[]> ptr(raw_ptr);
 
         auto rec = std::make_shared<VectorRecord>(
-            (uint64_t)i, 0, dimension_, DataType::Float32, std::move(ptr)
+            (uint64_t)i, 0, dimension_, DataType::Float32, ptr.release()
         );
         records.push_back(rec);
     }
@@ -213,7 +213,7 @@ TEST_F(HDRForestTest, IntegrationWithLocalHDRTree) {
         std::unique_ptr<char[]> ptr(raw_ptr);
 
         auto rec = std::make_shared<VectorRecord>(
-            (uint64_t)i, 0, dimension_, DataType::Float32, std::move(ptr)
+            (uint64_t)i, 0, dimension_, DataType::Float32, ptr.release()
         );
         records.push_back(rec);
     }
@@ -246,7 +246,7 @@ TEST_F(HDRForestTest, PruningLogic) {
         std::unique_ptr<char[]> ptr(raw_ptr);
 
         auto rec = std::make_shared<VectorRecord>(
-            (uint64_t)i, 0, dimension_, DataType::Float32, std::move(ptr)
+            (uint64_t)i, 0, dimension_, DataType::Float32, ptr.release()
         );
         records.push_back(rec);
     }

@@ -6,6 +6,7 @@
 #include <queue>
 #include <stdexcept>
 #include <numeric>
+#include <iostream>
 
 #include "utils/logger.h"
 
@@ -20,44 +21,44 @@ HDRTree::RTreeNode::RTreeNode(int dim)
       mbr_high(dim, std::numeric_limits<float>::lowest()),
       is_leaf(true) {}
 
-auto HDRTree::RTreeNode::area() const -> float {
-  float area = 1.0F;
+auto HDRTree::RTreeNode::area() const -> double {
+  double area = 1.0;
   for (size_t i = 0; i < mbr_low.size(); ++i) {
-    float width = mbr_high[i] - mbr_low[i];
+    double width = static_cast<double>(mbr_high[i]) - static_cast<double>(mbr_low[i]);
     // 防止宽度为0导致面积为0，影响计算
-    if (width < 0) return 0.0F; 
+    if (width < 0) return 0.0; 
     area *= width;
   }
   return area;
 }
 
-auto HDRTree::RTreeNode::enlargement(const std::vector<float>& point) const -> float {
-  float new_area = 1.0F;
-  float current_area = 1.0F;
+auto HDRTree::RTreeNode::enlargement(const std::vector<float>& point) const -> double {
+  double new_area = 1.0;
+  double current_area = 1.0;
   
   for (size_t i = 0; i < mbr_low.size(); ++i) {
-    float width = mbr_high[i] - mbr_low[i];
+    double width = static_cast<double>(mbr_high[i]) - static_cast<double>(mbr_low[i]);
     if (width < 0) width = 0;
     current_area *= width;
 
-    float new_low = std::min(mbr_low[i], point[i]);
-    float new_high = std::max(mbr_high[i], point[i]);
+    double new_low = std::min(static_cast<double>(mbr_low[i]), static_cast<double>(point[i]));
+    double new_high = std::max(static_cast<double>(mbr_high[i]), static_cast<double>(point[i]));
     new_area *= (new_high - new_low);
   }
   return new_area - current_area;
 }
 
-auto HDRTree::RTreeNode::enlargement(const RTreeNode& other) const -> float {
-  float new_area = 1.0F;
-  float current_area = 1.0F;
+auto HDRTree::RTreeNode::enlargement(const RTreeNode& other) const -> double {
+  double new_area = 1.0;
+  double current_area = 1.0;
 
   for (size_t i = 0; i < mbr_low.size(); ++i) {
-    float width = mbr_high[i] - mbr_low[i];
+    double width = static_cast<double>(mbr_high[i]) - static_cast<double>(mbr_low[i]);
     if (width < 0) width = 0;
     current_area *= width;
 
-    float new_low = std::min(mbr_low[i], other.mbr_low[i]);
-    float new_high = std::max(mbr_high[i], other.mbr_high[i]);
+    double new_low = std::min(static_cast<double>(mbr_low[i]), static_cast<double>(other.mbr_low[i]));
+    double new_high = std::max(static_cast<double>(mbr_high[i]), static_cast<double>(other.mbr_high[i]));
     new_area *= (new_high - new_low);
   }
   return new_area - current_area;
@@ -134,8 +135,19 @@ void HDRTree::tryAutoTrainPCA() {
     pca_->fit(sample_buffer_);
     pca_training_done_ = true;
     rtree_root_ = std::make_unique<RTreeNode>(config_.projected_dim);
+    
+    // FIX: Insert buffered samples into RTree and map
+    for (size_t i = 0; i < sample_buffer_.size(); ++i) {
+        auto projected = pca_->transform(sample_buffer_[i]);
+        uint64_t uid = sample_uids_[i];
+        uid_to_projected_[uid] = projected;
+        insertToRTree(uid, projected);
+    }
+
     sample_buffer_.clear();
     sample_buffer_.shrink_to_fit();
+    sample_uids_.clear();
+    sample_uids_.shrink_to_fit();
   }
 }
 
@@ -166,6 +178,7 @@ auto HDRTree::extractFloatVector(const VectorData& data) -> std::vector<float> {
 }
 
 auto HDRTree::projectVector(const VectorData& data) const -> std::vector<float> {
+  // std::cerr << "[HDRTree::projectVector] Start" << std::endl;
   if (!pca_ || !pca_->isFitted()) throw std::runtime_error("PCA not trained yet");
   auto vec = extractFloatVector(data);
   return pca_->transform(vec);
@@ -190,6 +203,7 @@ auto HDRTree::insert(uint64_t uid, const std::vector<float>& precomputed_project
       sample_uids_.push_back(uid);
     }
     tryAutoTrainPCA();
+    if (pca_training_done_) std::cerr << "[HDRTree::insert] PCA trained." << std::endl;
     if (!pca_training_done_) return true; // 暂存缓冲区，等待训练
   }
 
@@ -203,6 +217,7 @@ auto HDRTree::insert(uint64_t uid, const std::vector<float>& precomputed_project
   }
 
   uid_to_projected_[uid] = projected;
+  // std::cerr << "[HDRTree::insert] Inserting to RTree..." << std::endl;
   insertToRTree(uid, projected);
   return true;
 }
@@ -226,9 +241,12 @@ void HDRTree::insertToRTree(uint64_t uid, const std::vector<float>& projected) {
   }
 }
 
-std::unique_ptr<HDRTree::RTreeNode> HDRTree::insertRecursive(RTreeNode* node, uint64_t uid, const std::vector<float>& point) {
-  // 1. 更新当前节点 MBR
-  node->expandMBR(point);
+std::unique_ptr<HDRTree::RTreeNode> HDRTree::insertRecursive(RTreeNode* node, uint64_t uid, const std::vector<float>& point)
+ {                                                                                                                            if (!node) {
+      std::cerr << "FATAL: insertRecursive called with null node!" << std::endl;
+      return nullptr;
+  }
+  // std::cerr << "[HDRTree::insertRecursive] node=" << node << " is_leaf=" << node->is_leaf << " entries=" << node->entries.size() << " children=" << node->children.size() << std::endl;                                                                node->expandMBR(point);
 
   // 2. 如果是叶子节点，直接插入
   if (node->is_leaf) {
@@ -241,6 +259,16 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::insertRecursive(RTreeNode* node, ui
 
   // 3. 如果是内部节点，选择最佳子节点下探
   RTreeNode* best_child = chooseLeaf(node, point);
+  if (!best_child) {
+      std::cerr << "FATAL: chooseLeaf returned null! node=" << node << " children=" << node->children.size() << std::endl;
+      // Fallback: pick first child if available
+      if (!node->children.empty()) {
+          best_child = node->children[0].get();
+      } else {
+          return nullptr; // Should not happen for internal node
+      }
+  }
+  
   auto new_child = insertRecursive(best_child, uid, point);
 
   // 4. 如果子节点分裂，将新节点加入当前节点
@@ -256,29 +284,47 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::insertRecursive(RTreeNode* node, ui
 
 auto HDRTree::chooseLeaf(RTreeNode* node, const std::vector<float>& point) -> RTreeNode* {
   if (node->is_leaf) return node;
+  if (node->children.empty()) return nullptr;
 
-  float min_enlargement = std::numeric_limits<float>::max();
-  float min_area = std::numeric_limits<float>::max();
+  double min_enlargement = std::numeric_limits<double>::max();
+  double min_area = std::numeric_limits<double>::max();
   RTreeNode* best_child = nullptr;
 
-  for (const auto& child : node->children) {
-    float enlargement = child->enlargement(point);
-    float area = child->area();
+  for (size_t i = 0; i < node->children.size(); ++i) {
+    const auto& child = node->children[i];
+    if (!child) {
+        std::cerr << "FATAL: Null child in chooseLeaf! index=" << i << std::endl;
+        continue;
+    }
+    double enlargement = child->enlargement(point);
+    double area = child->area();
 
-    if (enlargement < min_enlargement) {
+    // Handle Inf/NaN
+    if (std::isinf(enlargement) || std::isnan(enlargement)) enlargement = std::numeric_limits<double>::max();
+    if (std::isinf(area) || std::isnan(area)) area = std::numeric_limits<double>::max();
+
+    if (!best_child || enlargement < min_enlargement) {
       min_enlargement = enlargement;
       min_area = area;
       best_child = child.get();
-    } else if (std::abs(enlargement - min_enlargement) < 1e-6 && area < min_area) {
+    } else if (std::abs(enlargement - min_enlargement) < 1e-9 && area < min_area) {
       min_area = area;
       best_child = child.get();
     }
   }
+  
+  // Fallback: ensure we pick something if logic failed (e.g. all were max)
+  if (!best_child && !node->children.empty()) {
+      // std::cerr << "DEBUG: chooseLeaf using fallback." << std::endl;
+      best_child = node->children[0].get();
+  }
+  
   return best_child;
 }
 
 // 叶子节点的二次分裂算法 (Quadratic Split)
 std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
+  // std::cerr << "[HDRTree::splitLeafNode] Start" << std::endl;
   auto new_node = std::make_unique<RTreeNode>(config_.projected_dim);
   new_node->is_leaf = true;
 
@@ -291,6 +337,9 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
 
   for (size_t i = 0; i < entries.size(); ++i) {
     for (size_t j = i + 1; j < entries.size(); ++j) {
+      if (uid_to_projected_.find(entries[i]) == uid_to_projected_.end()) continue;
+      if (uid_to_projected_.find(entries[j]) == uid_to_projected_.end()) continue;
+      
       float dist = euclideanDistance(uid_to_projected_[entries[i]], uid_to_projected_[entries[j]]);
       if (dist > max_wasted_area) {
         max_wasted_area = dist;
@@ -311,12 +360,16 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
       }
       
       if (!group1.empty()) {
-          node->mbr_low = uid_to_projected_[group1[0]];
-          node->mbr_high = node->mbr_low;
+          if (uid_to_projected_.count(group1[0])) {
+            node->mbr_low = uid_to_projected_[group1[0]];
+            node->mbr_high = node->mbr_low;
+          }
       }
       if (!group2.empty()) {
-          new_node->mbr_low = uid_to_projected_[group2[0]];
-          new_node->mbr_high = new_node->mbr_low;
+          if (uid_to_projected_.count(group2[0])) {
+            new_node->mbr_low = uid_to_projected_[group2[0]];
+            new_node->mbr_high = new_node->mbr_low;
+          }
       }
       
       node->entries = std::move(group1);
@@ -394,6 +447,7 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
   return new_node;
 }
 std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitInternalNode(RTreeNode* node) {
+  // std::cerr << "[HDRTree::splitInternalNode] Start" << std::endl;
   auto new_node = std::make_unique<RTreeNode>(config_.projected_dim);
   new_node->is_leaf = false;
 
@@ -402,12 +456,12 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitInternalNode(RTreeNode* node) 
 
   // 1. 选择种子节点 (Max wasted area)
   size_t seed1 = 0, seed2 = 1;
-  float max_wasted = -1.0F;
+  double max_wasted = -1.0;
 
   for (size_t i = 0; i < children.size(); ++i) {
     for (size_t j = i + 1; j < children.size(); ++j) {
       // 使用 enlargement 互算
-      float waste = children[i]->enlargement(*children[j]);
+      double waste = children[i]->enlargement(*children[j]);
       if (waste > max_wasted) {
         max_wasted = waste;
         seed1 = i;
@@ -435,8 +489,8 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitInternalNode(RTreeNode* node) 
   for (size_t i = 0; i < children.size(); ++i) {
     if (i == seed1 || i == seed2) continue;
 
-    float inc1 = mbr1.enlargement(*children[i]);
-    float inc2 = mbr2.enlargement(*children[i]);
+    double inc1 = mbr1.enlargement(*children[i]);
+    double inc2 = mbr2.enlargement(*children[i]);
 
     if (inc1 < inc2) {
       assignment[i] = 1;
@@ -520,7 +574,7 @@ auto HDRTree::searchRTree(const std::vector<float>& projected_query, float thres
 }
 
 void HDRTree::searchRTreeNode(const RTreeNode* node, const std::vector<float>& query,
-                               float threshold, std::vector<uint64_t>& candidates) const {
+                                float threshold, std::vector<uint64_t>& candidates) const {
   if (!node) return;
   if (!node->intersects(query, threshold)) return;
 
@@ -613,8 +667,7 @@ auto HDRTree::query(const VectorRecord& record, const std::vector<float>& projec
   return results;
 }
 
-auto HDRTree::query_for_join(const VectorRecord& record, const std::vector<float>& projected, double threshold) -> std::vector<uint64_t> {
-  std::shared_lock lock(mutex_);
+auto HDRTree::query_for_join(const VectorRecord& record, const std::vector<float>& projected, double threshold) -> std::vector<uint64_t> {                                                                                                                std::shared_lock lock(mutex_);
   if (!pca_training_done_) return {};
 
   std::vector<float> projected_query;
