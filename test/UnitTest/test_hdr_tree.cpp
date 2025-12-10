@@ -186,8 +186,10 @@ TEST_F(HDRForestTest, BuildForestAndRouting) {
     auto query_rec2 = createRecord(1000, {0.0f, 0.0f, 0.0f, 0.0f});
     auto results2 = index_->query(*query_rec2, 5);
     
+    std::cout << "[   INFO   ] Query2 results size: " << results2.size() << std::endl;
     bool found = false;
     for(auto uid : results2) {
+        std::cout << "[   INFO   ] Result UID: " << uid << std::endl;
         if(uid == 100) found = true;
     }
     EXPECT_TRUE(found);

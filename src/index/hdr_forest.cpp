@@ -116,7 +116,7 @@ void HDRForest::process_batch_updates() {
              
              HDRTree::Config config;
              config.projected_dim = std::min(dim, 24); // Revert to 16
-             config.pca_sample_size = std::max(50, dim * 5);
+             config.pca_sample_size = std::max(10, dim * 2);
              config.distance_bound_ratio = 4.0f;
              tree->rtree_index = std::make_shared<HDRTree>(dim, config);
              tree->rtree_index->storage_manager_ = storage_manager_;
@@ -253,7 +253,7 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
             // 初始化 HDRTree
             HDRTree::Config config;
             config.projected_dim = std::min(dim, 24);
-            config.pca_sample_size = std::max(50, dim * 5);
+            config.pca_sample_size = std::max(10, dim * 2);
             config.distance_bound_ratio = 4.0f;
             tree->rtree_index = std::make_shared<HDRTree>(dim, config);
             tree->rtree_index->storage_manager_ = storage_manager_;
@@ -284,7 +284,7 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
             }
             
             // 训练本地 PCA 并插入数据
-            if (!training_samples.empty() && training_samples.size() >= static_cast<size_t>(config.projected_dim)) {
+            if (!training_samples.empty() && training_samples.size() >= static_cast<size_t>(config.pca_sample_size)) {
                 tree->rtree_index->trainPCA(training_samples);
                 for(int k=start; k<end; ++k) {
                     tree->rtree_index->insert(initial_data[points[k].index]->uid_);
