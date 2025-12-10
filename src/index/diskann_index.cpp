@@ -21,7 +21,7 @@ DiskANNIndex::DiskANNIndex(int index_id, int dimension, const FreshDiskANNParame
     // For now, use current directory with index_id
     index_path_ = "diskann_index_" + std::to_string(index_id) + ".bin";
 
-    size_t max_points = 50000; // Reduced from 1M to save memory during tests
+    size_t max_points = 500000; // Reduced from 1M to save memory during tests
     bool dynamic_index = true;
     bool save_index_in_one_file = true;
     bool enable_tags = true;
@@ -59,7 +59,7 @@ auto DiskANNIndex::insert(uint64_t id) -> bool {
     diskann_params.Set<unsigned>("L", static_cast<unsigned>(params_.L));
     diskann_params.Set<unsigned>("R", static_cast<unsigned>(params_.R));
     diskann_params.Set<float>("alpha", params_.alpha);
-    diskann_params.Set<unsigned>("C", static_cast<unsigned>(std::max(params_.R, 500))); 
+    diskann_params.Set<unsigned>("C", static_cast<unsigned>(std::max(params_.R, 200))); 
 
     try {
         diskann_index_->insert_point(vec, diskann_params, id);
@@ -75,7 +75,7 @@ auto DiskANNIndex::erase(uint64_t id) -> bool {
     diskann_params.Set<unsigned>("L", static_cast<unsigned>(params_.L));
     diskann_params.Set<unsigned>("R", static_cast<unsigned>(params_.R));
     diskann_params.Set<float>("alpha", params_.alpha);
-    diskann_params.Set<unsigned>("C", static_cast<unsigned>(std::max(params_.R, 500)));
+    diskann_params.Set<unsigned>("C", static_cast<unsigned>(std::max(params_.R, 200)));
 
     try {
         diskann_index_->eager_delete(id, diskann_params, 1);

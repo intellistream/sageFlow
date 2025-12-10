@@ -235,8 +235,8 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         use_shared_state_ = true;
         
         FreshDiskANNParameters diskann_params{
-            .L = 500,
-            .R = 500,
+            .L = 200,
+            .R = 64,
             .alpha = 1.4f,
             .num_threads = 0
         };

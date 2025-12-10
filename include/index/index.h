@@ -20,7 +20,8 @@ enum class IndexType {  // NOLINT
   Vectraflow,
   HDRForest,
   HDRTree,
-  PartitionedIndex
+  PartitionedIndex,
+  FreshDiskANN
 };
 
 // Index-specific parameter structures
@@ -41,10 +42,17 @@ struct HNSWParameters {
   int ef_search = 40;
 };
 
+struct FreshDiskANNParameters {
+  int L = 200;
+  int R = 64;
+  float alpha = 1.4f;
+  int num_threads = 0;  // 0 means use all available cores
+};
+
 struct NoParameters {};
 
 // Variant to hold any index parameters
-using IndexParameters = std::variant<NoParameters, IVFParameters, HNSWParameters, HDRForestParameters>;
+using IndexParameters = std::variant<NoParameters, IVFParameters, HNSWParameters, HDRForestParameters, FreshDiskANNParameters>;
 
 class Index {
  public:

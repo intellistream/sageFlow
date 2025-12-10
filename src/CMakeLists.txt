@@ -83,6 +83,7 @@ target_link_libraries(
         PUBLIC
         externalRuntimeLibs
         stream_runtime  # Link dependencies of stream_runtime
+        diskann         # Link DiskANN library
 )
 if(ENABLE_GPERFTOOLS AND DEFINED SAGE_GPERFTOOLS_LIBS AND SAGE_GPERFTOOLS_LIBS)
         target_link_libraries(
