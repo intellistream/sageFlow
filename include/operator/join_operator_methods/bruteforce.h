@@ -12,11 +12,13 @@ class BruteForceJoinMethod final : public BaseMethod {
   BruteForceJoinMethod(int left_index_id,
                        int right_index_id,
                        double join_similarity_threshold,
-                       const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
+                       const std::shared_ptr<ConcurrencyManager>& concurrency_manager,
+                       double alpha = 1.2)
       : BaseMethod(join_similarity_threshold),
         left_index_id_(left_index_id),
         right_index_id_(right_index_id),
-        concurrency_manager_(concurrency_manager) {}
+        concurrency_manager_(concurrency_manager),
+        alpha_(alpha) {}
 
   ~BruteForceJoinMethod() override = default;
 
@@ -29,5 +31,6 @@ class BruteForceJoinMethod final : public BaseMethod {
   int left_index_id_ = -1;
   int right_index_id_ = -1;
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
+  double alpha_ = 1.2;
 };
 } // namespace sageFlow

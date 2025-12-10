@@ -68,6 +68,16 @@ list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*/stream/stream_environment\\.cpp$"
 # 创建动态库，包含 stream_runtime 的对象文件以避免链接问题
 add_library(sageflow SHARED ${SAGEFLOW_SOURCES} $<TARGET_OBJECTS:stream_runtime>)
 
+target_include_directories(sageflow PUBLIC
+    ${PROJECT_SOURCE_DIR}/third-party/DiskANN/include
+    ${PROJECT_SOURCE_DIR}/third-party/DiskANN/include/tsl/include
+)
+
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+    target_link_libraries(sageflow PUBLIC OpenMP::OpenMP_CXX)
+endif()
+
 target_link_libraries(
         sageflow
         PUBLIC

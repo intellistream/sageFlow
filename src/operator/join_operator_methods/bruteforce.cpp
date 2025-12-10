@@ -2,6 +2,7 @@
 #include "operator/join_method_registry.h"
 #include <unordered_set>
 #include <deque>
+#include <cmath>
 #include "spdlog/spdlog.h"
 
 namespace sageFlow {
@@ -16,8 +17,28 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceJoinMethod::ExecuteEager(co
   }
   auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_);
   results.reserve(candidates.size());
+  
   for (auto &c : candidates) {
-    if (c) results.emplace_back(std::make_unique<VectorRecord>(*c));
+    if (!c) continue;
+    
+    // Calculate L2 distance
+    double dist_sq = 0.0;
+    const float* q_data = reinterpret_cast<const float*>(query_record.data_.data_.get());
+    const float* c_data = reinterpret_cast<const float*>(c->data_.data_.get());
+    int dim = query_record.data_.dim_;
+    
+    for(int i=0; i<dim; ++i) {
+        double d = static_cast<double>(q_data[i]) - static_cast<double>(c_data[i]);
+        dist_sq += d*d;
+    }
+    double dist = std::sqrt(dist_sq);
+    
+    // Calculate similarity: exp(-alpha * distance)
+    double similarity = std::exp(-alpha_ * dist);
+    
+    if (similarity >= join_similarity_threshold_) {
+        results.emplace_back(std::make_unique<VectorRecord>(*c));
+    }
   }
   return results;
 }

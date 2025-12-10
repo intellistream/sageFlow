@@ -104,3 +104,6 @@ if(BUILD_TESTING)
         GTest::gtest_main
     )
 endif()
+
+# Add DiskANN
+add_subdirectory(DiskANN)
