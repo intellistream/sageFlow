@@ -172,7 +172,7 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         } else if (algo == "hdrtree" || algo == "hdr_tree" || algo == "hdrforest") {
         index_kind_ = InternalIndexKind::HDR_TREE;
         // HDRTree 推荐使用 PartitionedWindowState
-        use_shared_state_ = false; 
+        use_shared_state_ = true; 
         
         HDRForestParameters hdr_params;
         hdr_params.n_clusters = 10;
