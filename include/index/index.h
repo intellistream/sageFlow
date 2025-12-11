@@ -47,6 +47,7 @@ struct FreshDiskANNParameters {
   int R = 64;
   float alpha = 1.4f;
   int num_threads = 0;  // 0 means use all available cores
+  int max_window_records = 0;  // optional hint to scale search breadth by window size
 };
 
 struct NoParameters {};

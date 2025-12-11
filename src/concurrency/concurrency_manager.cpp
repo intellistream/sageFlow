@@ -10,6 +10,7 @@
 #include "index/vectraflow.h"
 #include "index/hdr_forest.h"
 #include "index/hdr_tree.h"
+#include "index/diskann_index.h"
 
 sageFlow::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
 
@@ -29,12 +30,6 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
       break;
     case IndexType::Vectraflow:
       index = std::make_shared<VectraFlow>();
-      break;
-    case IndexType::HDRForest:
-      index = std::make_shared<HDRForest>();
-      break;
-    case IndexType::HDRTree:
-      index = std::make_shared<HDRTree>(dimension, HDRTree::Config());
       break;
     case IndexType::BruteForce:
     default:
@@ -77,6 +72,14 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
       } else {
         // Use default parameters if wrong type provided
         index = std::make_shared<HNSW>();
+      }
+      break;
+    case IndexType::FreshDiskANN:
+      if (auto* diskann_params = std::get_if<FreshDiskANNParameters>(&params)) {
+        index = std::make_shared<DiskANNIndex>(0, dimension, *diskann_params);
+      } else {
+        FreshDiskANNParameters defaults{};
+        index = std::make_shared<DiskANNIndex>(0, dimension, defaults);
       }
       break;
     case IndexType::Vectraflow:

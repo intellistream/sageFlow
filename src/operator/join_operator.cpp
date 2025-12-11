@@ -233,12 +233,19 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
     } else if (algo == "freshdiskann") {
         // FreshDiskANN 模式
         use_shared_state_ = true;
+        index_kind_ = InternalIndexKind::FRESHDISKANN;
         
+        // 根据窗口长度和触发步长估算窗口内记录数，用于放大索引查询宽度
+        int64_t window_ms = join_func_->getWindowSize();
+        int64_t step_ms = std::max<int64_t>(1, join_func_->getStepSize());
+        int approx_window_records = static_cast<int>(std::min<int64_t>(50000, window_ms / step_ms));
+
         FreshDiskANNParameters diskann_params{
-            .L = 200,
-            .R = 64,
-            .alpha = 1.4f,
-            .num_threads = 0
+            .L = 512,
+            .R = 128,
+            .alpha = 1.2f,
+            .num_threads = 0,
+            .max_window_records = approx_window_records
         };
 
         if (createIndexPair(IndexType::FreshDiskANN, "join_diskann", diskann_params)) {
@@ -496,7 +503,12 @@ auto JoinOperator::updateSideThreadSafe(
     SAGEFLOW_LOG_DEBUG("JOIN", "After unlocking records mutex; computing trigger.");
     bool needTrigger = false;
     try {
-        needTrigger = window.isNeedTrigger(now_time_stamp);
+        // 对索引模式（尤其是 FreshDiskANN）默认触发，避免定时触发漏查导致召回低
+        if (use_index_ && index_kind_ == InternalIndexKind::FRESHDISKANN) {
+            needTrigger = true;
+        } else {
+            needTrigger = window.isNeedTrigger(now_time_stamp);
+        }
     } catch (const std::exception& e) {
         SAGEFLOW_LOG_ERROR("JOIN", "Exception during isNeedTrigger: what={} ", e.what());
         throw;
@@ -611,6 +623,11 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
             } else {
                 left_copy = std::make_unique<VectorRecord>(*cand);
                 right_copy = std::make_unique<VectorRecord>(*data_ptr);
+            }
+
+            // Canonicalize pair order to avoid emitting symmetric duplicates.
+            if (left_copy->uid_ > right_copy->uid_) {
+                continue;
             }
             
             uint64_t log_left_uid = left_copy->uid_;

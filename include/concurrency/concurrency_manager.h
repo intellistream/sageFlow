@@ -6,6 +6,7 @@
 
 #include "concurrency/concurrency_controller.h"
 #include "index/index.h"
+#include "index/diskann_index.h"
 
 namespace sageFlow {
 struct IdWithType {
