@@ -1,0 +1,343 @@
+# JoinStrategyConfig TOML Schema 定义
+#
+# 本文件定义 SageFlow Join 策略配置的完整 Schema。
+# 所有 Join 相关的测试和集成配置都应遵循此 Schema。
+#
+# 版本: 1.0
+# 更新日期: 2024-12-10
+#
+
+# ============================================================
+# Schema 版本信息
+# ============================================================
+[_schema]
+version = "1.0"
+description = "JoinStrategyConfig TOML Schema for SageFlow"
+
+# ============================================================
+# 默认配置（被所有 strategy 继承）
+# ============================================================
+#
+# 此节点定义所有策略共享的默认值。
+# 具体策略可以覆盖任何默认值。
+#
+[default]
+# 向量维度 (正整数)
+# 类型: int
+# 默认: 128
+# 约束: dimension > 0
+dimension = 128
+
+# 相似度阈值
+# 类型: double
+# 范围: [0.0, 1.0]
+# 默认: 0.8
+similarity_threshold = 0.8
+
+# 滑动窗口大小（毫秒）
+# 类型: int64
+# 约束: window_size_ms > 0
+# 默认: 10000
+window_size_ms = 10000
+
+# 滑动步长（毫秒）
+# 类型: int64
+# 约束: 0 < step_size_ms <= window_size_ms
+# 默认: 2500
+step_size_ms = 2500
+
+# 执行模式
+# 类型: bool
+# true = Eager 模式（每条记录立即处理）
+# false = Lazy 模式（批量处理）
+# 默认: false
+is_eager = false
+
+# ============================================================
+# 策略定义
+# ============================================================
+#
+# 每个策略在 [strategies.NAME] 下定义。
+# 策略名称应该有意义，便于在测试中引用。
+#
+
+# ============================================================
+# 字段说明
+# ============================================================
+#
+# 以下文档描述所有可用的配置字段。
+# 策略只需定义与默认值不同的字段。
+
+# ------------------ 核心配置字段 ------------------
+
+# algorithm: Join 算法类型
+# 类型: string (枚举)
+# 可选值:
+#   - "bruteforce"     : 暴力搜索（Ground Truth）
+#   - "ivf"            : 倒排索引近似搜索
+#   - "hnsw"           : 层次化小世界图
+#   - "hdr_tree"       : HDR-Tree (PCA 降维)
+#   - "clustered_join" : VectraFlow 风格质心分区
+#   - "s3j"            : DEBS'23 自适应流式 Join
+#   - "vsjoin"         : 我们的方法
+# 默认: "bruteforce"
+
+# partition_strategy: 分区策略
+# 类型: string (枚举)
+# 可选值:
+#   - "round_robin"  : 轮询分发（需要 SharedWindowState）
+#   - "key_hash"     : 基于 key 的哈希分区
+#   - "vector_hash"  : 基于向量内容的哈希分区
+#   - "lsh"          : 局部敏感哈希分区（VSJoin 专用）
+#   - "centroid"     : 基于质心的分区（S3J/ClusteredJoin 专用）
+# 默认: "round_robin"
+# 兼容性约束:
+#   - round_robin 必须配合 window_state_type = "shared"
+#   - lsh 必须配合 algorithm = "vsjoin"
+#   - centroid 必须配合 algorithm = "s3j" 或 "clustered_join"
+
+# window_state_type: 窗口状态类型
+# 类型: string (枚举)
+# 可选值:
+#   - "shared"             : 共享状态（所有实例共享，需要同步）
+#   - "partitioned"        : 分区状态（每个 subtask 独立）
+#   - "two_tier"           : 双层窗口状态
+#   - "partitioned_vector" : 向量空间分区状态（VSJoin 专用）
+# 默认: "shared"
+# 兼容性约束:
+#   - shared 必须配合 partition_strategy = "round_robin"
+#   - partitioned_vector 必须配合 algorithm = "vsjoin"
+
+# index_strategy: 索引策略
+# 类型: string (枚举)
+# 可选值:
+#   - "shared"      : 共享索引（所有实例使用同一索引）
+#   - "partitioned" : 分区索引（每个分区独立索引）
+# 默认: "shared"
+
+# ------------------ 分区参数 ------------------
+
+# num_partitions: 分区数量
+# 类型: int
+# 约束: num_partitions > 0
+# 默认: 4
+# 说明: 用于 LSH/CENTROID 分区策略
+
+# ------------------ IVF 参数 ------------------
+
+# ivf_nlist: IVF 聚类数量
+# 类型: int
+# 约束: ivf_nlist > 0
+# 默认: 100
+
+# ivf_nprobes: IVF 搜索时探测的聚类数
+# 类型: int
+# 约束: 0 < ivf_nprobes <= ivf_nlist
+# 默认: 10
+
+# ivf_rebuild_threshold: 触发 IVF 重建的阈值
+# 类型: double
+# 范围: [0.0, 1.0]
+# 默认: 0.3
+
+# ------------------ HNSW 参数 ------------------
+
+# hnsw_m: 每层最大邻居数
+# 类型: int
+# 约束: hnsw_m > 0
+# 默认: 16
+
+# hnsw_ef_construction: 构建时候选集大小
+# 类型: int
+# 约束: hnsw_ef_construction > 0
+# 默认: 200
+
+# hnsw_ef_search: 搜索时候选集大小
+# 类型: int
+# 约束: hnsw_ef_search > 0
+# 默认: 50
+
+# ------------------ VSJoin 参数 ------------------
+
+# vsjoin_num_hash_functions: LSH 哈希函数数量
+# 类型: int
+# 范围: [1, 64]
+# 默认: 8
+
+# vsjoin_boundary_threshold: 边界判定阈值
+# 类型: double
+# 范围: [0.0, 1.0]
+# 默认: 0.1
+
+# vsjoin_async_threads: 异步处理线程数
+# 类型: int
+# 约束: vsjoin_async_threads > 0
+# 默认: 2
+
+# vsjoin_allowed_lateness: 允许的延迟（毫秒）
+# 类型: int64
+# 约束: vsjoin_allowed_lateness >= 0
+# 默认: 1000
+
+# ------------------ S3J 参数 ------------------
+
+# s3j_num_centroids: S3J 质心数量
+# 类型: int
+# 约束: s3j_num_centroids > 0
+# 默认: 16
+
+# s3j_adapt_interval_ms: 自适应调整间隔（毫秒）
+# 类型: int64
+# 约束: s3j_adapt_interval_ms > 0
+# 默认: 1000
+
+# s3j_load_threshold: 负载不均衡阈值
+# 类型: double
+# 范围: [0.0, 1.0]
+# 默认: 0.3
+
+# s3j_enable_adaptive: 是否启用自适应调整
+# 类型: bool
+# 默认: true
+
+# ------------------ ClusteredJoin 参数 ------------------
+
+# clustered_overlap_ratio: 边界重叠比例
+# 类型: double
+# 范围: [0.0, 1.0]
+# 默认: 0.1
+
+# clustered_rebalance_threshold: 触发重平衡的阈值
+# 类型: double
+# 范围: [0.0, 1.0]
+# 默认: 0.3
+
+# clustered_border_replication: 是否复制边界向量
+# 类型: bool
+# 默认: true
+
+# clustered_training_samples: 训练样本数
+# 类型: int
+# 约束: clustered_training_samples > 0
+# 默认: 1000
+
+# ------------------ HDR-Tree 参数 ------------------
+
+# hdr_projected_dim: PCA 降维目标维度
+# 类型: int
+# 约束: hdr_projected_dim > 0
+# 默认: 8
+
+# hdr_max_node_size: 节点最大大小
+# 类型: int
+# 约束: hdr_max_node_size > 0
+# 默认: 100
+
+# hdr_delta_buffer_size: Delta 缓冲区大小
+# 类型: int64
+# 约束: hdr_delta_buffer_size > 0
+# 默认: 1000
+
+# hdr_pca_sample_size: PCA 训练样本数
+# 类型: int
+# 约束: hdr_pca_sample_size > 0
+# 默认: 10000
+
+# ------------------ 双层窗口参数 ------------------
+
+# two_tier_compact_threshold: 双层窗口压缩阈值
+# 类型: int64
+# 约束: two_tier_compact_threshold > 0
+# 默认: 100
+
+# two_tier_enable_boundary_tracking: 是否启用边界追踪
+# 类型: bool
+# 默认: true
+
+# ============================================================
+# 示例策略配置
+# ============================================================
+
+# 示例 1: BruteForce Baseline
+# Ground Truth 参考实现，使用共享状态
+[[strategies_examples]]
+name = "bruteforce_baseline"
+algorithm = "bruteforce"
+is_eager = false
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+
+# 示例 2: IVF 高召回率配置
+[[strategies_examples]]
+name = "ivf_high_recall"
+algorithm = "ivf"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 50  # 更多探测以提高召回率
+ivf_rebuild_threshold = 0.1
+
+# 示例 3: HNSW 快速配置
+[[strategies_examples]]
+name = "hnsw_fast"
+algorithm = "hnsw"
+is_eager = true
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
+
+# 示例 4: VSJoin 配置
+[[strategies_examples]]
+name = "vsjoin_default"
+algorithm = "vsjoin"
+is_eager = true
+partition_strategy = "lsh"
+window_state_type = "partitioned_vector"
+index_strategy = "partitioned"
+num_partitions = 8
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+
+# 示例 5: S3J 自适应配置
+[[strategies_examples]]
+name = "s3j_adaptive"
+algorithm = "s3j"
+is_eager = true
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+s3j_num_centroids = 16
+s3j_enable_adaptive = true
+
+# ============================================================
+# 验证规则
+# ============================================================
+#
+# 配置加载器将执行以下验证：
+#
+# 1. 分区策略兼容性
+#    - round_robin + shared: ✓
+#    - round_robin + partitioned: ✗ (会导致召回率下降)
+#    - lsh + partitioned_vector: ✓ (VSJoin 专用)
+#    - centroid + partitioned: ✓ (S3J/ClusteredJoin 专用)
+#
+# 2. 算法-策略兼容性
+#    - vsjoin 必须使用 lsh + partitioned_vector
+#    - s3j 必须使用 centroid
+#    - clustered_join 必须使用 centroid + partitioned
+#
+# 3. 参数范围
+#    - similarity_threshold ∈ [0.0, 1.0]
+#    - ivf_nprobes <= ivf_nlist
+#    - dimension > 0
+#    - window_size_ms > 0
+#    - step_size_ms ∈ (0, window_size_ms]
+#
+# ============================================================

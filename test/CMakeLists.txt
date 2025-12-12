@@ -13,6 +13,8 @@ add_library(test_data_support
     test_utils/test_data_generator.cpp
     test_utils/test_config_manager.cpp
     test_utils/dynamic_config.cpp
+    test_utils/join_config_loader.cpp
+    test_utils/integration_test_config.cpp
     test_utils/data_source/random_data_source.cpp
     test_utils/data_source/dataset_data_source.cpp
     test_utils/data_source/json_data_source.cpp
@@ -20,6 +22,8 @@ add_library(test_data_support
     test_utils/data_writer/json_writer.cpp
     test_utils/join_data_source.cpp
     test_utils/join_test_helper.cpp
+    test_utils/join_integration_pipeline_helper.cpp
+    test_utils/test_report_generator.cpp
 )
 
 # 头文件路径
@@ -102,6 +106,12 @@ set(UNIT_TEST_SPECS
     test_window_state_factory      UnitTest/test_window_state_factory.cpp     120 UNIT
     test_join_method_registry      UnitTest/test_join_method_registry.cpp     180 UNIT
     test_join_config_validator     UnitTest/test_join_config_validator.cpp    120 UNIT
+    test_join_config_loader        UnitTest/test_join_config_loader.cpp       120 UNIT
+    test_integration_config        UnitTest/test_integration_config.cpp       120 UNIT
+    test_join_integration_pipeline UnitTest/test_join_integration_pipeline.cpp 300 UNIT
+    test_join_operator_strategy    UnitTest/test_join_operator_strategy.cpp   180 UNIT
+    test_join_metrics              UnitTest/test_join_metrics.cpp             180 UNIT
+    test_report_generator          UnitTest/test_report_generator.cpp         180 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)
@@ -153,6 +163,7 @@ set(INTEG_TEST_SPECS
     test_pipeline_basic            IntegrationTest/test_pipeline_basic.cpp    600 INTEGRATION
     test_pipeline_execution        IntegrationTest/test_pipeline_execution.cpp 600 INTEGRATION
     test_vsjoin_integration        IntegrationTest/test_vsjoin_integration.cpp 600 INTEGRATION
+    test_join_baseline_integration IntegrationTest/join_baseline_integration_test.cpp 600 INTEGRATION
 )
 
 list(LENGTH INTEG_TEST_SPECS _ilen)
@@ -179,7 +190,7 @@ endif()
 # 仅依赖已创建的测试可执行（未显式依赖 ctest 运行，方便 IDE 构建）
 set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_partitioner test_compute_engine test_file_stream_source test_data_source test_data_persistence test_join_data_source)
 set(ALL_PERF_TARGETS test_window_pipeline test_join_datasource_modes IndexTest)
-set(ALL_INTEG_TARGETS test_pipeline_basic test_pipeline_execution test_vsjoin_integration)
+set(ALL_INTEG_TARGETS test_pipeline_basic test_pipeline_execution test_vsjoin_integration test_join_baseline_integration)
 
 add_custom_target(build_unit_tests DEPENDS ${ALL_UNIT_TARGETS})
 add_custom_target(build_perf_tests DEPENDS ${ALL_PERF_TARGETS})

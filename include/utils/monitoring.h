@@ -203,15 +203,69 @@ inline void metrics_increment(std::atomic<uint64_t>& counter, uint64_t value = 1
  *     MetricsTimer timer(my_metric);
  *     // ... code to measure ...
  *   } // Time is recorded when metrics enabled, no overhead when disabled
+ * 
+ * Advanced usage with pause/resume:
+ *   MetricsTimer outer_timer(outer_metric);
+ *   // ... outer code ...
+ *   outer_timer.pause();
+ *   {
+ *     MetricsTimer inner_timer(inner_metric);
+ *     // ... inner code measured separately ...
+ *   }
+ *   outer_timer.resume();
+ *   // ... more outer code ...
  */
 class MetricsTimer {
  public:
 #ifdef SAGEFLOW_ENABLE_METRICS
-  explicit MetricsTimer(std::atomic<uint64_t>& slot) : timer_(slot) {}
+  using Clock = std::chrono::high_resolution_clock;
+  
+  explicit MetricsTimer(std::atomic<uint64_t>& slot) 
+    : slot_(slot), start_(Clock::now()), accumulated_(0), paused_(false), stopped_(false) {}
+  
+  ~MetricsTimer() {
+    if (!stopped_) {
+      stop();
+    }
+  }
+  
+  void pause() {
+    if (!paused_ && !stopped_) {
+      auto now = Clock::now();
+      accumulated_ += std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_).count();
+      paused_ = true;
+    }
+  }
+  
+  void resume() {
+    if (paused_ && !stopped_) {
+      start_ = Clock::now();
+      paused_ = false;
+    }
+  }
+  
+  void stop() {
+    if (!stopped_) {
+      if (!paused_) {
+        auto now = Clock::now();
+        accumulated_ += std::chrono::duration_cast<std::chrono::nanoseconds>(now - start_).count();
+      }
+      slot_.fetch_add(static_cast<uint64_t>(accumulated_), std::memory_order_relaxed);
+      stopped_ = true;
+    }
+  }
+  
  private:
-  ScopedTimerAtomic timer_;
+  std::atomic<uint64_t>& slot_;
+  Clock::time_point start_;
+  int64_t accumulated_;
+  bool paused_;
+  bool stopped_;
 #else
   explicit MetricsTimer(std::atomic<uint64_t>&) {}
+  void pause() {}
+  void resume() {}
+  void stop() {}
 #endif
 };
 

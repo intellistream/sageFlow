@@ -7,6 +7,8 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_metrics.h"
+#include "operator/join_strategy_factory.h"
+#include "operator/join_config_validator.h"
 #include "execution/partitioner_factory.h"
 #include "utils/monitoring.h"
 
@@ -214,6 +216,56 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
     }
 }
 
+// ============================================================
+// E-01: 使用策略配置的新构造函数
+// ============================================================
+
+JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
+                           const std::shared_ptr<ConcurrencyManager> &concurrency_manager,
+                           const JoinStrategyConfig& config,
+                           bool enable_profiling,
+                           const std::string& profile_output_path)
+    : Operator(OperatorType::JOIN),
+      concurrency_manager_(concurrency_manager),
+      join_similarity_threshold_(config.similarity_threshold),
+      enable_profiling_(enable_profiling),
+      strategy_config_(config),
+      use_strategy_config_(true) {
+
+    join_func_ = std::unique_ptr<JoinFunction>(dynamic_cast<JoinFunction*>(join_func.release()));
+    if (!join_func_) {
+        throw std::runtime_error("JoinOperator: join_func is not a JoinFunction");
+    }
+    if (!concurrency_manager_) {
+        throw std::runtime_error("JoinOperator: concurrency_manager is a nullptr");
+    }
+
+    // 配置 join_func_ 的窗口参数（如果 config 中有指定）
+    if (config.window_size_ms > 0) {
+        join_func_->setWindow(config.window_size_ms, config.step_size_ms);
+    }
+
+    // Initialize GPERFTOOLS profiler if enabled
+    if (enable_profiling_) {
+        std::string profile_path = profile_output_path.empty()
+            ? "profiles/join_operator_profile.prof"
+            : profile_output_path;
+        profiler_ = std::make_unique<PerformanceMonitor>(profile_path);
+        SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling enabled (strategy config), output={}", profile_path);
+    }
+
+    // 策略配置模式：组件初始化延迟到 open() 中执行
+    // 因为需要 RuntimeContext 获取 parallelism
+    is_eager_ = true;  // 所有方法使用 Eager 模式
+    index_kind_ = InternalIndexKind::NONE;
+    use_index_ = false;
+
+    SAGEFLOW_LOG_INFO("JOIN", "JoinOperator created with strategy config: algorithm={} partition={} window_state={}",
+                     toString(config.algorithm),
+                     toString(config.partition_strategy),
+                     toString(config.window_state_type));
+}
+
 JoinOperator::~JoinOperator() {
     // 输出候选统计信息（调试用）
     static std::atomic<int> destructor_count{0};
@@ -245,11 +297,18 @@ void JoinOperator::open(const RuntimeContext& context) {
   // 使用 std::call_once 确保初始化只执行一次，即使在多线程环境下
   std::call_once(init_flag_, [this, &context]() {
     is_open_ = true;
+    parallelism_ = context.getParallelism();
     
     // Start profiling when operator opens
     if (profiler_) {
         profiler_->StartProfiling();
         SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling started");
+    }
+    
+    // E-01: 如果使用策略配置模式，通过 JoinStrategyFactory 初始化组件
+    if (use_strategy_config_) {
+        initializeWithStrategyConfig(context);
+        return;
     }
     
     // 如果启用了 VSJoin 模式，初始化 VSJoin 组件
@@ -347,11 +406,11 @@ auto JoinOperator::updateSideThreadSafe(
     SAGEFLOW_LOG_DEBUG("JOIN", "Expiring records before timestamp {} now={} current_size={} ", timelimit, now_time_stamp, records.size());
     size_t expired_count = 0;
     try {
-        // 过期阶段的容器维护开销：将每次 pop_front 计入 window_insert_ns，索引删除计入 index_insert_ns。
+        // 过期阶段的容器维护开销：将每次 pop_front 计入 expire_ns，索引删除计入 index_insert_ns。
         while (!records.empty() && records.front()->timestamp_ <= timelimit) {
             uint64_t expired_uid = records.front()->uid_;
             {
-                MetricsTimer t_window_expire_unit(JoinMetrics::instance().window_insert_ns);
+                MetricsTimer t_window_expire_unit(JoinMetrics::instance().expire_ns);
                 records.pop_front();
                 ++expired_count;
             }
@@ -679,7 +738,7 @@ auto JoinOperator::updateSideWithState(
         safe_evict_ts = std::min(left_max, right_max);
     }
     {
-        MetricsTimer t_window_evict(JoinMetrics::instance().window_insert_ns);
+        MetricsTimer t_window_evict(JoinMetrics::instance().expire_ns);
         state->evictExpired(safe_evict_ts, join_func_->getWindowSize(), subtask_index);
     }
     
@@ -721,10 +780,11 @@ void JoinOperator::executeJoinWithState(
     size_t subtask_index,
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
     
-    MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
-    
-    // 获取候选项（已通过索引相似度过滤）
+    // 获取候选项（已通过索引相似度过滤）- 内部有 candidate_fetch_ns 计时
     auto candidates = getCandidatesFromState(data_ptr, opposite_state, subtask_index);
+    
+    // 从这里开始计时 similarity_ns（不包括候选项获取时间）
+    MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
     
     // 调试：统计候选数量（使用全局变量）
     g_total_candidates.fetch_add(candidates.size(), std::memory_order_relaxed);
@@ -760,8 +820,12 @@ void JoinOperator::executeJoinWithState(
         Response rhs{ResponseType::Record, std::move(right_copy)};
         
         try {
+            // 暂停 similarity_ns 计时，避免与 join_function_ns 重复计算
+            t_similarity.pause();
             MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
             auto res = join_func_->Execute(lhs, rhs);
+            t_joinF.stop();
+            t_similarity.resume();
             if (res.record_) {
                 // 调试：输出实际匹配的 uid 对
                 static std::atomic<uint64_t> match_debug_count{0};
@@ -861,7 +925,9 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
         
         // 阶段1：第一次 Query（读锁，可并行）
         {
+            uint64_t before_lock = metrics_timestamp();
             std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
+            metrics_record_lock_wait(before_lock);
             executeJoinWithState(data_for_join.get(), opposite_state, slot, 
                                 subtask_index, local_return_pool);
         }
@@ -874,14 +940,18 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
         
         // 阶段2：Insert（写锁，独占）
         {
+            uint64_t before_lock = metrics_timestamp();
             std::unique_lock<std::shared_mutex> write_lock(join_rw_mutex_);
+            metrics_record_lock_wait(before_lock);
             updateSideWithState(
                 current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
         }
         
         // 阶段3：第二次 Query（读锁，捕获同时插入的记录）
         {
+            uint64_t before_lock = metrics_timestamp();
             std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
+            metrics_record_lock_wait(before_lock);
             std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> second_query_results;
             executeJoinWithState(data_for_join.get(), opposite_state, slot, 
                                 subtask_index, second_query_results);
@@ -1076,7 +1146,7 @@ void JoinOperator::applyVSJoin(Response&& record, int slot, Collector& collector
     
     // 5. 窗口过期清理
     {
-        MetricsTimer t_window_evict(JoinMetrics::instance().window_insert_ns);
+        MetricsTimer t_window_evict(JoinMetrics::instance().expire_ns);
         int64_t window_size = join_func_->getWindowSize();
         current_state->evictExpired(now_time_stamp, window_size, subtask_index);
     }
@@ -1162,6 +1232,77 @@ void JoinOperator::executeVSJoinEager(const VectorRecord& query, int slot,
     }
     
     SAGEFLOW_LOG_DEBUG("JOIN_VSJOIN", "Eager completed: results={}", local_return_pool.size());
+}
+
+// ============================================================
+// E-01: 使用策略配置初始化
+// ============================================================
+
+void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
+    // 1. 验证配置
+    JoinConfigValidator::throwIfInvalid(strategy_config_);
+
+    SAGEFLOW_LOG_INFO("JOIN", "Initializing with strategy config: algorithm={} parallelism={}",
+                     toString(strategy_config_.algorithm), context.getParallelism());
+
+    // 2. 使用 JoinStrategyFactory 创建组件
+    auto components = JoinStrategyFactory::create(
+        strategy_config_, concurrency_manager_, context.getParallelism());
+
+    // 3. 设置 JoinMethod
+    join_method_ = std::move(components.join_method);
+
+    // 4. 设置 WindowState
+    left_state_ = std::move(components.left_state);
+    right_state_ = std::move(components.right_state);
+
+    // 5. 设置索引 ID
+    left_index_id_ = components.left_index_id;
+    right_index_id_ = components.right_index_id;
+
+    // 6. 根据窗口状态类型设置标志
+    use_shared_state_ = (strategy_config_.window_state_type == WindowStateType::SHARED);
+
+    // 7. 设置 eviction buffer multiplier
+    if (left_state_) {
+        left_state_->setEvictionBufferMultiplier(1.5);
+    }
+    if (right_state_) {
+        right_state_->setEvictionBufferMultiplier(1.5);
+    }
+
+    // 8. 初始化 JoinMethod 与 WindowState 的关联
+    if (join_method_) {
+        // 尝试作为 BruteForceBaseline 初始化
+        if (auto* bf = dynamic_cast<BruteForceBaseline*>(join_method_.get())) {
+            bf->open(context, left_state_.get(), right_state_.get());
+            SAGEFLOW_LOG_INFO("JOIN", "BruteForceBaseline method initialized via strategy config");
+        }
+        // 尝试作为 IVFMethod 初始化
+        else if (auto* ivf = dynamic_cast<IVFMethod*>(join_method_.get())) {
+            ivf->setIndexIds(left_index_id_, right_index_id_);
+            ivf->open(context, left_state_.get(), right_state_.get(), concurrency_manager_.get());
+            use_index_ = true;
+            SAGEFLOW_LOG_INFO("JOIN", "IVFMethod initialized via strategy config, left_idx={} right_idx={}",
+                             left_index_id_, right_index_id_);
+        }
+        // 尝试作为 HNSWJoinMethod 初始化
+        else if (auto* hnsw = dynamic_cast<HNSWJoinMethod*>(join_method_.get())) {
+            use_index_ = true;
+            SAGEFLOW_LOG_INFO("JOIN", "HNSWJoinMethod initialized via strategy config");
+        }
+    }
+
+    // 9. 处理 VSJoin 特殊组件
+    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        vsjoin_config_.enabled = true;
+        vsjoin_config_.num_partitions = strategy_config_.num_partitions;
+        // TODO: 如果有其他 VSJoin 组件，在此处设置
+        SAGEFLOW_LOG_INFO("JOIN", "VSJoin mode enabled via strategy config");
+    }
+
+    SAGEFLOW_LOG_INFO("JOIN", "JoinOperator initialized with strategy config: subtask={}/{} shared_state={}",
+                     context.getSubtaskIndex(), context.getParallelism(), use_shared_state_);
 }
 
 void JoinOperator::closeVSJoinComponents() {
