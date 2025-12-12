@@ -1298,6 +1298,7 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
         vsjoin_config_.enabled = true;
         vsjoin_config_.num_partitions = strategy_config_.num_partitions;
         // TODO: 如果有其他 VSJoin 组件，在此处设置
+        // Issue URL: https://github.com/intellistream/sageFlow/issues/85
         SAGEFLOW_LOG_INFO("JOIN", "VSJoin mode enabled via strategy config");
     }
 
