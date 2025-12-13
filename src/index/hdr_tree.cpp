@@ -136,7 +136,6 @@ void HDRTree::tryAutoTrainPCA() {
     pca_training_done_ = true;
     rtree_root_ = std::make_unique<RTreeNode>(config_.projected_dim);
     
-    // FIX: Insert buffered samples into RTree and map
     for (size_t i = 0; i < sample_buffer_.size(); ++i) {
         auto projected = pca_->transform(sample_buffer_[i]);
         uint64_t uid = sample_uids_[i];
@@ -178,7 +177,6 @@ auto HDRTree::extractFloatVector(const VectorData& data) -> std::vector<float> {
 }
 
 auto HDRTree::projectVector(const VectorData& data) const -> std::vector<float> {
-  // std::cerr << "[HDRTree::projectVector] Start" << std::endl;
   if (!pca_ || !pca_->isFitted()) throw std::runtime_error("PCA not trained yet");
   auto vec = extractFloatVector(data);
   return pca_->transform(vec);
@@ -203,7 +201,6 @@ auto HDRTree::insert(uint64_t uid, const std::vector<float>& precomputed_project
       sample_uids_.push_back(uid);
     }
     tryAutoTrainPCA();
-    if (pca_training_done_) std::cerr << "[HDRTree::insert] PCA trained." << std::endl;
     if (!pca_training_done_) return true; // 暂存缓冲区，等待训练
   }
 
@@ -217,7 +214,6 @@ auto HDRTree::insert(uint64_t uid, const std::vector<float>& precomputed_project
   }
 
   uid_to_projected_[uid] = projected;
-  // std::cerr << "[HDRTree::insert] Inserting to RTree..." << std::endl;
   insertToRTree(uid, projected);
   return true;
 }
@@ -242,11 +238,11 @@ void HDRTree::insertToRTree(uint64_t uid, const std::vector<float>& projected) {
 }
 
 std::unique_ptr<HDRTree::RTreeNode> HDRTree::insertRecursive(RTreeNode* node, uint64_t uid, const std::vector<float>& point)
- {                                                                                                                            if (!node) {
-      std::cerr << "FATAL: insertRecursive called with null node!" << std::endl;
+ {                                                                                                                            
+  if (!node) {
+      SAGEFLOW_LOG_ERROR("HDRTree", "insertRecursive called with null node");
       return nullptr;
   }
-  // std::cerr << "[HDRTree::insertRecursive] node=" << node << " is_leaf=" << node->is_leaf << " entries=" << node->entries.size() << " children=" << node->children.size() << std::endl;                                                                node->expandMBR(point);
 
   // 2. 如果是叶子节点，直接插入
   if (node->is_leaf) {
@@ -260,12 +256,11 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::insertRecursive(RTreeNode* node, ui
   // 3. 如果是内部节点，选择最佳子节点下探
   RTreeNode* best_child = chooseLeaf(node, point);
   if (!best_child) {
-      std::cerr << "FATAL: chooseLeaf returned null! node=" << node << " children=" << node->children.size() << std::endl;
-      // Fallback: pick first child if available
+      SAGEFLOW_LOG_ERROR("HDRTree", "chooseLeaf returned null! node={}, children={}", (void*)node, node->children.size());
       if (!node->children.empty()) {
           best_child = node->children[0].get();
       } else {
-          return nullptr; // Should not happen for internal node
+          return nullptr; 
       }
   }
   
@@ -293,13 +288,12 @@ auto HDRTree::chooseLeaf(RTreeNode* node, const std::vector<float>& point) -> RT
   for (size_t i = 0; i < node->children.size(); ++i) {
     const auto& child = node->children[i];
     if (!child) {
-        std::cerr << "FATAL: Null child in chooseLeaf! index=" << i << std::endl;
+        SAGEFLOW_LOG_ERROR("HDRTree", "Null child in chooseLeaf! index={}", i);
         continue;
     }
     double enlargement = child->enlargement(point);
     double area = child->area();
 
-    // Handle Inf/NaN
     if (std::isinf(enlargement) || std::isnan(enlargement)) enlargement = std::numeric_limits<double>::max();
     if (std::isinf(area) || std::isnan(area)) area = std::numeric_limits<double>::max();
 
@@ -313,18 +307,14 @@ auto HDRTree::chooseLeaf(RTreeNode* node, const std::vector<float>& point) -> RT
     }
   }
   
-  // Fallback: ensure we pick something if logic failed (e.g. all were max)
   if (!best_child && !node->children.empty()) {
-      // std::cerr << "DEBUG: chooseLeaf using fallback." << std::endl;
       best_child = node->children[0].get();
   }
   
   return best_child;
 }
 
-// 叶子节点的二次分裂算法 (Quadratic Split)
 std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
-  // std::cerr << "[HDRTree::splitLeafNode] Start" << std::endl;
   auto new_node = std::make_unique<RTreeNode>(config_.projected_dim);
   new_node->is_leaf = true;
 
@@ -391,7 +381,6 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
   assigned[seed2] = true;
   int assigned_count = 2;
 
-  // 2. Distribute remaining entries
   while (assigned_count < static_cast<int>(entries.size())) {
     if (config_.rtree_min_entries - static_cast<int>(group1.size()) == static_cast<int>(entries.size()) - assigned_count) {
       for (size_t i = 0; i < entries.size(); ++i) {
@@ -447,7 +436,6 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
   return new_node;
 }
 std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitInternalNode(RTreeNode* node) {
-  // std::cerr << "[HDRTree::splitInternalNode] Start" << std::endl;
   auto new_node = std::make_unique<RTreeNode>(config_.projected_dim);
   new_node->is_leaf = false;
 

@@ -2,7 +2,7 @@
 #include "storage/storage_manager.h"
 #include "common/data_types.h"
 #include "compute_engine/pca.h"
-#include <iostream>
+#include "utils/logger.h"
 #include <limits>
 #include <cmath>
 #include <cstring>
@@ -135,7 +135,7 @@ void HDRForest::process_batch_updates() {
 
     for (auto item_id : insert_buffer_) {
         auto rec = storage_manager_->getVectorByUid(item_id);
-        if (!rec) continue;
+        if (!rec) { SAGEFLOW_LOG_WARN("HDRForest", "Vector record not found for uid={}", item_id); continue; }
         
         const float* vec_data = reinterpret_cast<const float*>(rec->data_.data_.get());
         int dim = rec->data_.dim_;
@@ -339,7 +339,7 @@ auto HDRForest::query(const VectorRecord &record, int k) -> std::vector<uint64_t
 auto HDRForest::query_internal(const VectorRecord &record, int k) -> std::vector<uint64_t> {
     std::vector<uint64_t> result;
     
-    if (!storage_manager_) return result;
+    if (!storage_manager_) { SAGEFLOW_LOG_ERROR("HDRForest", "Storage manager not set in query_internal"); return result; }
     
     // 收集所有候选
     std::vector<uint64_t> all_candidates;
@@ -404,23 +404,6 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
     std::vector<uint64_t> results;
     
     for (const auto& tree : forest_) {
-        // 剪枝逻辑 (Disabled)
-        /*
-        // 剪枝逻辑
-        if (!tree->center.empty()) {
-            const float* query_data = reinterpret_cast<const float*>(record.data_.data_.get());
-            float dist_to_center = compute_l2_dist(query_data, tree->center.data(), record.data_.dim_);
-            
-            // Join 阈值转换为距离阈值 r
-            // sim = 1 - dist^2 / 2  => dist = sqrt(2 * (1 - sim))
-            float r = std::sqrt(2.0f * (1.0f - static_cast<float>(join_similarity_threshold)));
-            
-            if (dist_to_center > tree->max_dist + r || 
-                dist_to_center < tree->min_dist - r) {
-                continue; // 已剪枝！
-            }
-        }
-        */
 
         if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
             // 优化：即时投影
@@ -466,7 +449,7 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
 }
 
 std::vector<uint64_t> HDRForest::recompute_knn(uint64_t user_id, int k) {
-    if (!storage_manager_) return {};
+    if (!storage_manager_) { SAGEFLOW_LOG_ERROR("HDRForest", "Storage manager not set in recompute_knn"); return {}; }
     auto rec = storage_manager_->getVectorByUid(user_id);
     if (!rec) return {};
     
@@ -483,7 +466,6 @@ std::vector<uint64_t> HDRForest::recompute_knn(uint64_t user_id, int k) {
 
     // Update max_dknn
     if (!results.empty()) {
-        // Calculate distance to k-th neighbor
         auto kth_id = results.back();
         auto kth_rec = storage_manager_->getVectorByUid(kth_id);
         if (kth_rec) {
@@ -493,13 +475,11 @@ std::vector<uint64_t> HDRForest::recompute_knn(uint64_t user_id, int k) {
                 rec->data_.dim_
             );
             
-            // Update user_dknn_ (Vector)
             if (user_id >= user_dknn_.size()) {
                 user_dknn_.resize(user_id + 1000, 0.0f);
             }
             user_dknn_[user_id] = dist;
             
-            // Update tree max_dknn
             for(auto& tree : forest_) {
                 if (tree->user_ids.count(user_id)) {
                     tree->max_dknn = std::max(tree->max_dknn, dist);

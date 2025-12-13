@@ -1,0 +1,54 @@
+# Performance Test Configuration for Join DataSource Modes
+# This file contains multiple test scenarios.
+# Uncomment ONE block at a time to run specific tests.
+
+# ==========================================
+# TEST 1: Generate -> Save -> Load (Random Data)
+# ==========================================
+[[performance_test]]
+#name = "perf_join_gen_save_load_random"
+#mode = "generate_save_load"
+#data_source = { type = "random", expected_dim = 128 }
+#methods = ["hdrtree"]
+#parallelism = [1, 2, 4, 8, 16, 32]
+#sizes = [1000]
+#vector_dim = 128
+#window_time_ms = [10000]
+#window_trigger_ms = 50
+#similarity_threshold = 0.8
+#records_count = 10
+#time_interval = 10
+
+# ==========================================
+# TEST 2: Direct Load (SIFT Dataset)
+# ==========================================
+[[performance_test]]
+name = "perf_join_direct_load_sift"
+mode = "direct_load"
+data_source = { type = "dataset", file_path = "data/siftsmall/siftsmall_query.fvecs", loop = 1, expected_dim = 128 }
+methods = ["hdrtree"]
+parallelism = [1, 2, 4, 8, 16, 32]
+sizes = [1000]
+vector_dim = 128
+window_time_ms = [10000]
+window_trigger_ms = 50
+similarity_threshold = 0.8
+records_count = 10
+time_interval = 10
+
+# ==========================================
+# TEST 3: Generate -> Direct Use (In-Memory)
+# ==========================================
+#[[performance_test]]
+#name = "perf_join_direct_use_random"
+#mode = "generate_direct_use"
+#data_source = { type = "random", expected_dim = 128 }
+#methods = ["hdrtree"]
+#parallelism = [1, 2, 4, 8, 16, 32]
+#sizes = [1000]
+#vector_dim = 128
+#window_time_ms = [10000]
+#window_trigger_ms = 50
+#similarity_threshold = 0.8
+#records_count = 10
+#time_interval = 10
