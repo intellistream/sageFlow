@@ -4,8 +4,7 @@ add_lib(
         hnsw.cpp
         vectraflow.cpp
         ivf.cpp
-        partitioned_index.cpp
-        hdr_tree.cpp
+        hdr_forest.cpp
 )
 target_link_libraries(
         index

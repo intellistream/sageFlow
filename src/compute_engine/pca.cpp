@@ -6,6 +6,7 @@
 #include <numeric>
 #include <random>
 #include <stdexcept>
+#include <iostream>
 
 namespace sageFlow {
 

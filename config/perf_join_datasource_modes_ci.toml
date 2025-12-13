@@ -18,3 +18,21 @@ seed = 42
 type = "random"
 
 log.level = "info"
+
+[[performance_test]]
+# CI Performance Test for HDR_Tree
+name = "ci_perf_join_hdrtree_test"
+mode = "generate_direct_use"
+methods = ["hdrtree"]
+sizes = [1000]
+records_count = 1000
+vector_dim = 64
+parallelism = [1, 4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.data_source]
+type = "random"

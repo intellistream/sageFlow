@@ -143,7 +143,7 @@ struct VSJoinConfig {
         int dimension = 0, int num_partitions = 0) const override;
 
    private:
-    enum class InternalIndexKind { NONE, IVF, BRUTEFORCE, VAMANA };  // 可扩展
+    enum class InternalIndexKind { NONE, IVF, BRUTEFORCE, VAMANA, HDR_TREE };  // 可扩展
 
     bool createIndexPair(IndexType type, const std::string& prefix);
     bool createIndexPair(IndexType type, const std::string& prefix, const IndexParameters& params);
