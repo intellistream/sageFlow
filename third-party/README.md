@@ -9,6 +9,7 @@ This directory manages external dependencies using CMake's FetchContent module i
 - **googletest** (v1.15.2): Google's C++ testing framework
 - **spdlog** (v1.15.0): Fast C++ logging library
 - **tomlplusplus** (v3.4.0): Header-only TOML parser and serializer
+- **DiskANN** (branch `sageflow-integration` from LuckyWindovo fork): FreshDiskANN index backend
 
 ## Migration from Embedded Source Code
 

@@ -37,6 +37,14 @@ FetchContent_Declare(
     GIT_TAG        v3.4.0
 )
 
+# DiskANN (FreshDiskANN)
+FetchContent_Declare(
+    diskann
+    GIT_REPOSITORY https://github.com/LuckyWindovo/DiskANN.git
+    GIT_TAG        sageflow-integration
+)
+
+
 # Configure upstream projects before fetching --------------------------------
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 # 只在需要测试时构建 gtest
@@ -49,14 +57,14 @@ set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
 
 # Fetch and build third-party projects ---------------------------------------
 if(BUILD_TESTING)
-    FetchContent_MakeAvailable(argparse fmt googletest spdlog tomlplusplus)
+    FetchContent_MakeAvailable(argparse fmt googletest spdlog tomlplusplus diskann)
 else()
     # 不构建测试时跳过 googletest
-    FetchContent_MakeAvailable(argparse fmt spdlog tomlplusplus)
+    FetchContent_MakeAvailable(argparse fmt spdlog tomlplusplus diskann)
 endif()
 
 # Ensure compiled libraries are position independent (shared objects, pybind11)
-foreach(_pic_target fmt spdlog)
+foreach(_pic_target fmt spdlog diskann)
     if(TARGET ${_pic_target})
         set_target_properties(${_pic_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endif()
@@ -73,6 +81,11 @@ endforeach()
 if(_external_runtime_include_dirs)
     list(REMOVE_DUPLICATES _external_runtime_include_dirs)
     message(STATUS "externalRuntimeLibs include dirs: ${_external_runtime_include_dirs}")
+endif()
+
+# Propagate DiskANN source directory for downstream targets
+if(DEFINED diskann_SOURCE_DIR)
+    set(DISKANN_SOURCE_DIR "${diskann_SOURCE_DIR}" CACHE PATH "DiskANN source directory" FORCE)
 endif()
 
 # Interface library consumed by runtime components ---------------------------
@@ -104,6 +117,3 @@ if(BUILD_TESTING)
         GTest::gtest_main
     )
 endif()
-
-# Add DiskANN
-add_subdirectory(DiskANN)

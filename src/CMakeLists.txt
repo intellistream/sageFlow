@@ -68,9 +68,16 @@ list(FILTER SAGEFLOW_SOURCES EXCLUDE REGEX ".*/stream/stream_environment\\.cpp$"
 # 创建动态库，包含 stream_runtime 的对象文件以避免链接问题
 add_library(sageflow SHARED ${SAGEFLOW_SOURCES} $<TARGET_OBJECTS:stream_runtime>)
 
+if(NOT DEFINED DISKANN_SOURCE_DIR)
+        set(DISKANN_SOURCE_DIR "${PROJECT_SOURCE_DIR}/third-party/DiskANN")
+endif()
+if(NOT EXISTS "${DISKANN_SOURCE_DIR}/include")
+        message(FATAL_ERROR "DISKANN_SOURCE_DIR='${DISKANN_SOURCE_DIR}' is missing; ensure DiskANN is fetched via FetchContent")
+endif()
+
 target_include_directories(sageflow PUBLIC
-    ${PROJECT_SOURCE_DIR}/third-party/DiskANN/include
-    ${PROJECT_SOURCE_DIR}/third-party/DiskANN/include/tsl/include
+        ${DISKANN_SOURCE_DIR}/include
+        ${DISKANN_SOURCE_DIR}/include/tsl/include
 )
 
 find_package(OpenMP)

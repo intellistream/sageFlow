@@ -1,4 +1,0 @@
-[submodule "third-party/DiskANN"]
-    path = third-party/DiskANN
-    url = https://github.com/LuckyWindovo/DiskANN.git
-    branch = sageflow-integration

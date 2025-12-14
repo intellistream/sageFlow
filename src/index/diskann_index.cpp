@@ -4,6 +4,7 @@
 #include <spdlog/spdlog.h>
 #include <filesystem>
 #include <algorithm>
+#include <unordered_set>
 
 // Include DiskANN headers here to provide full definition
 #include "index.h"
@@ -131,10 +132,8 @@ auto DiskANNIndex::query(const VectorRecord &record, int k) -> std::vector<uint6
     return indices;
 }
 
-auto DiskANNIndex::query_for_join(const VectorRecord &record, double /*join_similarity_threshold*/) -> std::vector<uint64_t> {
-    // For join we want near-exhaustive recall: ask for as many neighbors as the
-    // index currently holds, capped to a reasonable ceiling to avoid runaway
-    // allocations.
+auto DiskANNIndex::query_for_join(const VectorRecord &record, double join_similarity_threshold) -> std::vector<uint64_t> {
+
     const size_t total_points = diskann_index_ ? diskann_index_->get_num_points() : 0;
     if (total_points == 0) {
         return {};
@@ -143,11 +142,9 @@ auto DiskANNIndex::query_for_join(const VectorRecord &record, double /*join_simi
     const size_t k = std::min<std::size_t>(20000, total_points);
     auto ids = query(record, static_cast<int>(k));
 
-    // Safety net: if the index under-fetches, fall back to an exact scan to
-    // recover any missed candidates. This is bounded by the current window
-    // size (total_points) and ensures recall for correctness-focused runs.
-    if (storage_manager_ && ids.size() + 1 < total_points) {
-        auto exact = storage_manager_->similarityJoinQuery(record, 0.0 /* threshold unused here */);
+    if (storage_manager_ && ids.size() < total_points) {
+        const double threshold = std::max(0.0, join_similarity_threshold);
+        auto exact = storage_manager_->similarityJoinQuery(record, threshold);
         ids.reserve(ids.size() + exact.size());
         std::unordered_set<uint64_t> seen(ids.begin(), ids.end());
         for (auto uid : exact) {
