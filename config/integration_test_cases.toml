@@ -1,0 +1,400 @@
+# config/integration_test_cases.toml
+# 集成测试用例配置
+# 
+# 本文件定义了 SageFlow 项目所有 Join 算法的集成测试用例配置。
+# 每个测试用例可以继承 [common] 节点中的通用配置。
+
+# ==================== 通用配置 ====================
+# 所有测试用例都会继承这些默认值
+[common]
+vector_dim = 128
+window_size_ms = 10000
+step_size_ms = 1000
+similarity_threshold = 0.8
+seed = 42
+time_interval_ms = 10
+base_timestamp = 1000000
+result_output_dir = "test/result/integration"
+compare_with_ground_truth = true
+positive_ratio = 0.10
+negative_ratio = 0.60
+positive_pairs = 500
+near_threshold_pairs = 50
+negative_pairs = 500
+random_tail = 2000
+alpha = 0.1
+save_results = true
+generate_report = true
+
+# ==================== BruteForce 测试 ====================
+# Ground Truth baseline 测试，用于验证正确性
+[[test_case]]
+name = "bruteforce_baseline"
+description = "Ground truth baseline test - exact similarity join"
+algorithm = "bruteforce"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+data_sizes = [2000]
+parallelism = [1, 2, 4]
+expected_min_recall = 0.95     # BruteForce 作为Baseline应该全部召回
+expected_min_precision = 1.0   # BruteForce 应该有 100% 精确率
+
+[[test_case]]
+name = "bruteforce_high_parallelism"
+description = "BruteForce with high parallelism for correctness verification"
+algorithm = "bruteforce"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+data_sizes = [2000]
+parallelism = [4, 8, 16]
+expected_min_recall = 0.95     # BruteForce 作为Baseline应该全部召回
+expected_min_precision = 1.0
+
+# ==================== IVF 测试 ====================
+# IVF 近似 Join 测试
+[[test_case]]
+name = "ivf_standard"
+description = "IVF approximate join test with standard parameters"
+algorithm = "ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 10
+ivf_rebuild_threshold = 1.5
+data_sizes = [2000]
+parallelism = [1, 2, 4, 8, 16]
+expected_min_recall = 0.85
+
+[[test_case]]
+name = "ivf_high_nprobes" # operator里面初始化的时候直接按照窗口大小初始化了
+description = "IVF with high nprobes for better recall"
+algorithm = "ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 30
+ivf_rebuild_threshold = 1.5
+data_sizes = [2000]
+parallelism = [1, 2, 4, 8, 16]
+expected_min_recall = 0.92
+
+[[test_case]]
+name = "ivf_small_nlist"
+description = "IVF with small nlist for small datasets"
+algorithm = "ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 20
+ivf_nprobes = 8
+ivf_rebuild_threshold = 1.5
+data_sizes = [100, 200]
+parallelism = [1, 2]
+expected_min_recall = 0.80
+
+# ==================== HNSW 测试 ====================
+# HNSW 近似 Join 测试
+[[test_case]]
+name = "hnsw_standard"
+description = "HNSW approximate join test with standard parameters"
+algorithm = "hnsw"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
+data_sizes = [500, 1000]
+parallelism = [1, 2, 4]
+expected_min_recall = 0.90
+enabled = false
+
+[[test_case]]
+name = "hnsw_high_ef"
+description = "HNSW with high ef_search for better recall"
+algorithm = "hnsw"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 100
+data_sizes = [500, 1000]
+parallelism = [1, 2, 4]
+expected_min_recall = 0.95
+enabled = false
+
+[[test_case]]
+name = "hnsw_small_m"
+description = "HNSW with small M for memory efficiency"
+algorithm = "hnsw"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 8
+hnsw_ef_construction = 100
+hnsw_ef_search = 30
+data_sizes = [500]
+parallelism = [1, 2]
+expected_min_recall = 0.85
+enabled = false
+
+# ==================== HDR-Tree 测试 ====================
+# HDR-Tree with PCA dimensionality reduction
+[[test_case]]
+name = "hdr_tree_standard"
+description = "HDR-Tree with PCA dimensionality reduction"
+algorithm = "hdr_tree"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hdr_projected_dim = 8
+hdr_max_node_size = 100
+hdr_delta_buffer_size = 1000
+hdr_pca_sample_size = 10000
+data_sizes = [500, 1000]
+parallelism = [1, 2]
+expected_min_recall = 0.75
+enabled = true
+
+[[test_case]]
+name = "hdr_tree_high_dim"
+description = "HDR-Tree with higher projected dimension"
+algorithm = "hdr_tree"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hdr_projected_dim = 16
+hdr_max_node_size = 100
+hdr_delta_buffer_size = 1000
+hdr_pca_sample_size = 10000
+data_sizes = [500]
+parallelism = [1, 2]
+expected_min_recall = 0.80
+enabled = true
+
+[[test_case]]
+name = "hdr_tree_multi_parallelism"
+description = "HDR-Tree with varying parallelism for scalability test"
+algorithm = "hdr_tree"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hdr_projected_dim = 8
+hdr_max_node_size = 100
+hdr_delta_buffer_size = 1000
+hdr_pca_sample_size = 5000
+data_sizes = [1000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 0.70
+enabled = true
+
+# ==================== ClusteredJoin 测试 ====================
+# VectraFlow-style clustered join
+[[test_case]]
+name = "clustered_join_standard"
+description = "VectraFlow-style clustered join with centroid partitioning"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_border_replication = true
+clustered_training_samples = 500
+data_sizes = [500, 1000]
+parallelism = [2, 4]
+expected_min_recall = 0.80
+enabled = false
+
+[[test_case]]
+name = "clustered_join_no_overlap"
+description = "ClusteredJoin without boundary replication"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_overlap_ratio = 0.0
+clustered_border_replication = false
+clustered_training_samples = 500
+data_sizes = [500]
+parallelism = [2, 4]
+expected_min_recall = 0.70
+enabled = false
+
+[[test_case]]
+name = "clustered_join_high_overlap"
+description = "ClusteredJoin with high overlap for better recall"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_overlap_ratio = 0.2
+clustered_border_replication = true
+clustered_training_samples = 500
+data_sizes = [500]
+parallelism = [2, 4]
+expected_min_recall = 0.88
+enabled = false
+
+# ==================== S3J 测试 ====================
+# DEBS'23 S3J with adaptive clustering
+[[test_case]]
+name = "s3j_adaptive"
+description = "DEBS'23 S3J with adaptive clustering enabled"
+algorithm = "s3j"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+s3j_num_centroids = 16
+s3j_enable_adaptive = true
+s3j_adapt_interval_ms = 1000
+s3j_load_threshold = 0.3
+ivf_nlist = 50
+ivf_nprobes = 5
+data_sizes = [500, 1000]
+parallelism = [2, 4]
+expected_min_recall = 0.80
+enabled = false
+
+[[test_case]]
+name = "s3j_static"
+description = "S3J with static centroid configuration"
+algorithm = "s3j"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+s3j_num_centroids = 16
+s3j_enable_adaptive = false
+ivf_nlist = 50
+ivf_nprobes = 5
+data_sizes = [500]
+parallelism = [2, 4]
+expected_min_recall = 0.75
+enabled = false
+
+[[test_case]]
+name = "s3j_high_centroids"
+description = "S3J with more centroids for finer partitioning"
+algorithm = "s3j"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+s3j_num_centroids = 32
+s3j_enable_adaptive = true
+s3j_adapt_interval_ms = 500
+s3j_load_threshold = 0.2
+ivf_nlist = 50
+ivf_nprobes = 8
+data_sizes = [1000]
+parallelism = [4, 8]
+expected_min_recall = 0.85
+enabled = false
+
+# ==================== VSJoin 测试 ====================
+# Full VSJoin with LSH partitioning
+[[test_case]]
+name = "vsjoin_complete"
+description = "Full VSJoin with LSH partitioning and partitioned index"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "partitioned_vector"
+index_strategy = "partitioned"
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_async_threads = 2
+vsjoin_allowed_lateness = 1000
+num_partitions = 8
+ivf_nlist = 50
+ivf_nprobes = 5
+data_sizes = [500, 1000]
+parallelism = [2, 4]
+expected_min_recall = 0.70
+enabled = false
+
+[[test_case]]
+name = "vsjoin_high_hash"
+description = "VSJoin with more hash functions for better partitioning"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "partitioned_vector"
+index_strategy = "partitioned"
+vsjoin_num_hash_functions = 16
+vsjoin_boundary_threshold = 0.1
+vsjoin_async_threads = 2
+vsjoin_allowed_lateness = 1000
+num_partitions = 8
+ivf_nlist = 50
+ivf_nprobes = 5
+data_sizes = [500]
+parallelism = [2, 4]
+expected_min_recall = 0.75
+enabled = false
+
+[[test_case]]
+name = "vsjoin_low_latency"
+description = "VSJoin optimized for low latency"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "partitioned_vector"
+index_strategy = "partitioned"
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.05
+vsjoin_async_threads = 4
+vsjoin_allowed_lateness = 500
+num_partitions = 4
+ivf_nlist = 30
+ivf_nprobes = 3
+data_sizes = [500]
+parallelism = [2, 4]
+expected_min_recall = 0.65
+enabled = false
+allow_approximate_match = true
+
+# ==================== 混合测试（多并行度/多数据规模）====================
+[[test_case]]
+name = "multi_scale_bruteforce"
+description = "BruteForce across multiple data scales for regression testing"
+algorithm = "bruteforce"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+data_sizes = [50, 100, 200, 500, 1000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 1.0
+expected_min_precision = 1.0
+
+[[test_case]]
+name = "multi_scale_ivf"
+description = "IVF across multiple data scales"
+algorithm = "ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 50
+ivf_nprobes = 10
+data_sizes = [100, 500, 1000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 0.80
+
+# ==================== 禁用的测试（用于调试或未完成的功能）====================
+[[test_case]]
+name = "experimental_two_tier_window"
+description = "Experimental two-tier window state test"
+enabled = false
+algorithm = "ivf"
+partition_strategy = "key_hash"
+window_state_type = "two_tier"
+index_strategy = "shared"
+two_tier_compact_threshold = 100
+two_tier_enable_boundary_tracking = true
+data_sizes = [500]
+parallelism = [2, 4]
+expected_min_recall = 0.80

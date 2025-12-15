@@ -1,0 +1,23 @@
+# SageFlow Python Scripts Dependencies
+# 
+# Install with: pip install -r scripts/requirements.txt
+#
+# These dependencies are required for:
+# - run_integration_test.py: Test runner script
+# - visualize_results.py: Visualization module
+
+# Visualization
+matplotlib>=3.5.0
+numpy>=1.20.0
+
+# Optional: For interactive HTML charts (plotly)
+# plotly>=5.0.0
+# kaleido>=0.2.0  # For static export with plotly
+
+# Optional: For enhanced data handling
+# pandas>=1.3.0
+
+# Development (optional)
+# black>=22.0.0
+# flake8>=4.0.0
+# mypy>=0.950

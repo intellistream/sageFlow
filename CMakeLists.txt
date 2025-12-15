@@ -74,6 +74,11 @@ if(ENABLE_GPERFTOOLS)
     add_definitions(-DENABLE_GPERFTOOLS)
 endif()
 
+# 全局启用指标收集宏，使得所有包含 monitoring.h 的代码都能正确启用指标
+if(SAGEFLOW_ENABLE_METRICS)
+    add_definitions(-DSAGEFLOW_ENABLE_METRICS=1)
+endif()
+
 add_subdirectory(src)
 
 # 只在需要时添加测试和示例（避免循环依赖问题）
