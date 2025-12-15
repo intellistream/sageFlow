@@ -2,13 +2,12 @@
 # Test Mode 1: Generate-Save-Load (generate data, save to file, then load from file)
 name = "perf_join_gen_save_load_random"
 mode = "generate_save_load"
-methods = ["bruteforce", "ivf", "hdr_tree"]
-#methods = ["ivf"]
-sizes = [1000]
+methods = ["ivf"]
+sizes = [2000]
 records_count = 10
 vector_dim = 64
-parallelism = [1,2,4,8,16]
-window_time_ms = [5000]
+parallelism = [1,2,4,8,16,32]
+window_time_ms = [10000]
 window_trigger_ms = 50
 time_interval = 10
 similarity_threshold = 0.8

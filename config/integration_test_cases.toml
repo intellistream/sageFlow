@@ -189,7 +189,7 @@ hdr_max_node_size = 100
 hdr_delta_buffer_size = 1000
 hdr_pca_sample_size = 5000
 data_sizes = [1000]
-parallelism = [1, 2, 4, 8]
+parallelism = [1, 2, 4, 8, 16]
 expected_min_recall = 0.70
 enabled = true
 
