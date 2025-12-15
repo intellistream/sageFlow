@@ -880,6 +880,74 @@ python scripts/generate_test_summary.py test/result/ --output test/result/summar
 
 ---
 
+## Python 测试脚本
+
+SageFlow 提供 Python 脚本用于运行集成测试和生成可视化图表。
+
+### 安装依赖
+
+```bash
+pip install -r scripts/requirements.txt
+```
+
+### 测试运行脚本
+
+使用 `scripts/run_integration_test.py` 运行集成测试：
+
+```bash
+# 测试单个方法
+python scripts/run_integration_test.py --methods bruteforce
+
+# 测试多个方法
+python scripts/run_integration_test.py --methods bruteforce ivf hdr_tree
+
+# 测试所有方法并生成可视化
+python scripts/run_integration_test.py --methods all --parallelism 1 2 4 --visualize
+
+# 构建后运行测试
+python scripts/run_integration_test.py --methods bruteforce --build --visualize
+
+# 仅打印命令（不执行）
+python scripts/run_integration_test.py --methods bruteforce ivf --dry-run
+```
+
+### 可视化脚本
+
+使用 `scripts/visualize_results.py` 生成性能图表：
+
+```bash
+# 生成所有图表（PNG 格式）
+python scripts/visualize_results.py --input-dir test/result/integration
+
+# 指定输出格式
+python scripts/visualize_results.py --input-dir test/result/integration --format svg
+
+# 生成特定图表
+python scripts/visualize_results.py --input-dir test/result/integration --charts breakdown throughput
+
+# 生成综合仪表板
+python scripts/visualize_results.py --input-dir test/result/integration --charts dashboard
+```
+
+**可用的图表类型**:
+- `breakdown`: 耗时 Breakdown 堆叠柱状图 - 分析各阶段耗时占比
+- `throughput`: 算法吞吐量对比图 - 比较不同算法在不同并行度下的吞吐量
+- `recall`: 算法召回率对比图 - 比较不同算法的召回率
+- `scalability`: 并行度扩展性图 - 分析吞吐量随并行度变化的扩展性
+- `dashboard`: 综合仪表板 - 包含上述 4 个子图
+
+**输出示例**:
+```
+test/result/integration/
+├── chart_breakdown.png       # Breakdown 堆叠柱状图
+├── chart_throughput.png      # 吞吐量对比图
+├── chart_recall.png          # 召回率对比图
+├── chart_scalability.png     # 扩展性图
+└── chart_dashboard.png       # 综合仪表板
+```
+
+---
+
 ## 相关文档
 
 - [Join 流水线指南](./JOIN_PIPELINE_GUIDE.md)
