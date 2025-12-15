@@ -31,6 +31,12 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
+          # Add Intel MKL repository (required for Ubuntu 22.04)
+          sudo apt-get install -y --no-install-recommends wget gnupg
+          wget -qO - https://apt.repos.intel.com/intel-gpg-keys/GPG-PUB-KEY-INTEL-SW-PRODUCTS.PUB | sudo apt-key add -
+          echo "deb https://apt.repos.intel.com/oneapi all main" | sudo tee /etc/apt/sources.list.d/oneAPI.list
+          sudo apt-get update
+          # Install base toolchain and DiskANN dependencies
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             cmake \
@@ -40,7 +46,7 @@ jobs:
             libunwind-dev \
             libboost-dev \
             libboost-program-options-dev \
-            libmkl-full-dev
+            intel-oneapi-mkl-devel
 
       - name: Show compiler versions
         if: runner.os == 'Linux'
