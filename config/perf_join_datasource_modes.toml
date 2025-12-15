@@ -2,7 +2,7 @@
 # Test Mode 1: Generate-Save-Load (generate data, save to file, then load from file)
 name = "perf_join_gen_save_load_random"
 mode = "generate_save_load"
-methods = ["bruteforce", "ivf"]
+methods = ["bruteforce", "ivf", "hdr_tree"]
 #methods = ["ivf"]
 sizes = [1000]
 records_count = 10
@@ -13,6 +13,13 @@ window_trigger_ms = 50
 time_interval = 10
 similarity_threshold = 0.8
 seed = 42
+
+# HDR-Tree specific parameters
+[performance_test.hdr_tree_params]
+projected_dim = 8
+max_node_size = 100
+delta_buffer_size = 1000
+pca_sample_size = 5000
 
 [performance_test.data_source]
 type = "random"

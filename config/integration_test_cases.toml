@@ -159,7 +159,7 @@ hdr_pca_sample_size = 10000
 data_sizes = [500, 1000]
 parallelism = [1, 2]
 expected_min_recall = 0.75
-enabled = false
+enabled = true
 
 [[test_case]]
 name = "hdr_tree_high_dim"
@@ -175,7 +175,23 @@ hdr_pca_sample_size = 10000
 data_sizes = [500]
 parallelism = [1, 2]
 expected_min_recall = 0.80
-enabled = false
+enabled = true
+
+[[test_case]]
+name = "hdr_tree_multi_parallelism"
+description = "HDR-Tree with varying parallelism for scalability test"
+algorithm = "hdr_tree"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hdr_projected_dim = 8
+hdr_max_node_size = 100
+hdr_delta_buffer_size = 1000
+hdr_pca_sample_size = 5000
+data_sizes = [1000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 0.70
+enabled = true
 
 # ==================== ClusteredJoin 测试 ====================
 # VectraFlow-style clustered join
