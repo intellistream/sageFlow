@@ -23,6 +23,26 @@ To setup `sageFlow` and it's dependencies, begin by making sure that you have `d
 
 We suggest first begin with `docker` before you are familiar with `sageFlow`.
 
+### Quick Installation (Ubuntu/Debian)
+
+For a quick one-click installation of all dependencies including DiskANN support, run:
+
+```bash
+cd <PATH_TO_REPO>
+sudo ./scripts/install-deps.sh
+```
+
+This script will install:
+- Build essentials (gcc, g++, cmake, etc.)
+- DiskANN dependencies (libaio, boost, etc.)
+- Intel MKL (Math Kernel Library)
+- Environment configuration
+
+After installation, reload your environment:
+```bash
+source /etc/profile.d/mkl.sh
+```
+
 ### Docker
 
 make sure you have installed `Docker` and `Docker` is running
