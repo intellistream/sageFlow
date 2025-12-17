@@ -1,5 +1,5 @@
 #include "operator/join_operator_methods/clustered_join_method.h"
-#include "operator/join_method_registry.h"
+#include "operator/utils/join_method_registry.h"
 
 #include <algorithm>
 #include <cstring>

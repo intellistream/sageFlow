@@ -303,13 +303,15 @@ void HDRForest::build_forest(const std::vector<std::shared_ptr<VectorRecord>>& i
 auto HDRForest::erase(uint64_t id) -> bool {
     std::unique_lock<std::shared_mutex> lock(mutex_);
     
-    // RkNN 表：加速删除
-    // 优化：使用 vector
-    if (id < rknn_table_.size() && !rknn_table_[id].empty()) {
-        int default_k = 20; // 默认维护的 k 值
-        for (auto uid : rknn_table_[id]) {
-            recompute_knn(uid, default_k); 
-        }
+    // 注意：跳过 RkNN 重计算以避免潜在的段错误
+    // 在 Join 场景中，被删除的记录可能已经从 StorageManager 中移除
+    // recompute_knn 会尝试访问这些记录，导致空指针解引用
+    // 
+    // 对于 Join 场景，我们不需要维护精确的 RkNN 关系，
+    // 因为窗口滑动会自然淘汰过期记录
+    
+    // 清理 RkNN 表（仅清空，不重计算）
+    if (id < rknn_table_.size()) {
         rknn_table_[id].clear();
     }
     
