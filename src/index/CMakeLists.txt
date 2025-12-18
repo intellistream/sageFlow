@@ -5,10 +5,12 @@ add_lib(
         vectraflow.cpp
         ivf.cpp
         hdr_forest.cpp
+        faiss_index.cpp
 )
 target_link_libraries(
         index
         PRIVATE
         storage
         compute_engine
+        faiss
 )

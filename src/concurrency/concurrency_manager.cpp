@@ -10,6 +10,7 @@
 #include "index/vectraflow.h"
 #include "index/hdr_forest.h"
 #include "index/hdr_tree.h"
+#include "index/faiss_index.h"
 
 sageFlow::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
 
@@ -35,6 +36,12 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
       break;
     case IndexType::HDRTree:
       index = std::make_shared<HDRTree>(dimension, HDRTree::Config());
+      break;
+    case IndexType::FaissIVF:
+      index = std::make_shared<FaissIndex>(dimension, "IVF100,Flat");
+      break;
+    case IndexType::FaissHNSW:
+      index = std::make_shared<FaissIndex>(dimension, "HNSW32");
       break;
     case IndexType::BruteForce:
     default:
@@ -92,6 +99,27 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
     case IndexType::HDRTree:
       index = std::make_shared<HDRTree>(dimension, HDRTree::Config());
       break;
+    case IndexType::FaissIVF:
+      if (auto* p = std::get_if<FaissIVFParameters>(&params)) {
+        std::string desc = "IVF" + std::to_string(p->nlist) + ",Flat";
+        auto faiss_idx = std::make_shared<FaissIndex>(dimension, desc);
+        faiss_idx->setParameter("nprobe", p->nprobe);
+        index = faiss_idx;
+      } else {
+        index = std::make_shared<FaissIndex>(dimension, "IVF100,Flat");
+      }
+      break;
+    case IndexType::FaissHNSW:
+      if (auto* p = std::get_if<FaissHNSWParameters>(&params)) {
+        std::string desc = "HNSW" + std::to_string(p->M);
+        auto faiss_idx = std::make_shared<FaissIndex>(dimension, desc);
+        faiss_idx->setParameter("efConstruction", p->efConstruction);
+        faiss_idx->setParameter("efSearch", p->efSearch);
+        index = faiss_idx;
+      } else {
+        index = std::make_shared<FaissIndex>(dimension, "HNSW32");
+      }
+      break;
     case IndexType::BruteForce:
     default:
       index = std::make_shared<Knn>();
@@ -121,7 +149,6 @@ auto sageFlow::ConcurrencyManager::register_index(const std::string& name, std::
     return -1;
   }
   
-  // 分配索引 ID
   index->index_id_ = index_id_counter_++;
   
   // 配置 storage_manager_（遵循索引创建规范）

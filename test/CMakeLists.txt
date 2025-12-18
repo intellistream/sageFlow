@@ -71,6 +71,7 @@ set(UNIT_TEST_SPECS
     test_join_bruteforce           UnitTest/test_join_bruteforce.cpp          300 UNIT
     test_join_ivf                  UnitTest/test_join_ivf.cpp                 300 UNIT
     test_join_hnsw                 UnitTest/test_join_hnsw.cpp                300 UNIT
+    test_faiss_index               UnitTest/test_faiss_integration.cpp              300 UNIT
     test_join_operator_state       UnitTest/test_join_operator_state.cpp      300 UNIT
     test_bruteforce_baseline       UnitTest/test_bruteforce_baseline.cpp      300 UNIT
     test_ivf_method                UnitTest/test_ivf_method.cpp               300 UNIT

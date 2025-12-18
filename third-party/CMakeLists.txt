@@ -37,6 +37,13 @@ FetchContent_Declare(
     GIT_TAG        v3.4.0
 )
 
+# faiss
+FetchContent_Declare(
+    faiss
+    GIT_REPOSITORY https://github.com/facebookresearch/faiss.git
+    GIT_TAG        v1.7.4
+)
+
 # Configure upstream projects before fetching --------------------------------
 set(BUILD_GMOCK OFF CACHE BOOL "" FORCE)
 # 只在需要测试时构建 gtest
@@ -46,17 +53,20 @@ else()
     set(BUILD_GTEST OFF CACHE BOOL "" FORCE)
 endif()
 set(SPDLOG_FMT_EXTERNAL ON CACHE BOOL "" FORCE)
+set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
+set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
+set(FAISS_OPT_LEVEL "avx2" CACHE STRING "" FORCE)
 
 # Fetch and build third-party projects ---------------------------------------
 if(BUILD_TESTING)
-    FetchContent_MakeAvailable(argparse fmt googletest spdlog tomlplusplus)
+    FetchContent_MakeAvailable(argparse fmt googletest spdlog tomlplusplus faiss)
 else()
     # 不构建测试时跳过 googletest
-    FetchContent_MakeAvailable(argparse fmt spdlog tomlplusplus)
+    FetchContent_MakeAvailable(argparse fmt spdlog tomlplusplus faiss)
 endif()
 
 # Ensure compiled libraries are position independent (shared objects, pybind11)
-foreach(_pic_target fmt spdlog)
+foreach(_pic_target fmt spdlog faiss)
     if(TARGET ${_pic_target})
         set_target_properties(${_pic_target} PROPERTIES POSITION_INDEPENDENT_CODE ON)
     endif()
@@ -64,10 +74,13 @@ endforeach()
 
 # Collect include directories exposed transitively through our interface libs
 set(_external_runtime_include_dirs "")
-foreach(_dep IN ITEMS argparse fmt spdlog tomlplusplus)
+foreach(_dep IN ITEMS argparse fmt spdlog tomlplusplus faiss)
     FetchContent_GetProperties(${_dep})
     if(${_dep}_SOURCE_DIR AND EXISTS "${${_dep}_SOURCE_DIR}/include")
         list(APPEND _external_runtime_include_dirs "${${_dep}_SOURCE_DIR}/include")
+    endif()
+    if(${_dep}_SOURCE_DIR AND EXISTS "${${_dep}_SOURCE_DIR}")
+         list(APPEND _external_runtime_include_dirs "${${_dep}_SOURCE_DIR}")
     endif()
 endforeach()
 if(_external_runtime_include_dirs)
@@ -83,6 +96,7 @@ target_link_libraries(
     fmt::fmt
     spdlog::spdlog
     tomlplusplus::tomlplusplus
+    faiss
 )
 target_compile_definitions(
     externalRuntimeLibs INTERFACE
