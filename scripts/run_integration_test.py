@@ -46,6 +46,7 @@ METHOD_FILTER_MAP = {
     'clustered_join': '*clustered_join*',
     's3j': '*s3j*',
     'vsjoin': '*vsjoin*',
+    'faiss': '*faiss*',
 }
 
 # 支持的所有方法

@@ -122,6 +122,12 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createJoinMethod(
         case JoinAlgorithm::IVF:
             return createIvfMethod(config, concurrency_manager, 
                                    left_index_id, right_index_id);
+        case JoinAlgorithm::FAISS_IVF:
+            return createIvfMethod(config, concurrency_manager, 
+                                   left_index_id, right_index_id);
+        case JoinAlgorithm::FAISS_HNSW:
+            return createHnswMethod(config, concurrency_manager, 
+                                    left_index_id, right_index_id);
         case JoinAlgorithm::HNSW:
             return createHnswMethod(config, concurrency_manager, 
                                     left_index_id, right_index_id);
@@ -433,6 +439,10 @@ IndexType JoinStrategyFactory::getIndexType(const JoinStrategyConfig& config) {
             return IndexType::BruteForce;
         case JoinAlgorithm::IVF:
             return IndexType::IVF;
+        case JoinAlgorithm::FAISS_IVF:
+            return IndexType::FaissIVF;
+        case JoinAlgorithm::FAISS_HNSW:
+            return IndexType::FaissHNSW;
         case JoinAlgorithm::HNSW:
             return IndexType::HNSW;
         case JoinAlgorithm::HDR_TREE:
@@ -457,6 +467,19 @@ IndexParameters JoinStrategyFactory::getIndexParameters(const JoinStrategyConfig
             params.nlist = config.ivf_nlist;
             params.nprobes = config.ivf_nprobes;
             params.rebuild_threshold = config.ivf_rebuild_threshold;
+            return params;
+        }
+        case JoinAlgorithm::FAISS_IVF: {
+            FaissIVFParameters params;
+            params.nlist = config.ivf_nlist;
+            params.nprobe = config.ivf_nprobes;
+            return params;
+        }
+        case JoinAlgorithm::FAISS_HNSW: {
+            FaissHNSWParameters params;
+            params.M = config.hnsw_m;
+            params.efConstruction = config.hnsw_ef_construction;
+            params.efSearch = config.hnsw_ef_search;
             return params;
         }
         case JoinAlgorithm::HNSW: {

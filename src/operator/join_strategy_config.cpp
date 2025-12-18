@@ -29,6 +29,8 @@ std::string toString(JoinAlgorithm algo) {
         case JoinAlgorithm::CLUSTERED_JOIN: return "clustered_join";
         case JoinAlgorithm::S3J: return "s3j";
         case JoinAlgorithm::VSJOIN: return "vsjoin";
+        case JoinAlgorithm::FAISS_IVF: return "faiss_ivf";
+        case JoinAlgorithm::FAISS_HNSW: return "faiss_hnsw";
         default: return "unknown";
     }
 }
@@ -71,6 +73,8 @@ JoinAlgorithm parseJoinAlgorithm(const std::string& s) {
     if (lower == "clustered_join" || lower == "clusteredjoin") return JoinAlgorithm::CLUSTERED_JOIN;
     if (lower == "s3j") return JoinAlgorithm::S3J;
     if (lower == "vsjoin") return JoinAlgorithm::VSJOIN;
+    if (lower == "faiss_ivf") return JoinAlgorithm::FAISS_IVF;
+    if (lower == "faiss_hnsw") return JoinAlgorithm::FAISS_HNSW;
     throw std::runtime_error("Unknown JoinAlgorithm: " + s);
 }
 

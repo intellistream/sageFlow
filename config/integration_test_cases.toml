@@ -398,3 +398,33 @@ two_tier_enable_boundary_tracking = true
 data_sizes = [500]
 parallelism = [2, 4]
 expected_min_recall = 0.80
+
+# ==================== FAISS 测试 ====================
+[[test_case]]
+name = "faiss_ivf_standard"
+description = "FAISS IVF implementation test"
+algorithm = "faiss_ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 10
+data_sizes = [1000]
+parallelism = [1, 2, 4]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "faiss_hnsw_standard"
+description = "FAISS HNSW implementation test"
+algorithm = "faiss_hnsw"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
+data_sizes = [1000]
+parallelism = [1, 2, 4]
+expected_min_recall = 0.90
+enabled = true

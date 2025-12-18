@@ -16,7 +16,9 @@ enum class JoinAlgorithm {
     HDR_TREE,        ///< HDR-Tree baseline
     CLUSTERED_JOIN,  ///< VectraFlow ClusteredJoin
     S3J,             ///< DEBS'23 S3J baseline
-    VSJOIN           ///< Our method
+    VSJOIN,          ///< Our method
+    FAISS_IVF,
+    FAISS_HNSW
 };
 
 /**
