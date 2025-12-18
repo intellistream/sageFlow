@@ -112,6 +112,7 @@ set(UNIT_TEST_SPECS
     test_join_integration_pipeline UnitTest/test_join_integration_pipeline.cpp 300 UNIT
     test_join_operator_strategy    UnitTest/test_join_operator_strategy.cpp   180 UNIT
     test_join_metrics              UnitTest/test_join_metrics.cpp             180 UNIT
+    test_diskann_join_method       UnitTest/test_diskann_join_method.cpp      180 UNIT
     test_report_generator          UnitTest/test_report_generator.cpp         180 UNIT
 )
 

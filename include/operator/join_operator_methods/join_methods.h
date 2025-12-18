@@ -3,4 +3,5 @@
 #include "operator/join_operator_methods/hnsw.h"
 #include "operator/join_operator_methods/hdr_tree_method.h"
 #include "operator/join_operator_methods/clustered_join_method.h"
+#include "operator/join_operator_methods/diskann.h"
 #include "operator/join_operator_methods/base_method.h"

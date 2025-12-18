@@ -19,6 +19,7 @@ add_lib(
         join_operator_methods/bruteforce.cpp
         join_operator_methods/bruteforce_baseline.cpp
         join_operator_methods/ivf.cpp
+        join_operator_methods/diskann.cpp
         join_operator_methods/hnsw.cpp
         join_operator_methods/hdr_tree_method.cpp
         join_operator_methods/clustered_join_method.cpp

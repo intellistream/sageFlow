@@ -250,12 +250,10 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
 
         if (createIndexPair(IndexType::FreshDiskANN, "join_diskann", diskann_params)) {
             use_index_ = true;
-            // Use 0.1 as default alpha for similarity calculation to match ComputeEngine and TestDataGenerator
-            constexpr double kSimilarityAlpha = 0.1;
-            join_method_ = std::make_unique<BruteForceJoinMethod>(
-                left_index_id_, right_index_id_, join_similarity_threshold_, concurrency_manager_, kSimilarityAlpha);
-            SAGEFLOW_LOG_INFO("JOIN", "FreshDiskANN mode enabled, L={} R={} alpha={} sim_alpha={}",
-                             diskann_params.L, diskann_params.R, diskann_params.alpha, kSimilarityAlpha);
+            join_method_ = std::make_unique<DiskANNJoinMethod>(
+                left_index_id_, right_index_id_, join_similarity_threshold_, concurrency_manager_);
+            SAGEFLOW_LOG_INFO("JOIN", "FreshDiskANN mode enabled, L={} R={} alpha={}",
+                             diskann_params.L, diskann_params.R, diskann_params.alpha);
         } else {
             index_kind_ = InternalIndexKind::NONE;
             use_index_ = false;
