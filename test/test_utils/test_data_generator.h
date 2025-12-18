@@ -55,6 +55,11 @@ public:
    */
   std::vector<std::vector<float>> getLastGeneratedVectors() const { return last_generated_vectors_; }
 
+  /**
+   * @brief Get the configuration used by this generator
+   */
+  const Config& getConfig() const { return config_; }
+
 private:
   Config config_; 
   std::mt19937 rng_; 

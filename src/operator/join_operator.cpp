@@ -831,7 +831,6 @@ void JoinOperator::executeJoinWithState(
     
     for (const auto& cand : candidates) {
         // 使用时间戳直接判断候选项是否在窗口范围内
-        // 这避免了与 evictExpired 的竞争条件
         if (cand->timestamp_ < window_lower_bound || cand->timestamp_ > window_upper_bound) {
             g_total_filtered_by_ts.fetch_add(1, std::memory_order_relaxed);
             continue;
