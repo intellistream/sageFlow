@@ -20,8 +20,9 @@ class FaissIndex : public Index {
    * @param dimension 向量维度
    * @param index_description Faiss 索引工厂字符串 
    * @param metric_type 度量类型 
+   * @param disable_omp 是否禁用 OpenMP
    */
-  FaissIndex(int dimension, const std::string& index_description, int metric_type = 0);
+  FaissIndex(int dimension, const std::string& index_description, int metric_type = 0, bool disable_omp = true);
 
   ~FaissIndex() override;
 

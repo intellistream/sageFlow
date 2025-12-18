@@ -46,12 +46,14 @@ struct HNSWParameters {
 struct FaissIVFParameters {
   int nlist = 100;
   int nprobe = 10;
+  bool disable_omp = true;
 };
 
 struct FaissHNSWParameters {
   int M = 32;
   int efConstruction = 40;
   int efSearch = 16;
+  bool disable_omp = true;
 };
 
 struct NoParameters {};

@@ -12,6 +12,10 @@
 #include "index/faiss_index.h"
 #include "utils/logger.h"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <faiss/Index.h>
 #include <faiss/IndexIDMap.h>
 #include <faiss/index_factory.h>
@@ -21,7 +25,10 @@
 
 namespace sageFlow {
 
-FaissIndex::FaissIndex(int dimension, const std::string& index_description, int metric_type) {
+FaissIndex::FaissIndex(int dimension, const std::string& index_description, int metric_type, bool disable_omp) {
+  #ifdef _OPENMP
+  if (disable_omp) { omp_set_num_threads(1); }
+  #endif
   faiss::MetricType metric = (metric_type == 1) ? faiss::METRIC_INNER_PRODUCT : faiss::METRIC_L2;
   
   try {

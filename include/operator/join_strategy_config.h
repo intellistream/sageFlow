@@ -111,6 +111,13 @@ struct JoinStrategyConfig {
     // ==================== 双层窗口参数 ====================
     size_t two_tier_compact_threshold = 100;  ///< 双层窗口压缩阈值
     bool two_tier_enable_boundary_tracking = true;  ///< 是否启用边界追踪
+
+    // ==================== FAISS 参数 ====================
+    bool faiss_disable_omp = true;  ///< 是否禁用 FAISS 内部的 OpenMP 并行
+    
+    /**
+     * @brief 验证配置的一致性
+    bool two_tier_enable_boundary_tracking = true;  ///< 是否启用边界追踪
     
     /**
      * @brief 验证配置的一致性

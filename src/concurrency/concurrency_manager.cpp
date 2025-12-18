@@ -102,7 +102,7 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
     case IndexType::FaissIVF:
       if (auto* p = std::get_if<FaissIVFParameters>(&params)) {
         std::string desc = "IVF" + std::to_string(p->nlist) + ",Flat";
-        auto faiss_idx = std::make_shared<FaissIndex>(dimension, desc);
+        auto faiss_idx = std::make_shared<FaissIndex>(dimension, desc, 0, p->disable_omp);
         faiss_idx->setParameter("nprobe", p->nprobe);
         index = faiss_idx;
       } else {
@@ -112,7 +112,7 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
     case IndexType::FaissHNSW:
       if (auto* p = std::get_if<FaissHNSWParameters>(&params)) {
         std::string desc = "HNSW" + std::to_string(p->M);
-        auto faiss_idx = std::make_shared<FaissIndex>(dimension, desc);
+        auto faiss_idx = std::make_shared<FaissIndex>(dimension, desc, 0, p->disable_omp);
         faiss_idx->setParameter("efConstruction", p->efConstruction);
         faiss_idx->setParameter("efSearch", p->efSearch);
         index = faiss_idx;

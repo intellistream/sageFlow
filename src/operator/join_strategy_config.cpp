@@ -386,6 +386,11 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     if (auto ebt = node["two_tier_enable_boundary_tracking"].value<bool>()) {
         config.two_tier_enable_boundary_tracking = *ebt;
     }
+
+    // FAISS 参数
+    if (auto fdo = node["faiss_disable_omp"].value<bool>()) {
+        config.faiss_disable_omp = *fdo;
+    }
 }
 
 JoinStrategyConfig loadJoinStrategyConfig(const std::string& config_path) {

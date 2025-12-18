@@ -473,6 +473,7 @@ IndexParameters JoinStrategyFactory::getIndexParameters(const JoinStrategyConfig
             FaissIVFParameters params;
             params.nlist = config.ivf_nlist;
             params.nprobe = config.ivf_nprobes;
+            params.disable_omp = config.faiss_disable_omp;
             return params;
         }
         case JoinAlgorithm::FAISS_HNSW: {
@@ -480,6 +481,7 @@ IndexParameters JoinStrategyFactory::getIndexParameters(const JoinStrategyConfig
             params.M = config.hnsw_m;
             params.efConstruction = config.hnsw_ef_construction;
             params.efSearch = config.hnsw_ef_search;
+            params.disable_omp = config.faiss_disable_omp;
             return params;
         }
         case JoinAlgorithm::HNSW: {
