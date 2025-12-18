@@ -398,6 +398,7 @@ data_sizes = [1000]
 parallelism = [1, 2, 4]
 expected_min_recall = 0.90
 enabled = true
+<<<<<<< HEAD
 
 
 # ==================== FAISS OMP Comparison Tests ====================
@@ -462,3 +463,4 @@ data_sizes = [10000]
 parallelism = [1]
 expected_min_recall = 0.85
 enabled = true
+
