@@ -3,7 +3,7 @@
 # Using smaller dataset size optimized for CI environment
 name = "ci_perf_join_parallel_test"
 mode = "generate_direct_use"
-methods = ["bruteforce", "ivf"]
+methods = ["bruteforce", "ivf", "hdr_tree"]
 sizes = [1000]  # Smaller size for CI - fast execution while testing parallelism
 records_count = 1000
 vector_dim = 64
@@ -13,6 +13,13 @@ window_trigger_ms = 50
 time_interval = 10
 similarity_threshold = 0.8
 seed = 42
+
+# HDR-Tree specific parameters
+[performance_test.hdr_tree_params]
+projected_dim = 8
+max_node_size = 100
+delta_buffer_size = 1000
+pca_sample_size = 3000  # Smaller for CI
 
 [performance_test.data_source]
 type = "random"

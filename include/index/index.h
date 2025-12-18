@@ -37,6 +37,11 @@ struct HDRForestParameters {
   int f_sections = 5;
 };
 
+struct HDRForestParameters {
+  int n_clusters = 10;
+  int f_sections = 5;
+};
+
 struct HNSWParameters {
   int m = 20;
   int ef_construction = 100;
@@ -57,7 +62,7 @@ struct FaissHNSWParameters {
 struct NoParameters {};
 
 // Variant to hold any index parameters
-using IndexParameters = std::variant<NoParameters, IVFParameters, HNSWParameters, HDRForestParameters, FaissIVFParameters, FaissHNSWParameters>;
+using IndexParameters = std::variant<NoParameters, IVFParameters, HNSWParameters>;
 
 class Index {
  public:

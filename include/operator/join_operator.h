@@ -12,6 +12,7 @@
 #include "common/data_types.h"
 #include "operator/operator.h"
 #include "operator/join_operator_methods/base_method.h"
+#include "operator/join_strategy_config.h"
 #include "concurrency/concurrency_manager.h"
 #include "state/window_state.h"
 #include "state/partitioned_window_state.h"
@@ -51,13 +52,36 @@ struct VSJoinConfig {
 
   class JoinOperator final : public Operator {
    public:
+    /**
+     * @brief 使用方法名字符串构造 JoinOperator（向后兼容）
+     */
     explicit JoinOperator(std::unique_ptr<Function> &join_func,
                           const std::shared_ptr<ConcurrencyManager> &concurrency_manager,
                           const std::string& join_method_name = "bruteforce",
                           double join_similarity_threshold = 0.8,
                           bool enable_profiling = false,
                           const std::string& profile_output_path = "",
-                          bool use_shared_state = false);  // 新增参数
+                          bool use_shared_state = false);
+
+    /**
+     * @brief 使用策略配置构造 JoinOperator（E-01 新增）
+     *
+     * 通过 JoinStrategyConfig 创建完整的 Join 策略，包括：
+     * - JoinMethod（通过 JoinStrategyFactory）
+     * - WindowState（左右两侧）
+     * - 索引（共享或分区）
+     *
+     * @param join_func Join 函数
+     * @param concurrency_manager 并发管理器
+     * @param config 策略配置
+     * @param enable_profiling 是否启用性能分析
+     * @param profile_output_path 性能分析输出路径
+     */
+    explicit JoinOperator(std::unique_ptr<Function> &join_func,
+                          const std::shared_ptr<ConcurrencyManager> &concurrency_manager,
+                          const JoinStrategyConfig& config,
+                          bool enable_profiling = false,
+                          const std::string& profile_output_path = "");
 
     auto open() -> void override;
     
@@ -166,6 +190,18 @@ struct VSJoinConfig {
     int64_t logicalWindowLowerBound(int64_t reference_timestamp) const;
     bool isRecordFresh(const std::unique_ptr<VectorRecord>& record, int64_t logical_lower_bound) const;
 
+    /**
+     * @brief E-01: 使用策略配置初始化 JoinOperator
+     *
+     * 通过 JoinStrategyFactory 创建所有必要的组件：
+     * - JoinMethod
+     * - WindowState (左右两侧)
+     * - 索引
+     *
+     * @param context 运行时上下文
+     */
+    void initializeWithStrategyConfig(const RuntimeContext& context);
+
     // 使用 WindowState 获取候选项的辅助方法
     std::vector<std::unique_ptr<VectorRecord>> getCandidatesFromState(
         const VectorRecord* data_ptr,
@@ -203,6 +239,11 @@ struct VSJoinConfig {
     std::unique_ptr<WindowState> left_state_;
     std::unique_ptr<WindowState> right_state_;
     bool use_shared_state_ = false;  // 是否使用共享状态模式
+
+    // E-01: 策略配置支持
+    JoinStrategyConfig strategy_config_;       // 策略配置
+    bool use_strategy_config_ = false;         // 是否使用策略配置模式
+    size_t parallelism_ = 1;                   // 并行度（从 RuntimeContext 获取）
 
     // 线程安全的初始化标志
     std::once_flag init_flag_;
