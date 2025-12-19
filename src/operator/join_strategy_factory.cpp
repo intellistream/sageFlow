@@ -56,12 +56,28 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
         }
         throw std::runtime_error(oss.str());
     }
+
+    // 检查混合并行情况（算子并行度 > 1 且 FAISS OMP 已启用）
+    // 如果检测到这种情况，我们将强制禁用 FAISS OMP 以避免线程争用。
+    // effective_config 是配置的副本，仅用于修改 FAISS 相关的设置（如禁用 OMP），
+    // 而原始 config 将用于创建 WindowState 和 Partitioner，以确保不影响其他组件的功能。
+    JoinStrategyConfig effective_config = config;
+    bool is_faiss_algo = (config.algorithm == JoinAlgorithm::FAISS_IVF || 
+                          config.algorithm == JoinAlgorithm::FAISS_HNSW);
+    
+    if (is_faiss_algo && !config.faiss_disable_omp && parallelism > 1) {
+        SAGEFLOW_LOG_WARN("JOIN_FACTORY", 
+            "Detected hybrid parallelism: Operator Parallelism={} with FAISS OMP enabled. "
+            "Forcing FAISS OMP disabled to avoid thread contention and scheduling chaos. "
+            "To use OMP, set parallelism=1.", parallelism);
+        effective_config.faiss_disable_omp = true;
+    }
     
     StrategyComponents components;
     
     // 2. 创建索引对（如果使用共享索引）
-    if (config.index_strategy == IndexStrategy::SHARED) {
-        if (!createIndexPair(config, concurrency_manager, 
+    if (effective_config.index_strategy == IndexStrategy::SHARED) {
+        if (!createIndexPair(effective_config, concurrency_manager, 
                             components.left_index_id, components.right_index_id)) {
             SAGEFLOW_LOG_WARN("JOIN_FACTORY", "Failed to create shared index pair, "
                              "will proceed without index");
@@ -69,7 +85,7 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
     }
     
     // 3. 创建 JoinMethod
-    components.join_method = createJoinMethod(config, concurrency_manager,
+    components.join_method = createJoinMethod(effective_config, concurrency_manager,
                                              components.left_index_id,
                                              components.right_index_id);
     
@@ -80,8 +96,8 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
     // 5. 创建 Partitioner
     components.partitioner = createPartitioner(config);
     
-    // 6. 创建算法特定组件
-    switch (config.algorithm) {
+    // 6. 创src/operator/join_strategy_factory.cppsrc/operator/join_strategy_factory.cpp
+    switch (effective_config.algorithm) {
         case JoinAlgorithm::VSJOIN: {
             // VSJoin 需要 VectorSpacePartitioner
             components.vector_partitioner = createVectorSpacePartitioner(config);
@@ -100,9 +116,9 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
     }
     
     SAGEFLOW_LOG_INFO("JOIN_FACTORY", "Created strategy components: algorithm={} partition={} window_state={}",
-                     toString(config.algorithm),
-                     toString(config.partition_strategy),
-                     toString(config.window_state_type));
+                     toString(effective_config.algorithm),
+                     toString(effective_config.partition_strategy),
+                     toString(effective_config.window_state_type));
     
     return components;
 }
@@ -252,7 +268,7 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createVSJoinMethod(
     std::shared_ptr<ConcurrencyManager> cm,
     int left_idx, int right_idx) {
     
-    // VSJoin 暂时使用 BruteForce 作为基础
+    // VSJoin 暂时使用 BruteForce 作为基
     // TODO: 实现完整的 VSJoin 方法
     // Issue URL: https://github.com/intellistream/sageFlow/issues/78
     SAGEFLOW_LOG_WARN("JOIN_FACTORY", "VSJoin method is not fully implemented yet, "
@@ -279,7 +295,6 @@ std::unique_ptr<WindowState> JoinStrategyFactory::createWindowState(
                 config.two_tier_compact_threshold);
             
         case WindowStateType::PARTITIONED_VECTOR: {
-            // 需要先创建 VectorSpacePartitioner
             auto vsp = createVectorSpacePartitioner(config);
             return std::make_unique<PartitionedVectorState>(
                 static_cast<size_t>(config.num_partitions),

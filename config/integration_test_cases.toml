@@ -428,3 +428,67 @@ data_sizes = [1000]
 parallelism = [1, 2, 4]
 expected_min_recall = 0.90
 enabled = true
+
+
+# ==================== FAISS OMP Comparison Tests ====================
+[[test_case]]
+name = "faiss_ivf_omp_on"
+description = "FAISS IVF with OMP enabled"
+algorithm = "faiss_ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 10
+faiss_disable_omp = false
+data_sizes = [10000]
+parallelism = [1]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "faiss_ivf_omp_off"
+description = "FAISS IVF with OMP disabled"
+algorithm = "faiss_ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 10
+faiss_disable_omp = true
+data_sizes = [10000]
+parallelism = [1]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "faiss_hnsw_omp_on"
+description = "FAISS HNSW with OMP enabled"
+algorithm = "faiss_hnsw"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
+faiss_disable_omp = false
+data_sizes = [10000]
+parallelism = [1]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "faiss_hnsw_omp_off"
+description = "FAISS HNSW with OMP disabled"
+algorithm = "faiss_hnsw"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
+faiss_disable_omp = true
+data_sizes = [10000]
+parallelism = [1]
+expected_min_recall = 0.85
+enabled = true

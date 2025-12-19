@@ -285,13 +285,27 @@ protected:
             // 大幅减少数据量以加快测试（Ground Truth 计算是 O(N²)）
             // 限制总数据量不超过 100 条以确保测试在合理时间内完成
             double scale_factor = std::min(0.2, static_cast<double>(data_size) / 500.0);
+            // 修改：针对 FAISS 基准测试不进行数据缩放，使用完整数据量以获取准确的性能指标
+            bool is_benchmark = test_case_.name.find("faiss") != std::string::npos;
+            if (is_benchmark) {
+                scale_factor = 1.0;
+            }
             
             TestDataGenerator::Config gen_config;
             gen_config.vector_dim = test_case_.vector_dim;
-            gen_config.positive_pairs = std::max(5, std::min(20, static_cast<int>(test_case_.positive_pairs * scale_factor)));
-            gen_config.near_threshold_pairs = std::max(2, std::min(5, static_cast<int>(test_case_.near_threshold_pairs * scale_factor)));
-            gen_config.negative_pairs = std::max(5, std::min(20, static_cast<int>(test_case_.negative_pairs * scale_factor)));
-            gen_config.random_tail = std::max(5, std::min(30, static_cast<int>(data_size * 0.1)));  // 添加少量随机尾部数据
+            if (is_benchmark) {
+                // 基准测试：使用配置文件中定义的完整数据量
+                gen_config.positive_pairs = test_case_.positive_pairs;
+                gen_config.near_threshold_pairs = test_case_.near_threshold_pairs;
+                gen_config.negative_pairs = test_case_.negative_pairs;
+                gen_config.random_tail = static_cast<int>(data_size * 0.1);
+            } else {
+                // 普通测试：缩减数据量以加速 Ground Truth (O(N^2)) 计算
+                gen_config.positive_pairs = std::max(5, std::min(20, static_cast<int>(test_case_.positive_pairs * scale_factor)));
+                gen_config.near_threshold_pairs = std::max(2, std::min(5, static_cast<int>(test_case_.near_threshold_pairs * scale_factor)));
+                gen_config.negative_pairs = std::max(5, std::min(20, static_cast<int>(test_case_.negative_pairs * scale_factor)));
+                gen_config.random_tail = std::max(5, std::min(30, static_cast<int>(data_size * 0.1)));  // 添加少量随机尾部数据
+            }
             gen_config.similarity_threshold = test_case_.strategy.similarity_threshold;
             gen_config.alpha = test_case_.alpha;
             gen_config.seed = test_case_.seed;
