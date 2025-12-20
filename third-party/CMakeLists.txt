@@ -57,8 +57,8 @@ set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
 set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
 set(FAISS_OPT_LEVEL "avx2" CACHE STRING "" FORCE)
 
-# Force FindBLAS to use Generic (Netlib) BLAS if MKL is not found/working
-set(BLA_VENDOR "Generic" CACHE STRING "" FORCE)
+# Use pkg-config to find BLAS/LAPACK (fixes detection on CI and some local envs)
+set(BLA_PREFER_PKGCONFIG ON CACHE BOOL "" FORCE)
 
 # Fetch and build third-party projects ---------------------------------------
 if(BUILD_TESTING)
