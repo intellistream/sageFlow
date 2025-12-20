@@ -57,6 +57,9 @@ set(FAISS_ENABLE_GPU OFF CACHE BOOL "" FORCE)
 set(FAISS_ENABLE_PYTHON OFF CACHE BOOL "" FORCE)
 set(FAISS_OPT_LEVEL "avx2" CACHE STRING "" FORCE)
 
+# 强制指定 BLAS 厂商为 OpenBLAS，防止 CI 环境中 CMake 错误查找
+set(BLA_VENDOR "OpenBLAS" CACHE STRING "" FORCE)
+
 # Use pkg-config to find BLAS/LAPACK (fixes detection on CI and some local envs)
 set(BLA_PREFER_PKGCONFIG ON CACHE BOOL "" FORCE)
 

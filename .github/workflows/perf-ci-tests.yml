@@ -41,6 +41,8 @@ jobs:
             build-essential \
             cmake \
             pkg-config \
+            libopenblas-dev \
+            liblapack-dev \
             libaio-dev \
             libgoogle-perftools-dev \
             libunwind-dev \

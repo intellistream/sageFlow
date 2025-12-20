@@ -42,6 +42,8 @@ jobs:
             cmake \
             pkg-config \
             libaio-dev \
+            libopenblas-dev \
+            liblapack-dev \
             libgoogle-perftools-dev \
             libunwind-dev \
             libboost-dev \
