@@ -12,7 +12,7 @@
 #include "state/two_tier_window_state.h"
 #include "state/partitioned_vector_state.h"
 #include "execution/vector_space_partitioner.h"
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 
 namespace sageFlow {
 namespace {

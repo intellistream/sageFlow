@@ -1,5 +1,5 @@
 #include "operator/join_operator_methods/bruteforce.h"
-#include "operator/join_method_registry.h"
+#include "operator/utils/join_method_registry.h"
 #include <unordered_set>
 #include <deque>
 #include "spdlog/spdlog.h"

@@ -28,11 +28,8 @@ jobs:
         uses: alstr/todo-to-issue-action@v5
         with:
           INSERT_ISSUE_URLS: "true"
-          # 修复：使用正确的JSON格式，去掉换行符
-          commits: '["${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"]'
-          # 或者更简单的方式，直接使用字符串：
-          # commits: '"${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }}"'
-          DIFF_URL: ""
+          # 对于 PR 事件，action 会自动检测 diff，无需手动指定 commits
+          # 移除 DIFF_URL 和 commits 参数，让 action 使用默认的 GitHubClient 模式
 
       - name: Set Git User
         shell: bash

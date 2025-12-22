@@ -6,7 +6,7 @@
 #pragma once
 
 #include "state/window_state.h"
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 
 #include <memory>
 

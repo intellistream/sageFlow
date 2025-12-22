@@ -1,4 +1,4 @@
-#include "operator/join_strategy_factory.h"
+#include "operator/utils/join_strategy_factory.h"
 
 #include "operator/join_operator_methods/bruteforce.h"
 #include "operator/join_operator_methods/ivf.h"

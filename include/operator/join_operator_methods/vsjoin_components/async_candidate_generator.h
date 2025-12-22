@@ -2,7 +2,7 @@
 
 #include "common/data_types.h"
 #include "index/index.h"
-#include "operator/distance_verifier.h"
+#include "operator/join_operator_methods/vsjoin_components/distance_verifier.h"
 
 #include <atomic>
 #include <condition_variable>

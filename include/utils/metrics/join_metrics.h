@@ -46,6 +46,14 @@ struct JoinMetrics {
   std::atomic<uint64_t> e2e_latency_ns{0};        ///< Cumulative end-to-end latency
   std::atomic<uint64_t> e2e_latency_count{0};     ///< Number of latency measurements
 
+  // QIQ 策略三阶段统计（包括锁等待时间）
+  std::atomic<uint64_t> qiq_q1_ns{0};             ///< Query1 阶段总耗时（含锁等待）
+  std::atomic<uint64_t> qiq_q1_count{0};          ///< Query1 调用次数
+  std::atomic<uint64_t> qiq_insert_ns{0};         ///< Insert 阶段总耗时（含锁等待）
+  std::atomic<uint64_t> qiq_insert_count{0};      ///< Insert 调用次数
+  std::atomic<uint64_t> qiq_q2_ns{0};             ///< Query2 阶段总耗时（含锁等待）
+  std::atomic<uint64_t> qiq_q2_count{0};          ///< Query2 调用次数
+
   /**
    * @brief Get singleton instance of JoinMetrics
    * @return Reference to the global JoinMetrics instance
@@ -64,6 +72,7 @@ struct JoinMetrics {
     total_records_left = total_records_right = total_emits = 0;
     window_records_left_completed = window_records_right_completed = 0;
     apply_processing_ns = apply_processing_count = e2e_latency_ns = e2e_latency_count = 0;
+    qiq_q1_ns = qiq_q1_count = qiq_insert_ns = qiq_insert_count = qiq_q2_ns = qiq_q2_count = 0;
   }
   
   /**
@@ -84,6 +93,8 @@ struct JoinMetrics {
     EMIT(window_records_left_completed) EMIT(window_records_right_completed)
     EMIT(apply_processing_ns) EMIT(apply_processing_count)
     EMIT(e2e_latency_ns) EMIT(e2e_latency_count)
+    EMIT(qiq_q1_ns) EMIT(qiq_q1_count) EMIT(qiq_insert_ns) EMIT(qiq_insert_count)
+    EMIT(qiq_q2_ns) EMIT(qiq_q2_count)
 #undef EMIT
   }
 };

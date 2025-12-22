@@ -3,7 +3,7 @@
 // Task C-06: JoinConfigValidator 配置验证与错误处理
 //
 
-#include "operator/join_config_validator.h"
+#include "operator/utils/join_config_validator.h"
 #include "utils/logger.h"
 
 #include <sstream>

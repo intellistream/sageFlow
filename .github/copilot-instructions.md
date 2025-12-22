@@ -105,6 +105,45 @@ double recall = helper.computeRecall(results, ground_truth);
 
 ---
 
+## Testing Infrastructure
+
+### Integration Tests (Long-term Maintained)
+**Script**: `scripts/run_integration_test.py`
+**Test Binary**: `build/bin/test_join_baseline_integration`
+
+```bash
+# Run specific methods
+python scripts/run_integration_test.py --methods bruteforce ivf hdr_tree
+
+# Run all methods with visualization
+python scripts/run_integration_test.py --methods all --visualize
+
+# Override parallelism and data sizes
+python scripts/run_integration_test.py --methods bruteforce --parallelism 1 2 4 --data-sizes 500 1000
+```
+
+### Performance Tests (Long-term Maintained)
+**Test Binary**: `build/bin/test_join_datasource_modes`
+**Config**: `config/perf_join_datasource_modes.toml`
+
+```bash
+# Run all configured tests (bruteforce, ivf, hdr_tree)
+./build/bin/test_join_datasource_modes
+
+# Filter specific method
+./build/bin/test_join_datasource_modes --gtest_filter="*bruteforce*"
+
+# Filter specific parallelism
+./build/bin/test_join_datasource_modes --gtest_filter="*_p4_*"
+```
+
+**Output**:
+- Results: `test/result/datasource_modes/`
+- Reports: `test/result/datasource_modes_report.tsv`
+- Metrics: `build/metrics/`
+
+---
+
 ## AI Agent Guidelines
 
 ### MUST DO
