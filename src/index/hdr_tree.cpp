@@ -321,16 +321,27 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
   const auto& entries = node->entries;
   if (entries.size() < 2) return nullptr;
 
+  // 首先过滤掉不在 uid_to_projected_ 中的条目（可能已被删除）
+  std::vector<uint64_t> valid_entries;
+  for (const auto& uid : entries) {
+    if (uid_to_projected_.find(uid) != uid_to_projected_.end()) {
+      valid_entries.push_back(uid);
+    }
+  }
+  
+  if (valid_entries.size() < 2) {
+    // 没有足够的有效条目进行分裂，保留原状
+    node->entries = std::move(valid_entries);
+    return nullptr;
+  }
+
   // 1. 选择种子节点
   size_t seed1 = 0, seed2 = 1;
   float max_wasted_area = -1.0F;
 
-  for (size_t i = 0; i < entries.size(); ++i) {
-    for (size_t j = i + 1; j < entries.size(); ++j) {
-      if (uid_to_projected_.find(entries[i]) == uid_to_projected_.end()) continue;
-      if (uid_to_projected_.find(entries[j]) == uid_to_projected_.end()) continue;
-      
-      float dist = euclideanDistance(uid_to_projected_[entries[i]], uid_to_projected_[entries[j]]);
+  for (size_t i = 0; i < valid_entries.size(); ++i) {
+    for (size_t j = i + 1; j < valid_entries.size(); ++j) {
+      float dist = euclideanDistance(uid_to_projected_[valid_entries[i]], uid_to_projected_[valid_entries[j]]);
       if (dist > max_wasted_area) {
         max_wasted_area = dist;
         seed1 = i;
@@ -343,23 +354,19 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
 
   // 优化：如果所有点重合 (max_wasted_area ~ 0)，强制平分
   if (max_wasted_area <= std::numeric_limits<float>::epsilon()) {
-      size_t mid = entries.size() / 2;
-      for(size_t i=0; i<entries.size(); ++i) {
-          if (i < mid) group1.push_back(entries[i]);
-          else group2.push_back(entries[i]);
+      size_t mid = valid_entries.size() / 2;
+      for(size_t i=0; i<valid_entries.size(); ++i) {
+          if (i < mid) group1.push_back(valid_entries[i]);
+          else group2.push_back(valid_entries[i]);
       }
       
       if (!group1.empty()) {
-          if (uid_to_projected_.count(group1[0])) {
-            node->mbr_low = uid_to_projected_[group1[0]];
-            node->mbr_high = node->mbr_low;
-          }
+          node->mbr_low = uid_to_projected_[group1[0]];
+          node->mbr_high = node->mbr_low;
       }
       if (!group2.empty()) {
-          if (uid_to_projected_.count(group2[0])) {
-            new_node->mbr_low = uid_to_projected_[group2[0]];
-            new_node->mbr_high = new_node->mbr_low;
-          }
+          new_node->mbr_low = uid_to_projected_[group2[0]];
+          new_node->mbr_high = new_node->mbr_low;
       }
       
       node->entries = std::move(group1);
@@ -367,54 +374,54 @@ std::unique_ptr<HDRTree::RTreeNode> HDRTree::splitLeafNode(RTreeNode* node) {
       return new_node;
   }
 
-  group1.push_back(entries[seed1]);
-  group2.push_back(entries[seed2]);
+  group1.push_back(valid_entries[seed1]);
+  group2.push_back(valid_entries[seed2]);
 
   // 初始化 MBR
-  std::vector<float> mbr1_low = uid_to_projected_[entries[seed1]];
+  std::vector<float> mbr1_low = uid_to_projected_[valid_entries[seed1]];
   std::vector<float> mbr1_high = mbr1_low;
-  std::vector<float> mbr2_low = uid_to_projected_[entries[seed2]];
+  std::vector<float> mbr2_low = uid_to_projected_[valid_entries[seed2]];
   std::vector<float> mbr2_high = mbr2_low;
 
-  std::vector<bool> assigned(entries.size(), false);
+  std::vector<bool> assigned(valid_entries.size(), false);
   assigned[seed1] = true;
   assigned[seed2] = true;
   int assigned_count = 2;
 
-  while (assigned_count < static_cast<int>(entries.size())) {
-    if (config_.rtree_min_entries - static_cast<int>(group1.size()) == static_cast<int>(entries.size()) - assigned_count) {
-      for (size_t i = 0; i < entries.size(); ++i) {
-        if (!assigned[i]) group1.push_back(entries[i]);
+  while (assigned_count < static_cast<int>(valid_entries.size())) {
+    if (config_.rtree_min_entries - static_cast<int>(group1.size()) == static_cast<int>(valid_entries.size()) - assigned_count) {
+      for (size_t i = 0; i < valid_entries.size(); ++i) {
+        if (!assigned[i]) group1.push_back(valid_entries[i]);
       }
       break;
     }
-    if (config_.rtree_min_entries - static_cast<int>(group2.size()) == static_cast<int>(entries.size()) - assigned_count) {
-      for (size_t i = 0; i < entries.size(); ++i) {
-        if (!assigned[i]) group2.push_back(entries[i]);
+    if (config_.rtree_min_entries - static_cast<int>(group2.size()) == static_cast<int>(valid_entries.size()) - assigned_count) {
+      for (size_t i = 0; i < valid_entries.size(); ++i) {
+        if (!assigned[i]) group2.push_back(valid_entries[i]);
       }
       break;
     }
 
     int best_idx = -1;
-    for (size_t i = 0; i < entries.size(); ++i) {
+    for (size_t i = 0; i < valid_entries.size(); ++i) {
       if (assigned[i]) continue;
       best_idx = i;
       break; 
     }
 
     if (best_idx != -1) {
-      const auto& pt = uid_to_projected_[entries[best_idx]];
-      float d1 = euclideanDistance(pt, uid_to_projected_[entries[seed1]]);
-      float d2 = euclideanDistance(pt, uid_to_projected_[entries[seed2]]);
+      const auto& pt = uid_to_projected_[valid_entries[best_idx]];
+      float d1 = euclideanDistance(pt, uid_to_projected_[valid_entries[seed1]]);
+      float d2 = euclideanDistance(pt, uid_to_projected_[valid_entries[seed2]]);
       
       if (d1 < d2) {
-        group1.push_back(entries[best_idx]);
+        group1.push_back(valid_entries[best_idx]);
         for(size_t k=0; k<mbr1_low.size(); ++k) {
             mbr1_low[k] = std::min(mbr1_low[k], pt[k]);
             mbr1_high[k] = std::max(mbr1_high[k], pt[k]);
         }
       } else {
-        group2.push_back(entries[best_idx]);
+        group2.push_back(valid_entries[best_idx]);
         for(size_t k=0; k<mbr2_low.size(); ++k) {
             mbr2_low[k] = std::min(mbr2_low[k], pt[k]);
             mbr2_high[k] = std::max(mbr2_high[k], pt[k]);

@@ -22,7 +22,7 @@ auto sageFlow::BlankController::insert(std::unique_ptr<VectorRecord> record) -> 
   const auto uid = record->uid_;
   storage_manager_->insert(std::move(record));
   // gpu insert
-  return index_->insert(uid);;
+  return index_->insert(uid);
 }
 
 auto sageFlow::BlankController::erase(std::unique_ptr<VectorRecord> record) -> bool { return true; }

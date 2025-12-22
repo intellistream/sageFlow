@@ -9,8 +9,8 @@
 #include <memory>
 
 #include "operator/join_operator.h"
-#include "operator/join_strategy_config.h"
-#include "operator/join_config_validator.h"
+#include "operator/utils/join_strategy_config.h"
+#include "operator/utils/join_config_validator.h"
 #include "function/join_function.h"
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"

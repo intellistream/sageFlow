@@ -10,7 +10,7 @@
 #include "stream/data_stream_source/data_stream_source.h"
 #include "function/join_function.h"
 #include "function/sink_function.h"
-#include "operator/join_config_validator.h"
+#include "operator/utils/join_config_validator.h"
 #include "operator/join_metrics.h"
 #include "utils/logger.h"
 
@@ -54,12 +54,16 @@ public:
         std::shared_ptr<DataStreamSource> right_source,
         std::shared_ptr<MatchCollectorSink> sink,
         const JoinStrategyConfig& config,
-        int parallelism)
+        int parallelism,
+        size_t expected_left = 0,
+        size_t expected_right = 0)
         : left_source_(std::move(left_source))
         , right_source_(std::move(right_source))
         , sink_(std::move(sink))
         , config_(config)
-        , parallelism_(parallelism) {}
+        , parallelism_(parallelism)
+        , expected_left_(expected_left)
+        , expected_right_(expected_right) {}
     
     PipelineExecutionResult execute() override {
         PipelineExecutionResult result;
@@ -168,31 +172,55 @@ private:
         
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
         
-        // 等待输入被处理（检查 total_records 计数）
-        // 注意：不能等待 completed 计数，因为在短窗口内记录可能不会过期
-        uint64_t expected_records = 0;  // 我们不知道预期数量，所以等待输出稳定
+        // 策略：等待所有输入被处理，然后等待短暂的输出稳定期
+        // 这与 test_join_datasource_modes 的等待策略保持一致
         
-        // 等待第一条输入被处理
-        for (;;) {
-            uint64_t total_left = JoinMetrics::instance().total_records_left.load();
-            uint64_t total_right = JoinMetrics::instance().total_records_right.load();
-            
-            if (total_left > 0 && total_right > 0) {
-                break;  // 至少有一些输入已处理
+        // 阶段1：等待所有输入被处理
+        if (expected_left_ > 0 && expected_right_ > 0) {
+            // 已知预期数量，等待所有输入被处理
+            for (;;) {
+                uint64_t total_left = JoinMetrics::instance().total_records_left.load();
+                uint64_t total_right = JoinMetrics::instance().total_records_right.load();
+                
+                // 检查是否所有输入都已处理
+                bool inputs_drained = (total_left >= expected_left_ && total_right >= expected_right_);
+                if (inputs_drained) {
+                    break;
+                }
+                
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    SAGEFLOW_LOG_WARN("PipelineHelper", 
+                        "Timeout waiting for input processing: left={}/{} right={}/{}",
+                        total_left, expected_left_, total_right, expected_right_);
+                    break;
+                }
+                
+                std::this_thread::sleep_for(5ms);
             }
-            
-            if (std::chrono::steady_clock::now() >= deadline) {
-                SAGEFLOW_LOG_WARN("PipelineHelper", 
-                    "Timeout waiting for input processing");
-                break;
+        } else {
+            // 未知预期数量，等待至少有一些输入被处理
+            for (;;) {
+                uint64_t total_left = JoinMetrics::instance().total_records_left.load();
+                uint64_t total_right = JoinMetrics::instance().total_records_right.load();
+                
+                if (total_left > 0 && total_right > 0) {
+                    break;
+                }
+                
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    SAGEFLOW_LOG_WARN("PipelineHelper", 
+                        "Timeout waiting for input processing");
+                    break;
+                }
+                
+                std::this_thread::sleep_for(5ms);
             }
-            
-            std::this_thread::sleep_for(5ms);
         }
         
-        // 等待输出稳定（连续一段时间没有新输出）
-        const auto stable_window = 200ms;  // 需要更长的稳定时间
-        const auto max_wait = std::chrono::seconds(10);
+        // 阶段2：等待输出稳定（短暂的稳定期）
+        // 使用较短的稳定窗口（50ms），与 test_join_datasource_modes 一致
+        const auto stable_window = 50ms;
+        const auto max_wait = std::chrono::seconds(5);
         uint64_t last = JoinMetrics::instance().total_emits.load();
         auto stable_since = std::chrono::steady_clock::now();
         auto end_by = std::chrono::steady_clock::now() + max_wait;
@@ -215,6 +243,8 @@ private:
     std::shared_ptr<MatchCollectorSink> sink_;
     JoinStrategyConfig config_;
     int parallelism_;
+    size_t expected_left_ = 0;
+    size_t expected_right_ = 0;
 };
 
 // ==================== MatchCollectorSink 实现 ====================
@@ -275,13 +305,27 @@ JoinIntegrationPipelineHelper::createPipeline(
     const JoinStrategyConfig& config,
     int parallelism) {
     
+    // 记录预期的记录数（在移动之前）
+    size_t expected_left = left_stream.size();
+    size_t expected_right = right_stream.size();
+    
     // 创建内存数据源
     auto left_source = std::make_shared<TestVectorStreamSource>(
         "IntegrationLeft", std::move(left_stream));
     auto right_source = std::make_shared<TestVectorStreamSource>(
         "IntegrationRight", std::move(right_stream));
     
-    return createPipeline(left_source, right_source, config, parallelism);
+    // 创建结果收集器
+    auto sink = std::make_shared<MatchCollectorSink>();
+    
+    return std::make_unique<ExecutableTestPipelineImpl>(
+        std::move(left_source),
+        std::move(right_source),
+        std::move(sink),
+        config,
+        parallelism,
+        expected_left,
+        expected_right);
 }
 
 std::unique_ptr<ExecutableTestPipeline> 
@@ -294,12 +338,15 @@ JoinIntegrationPipelineHelper::createPipeline(
     // 创建结果收集器
     auto sink = std::make_shared<MatchCollectorSink>();
     
+    // 注意：这个重载不知道预期记录数，将使用默认值（等待输出稳定）
     return std::make_unique<ExecutableTestPipelineImpl>(
         std::move(left_source),
         std::move(right_source),
         std::move(sink),
         config,
-        parallelism);
+        parallelism,
+        0,  // expected_left unknown
+        0); // expected_right unknown
 }
 
 std::unique_ptr<ExecutableTestPipeline> 

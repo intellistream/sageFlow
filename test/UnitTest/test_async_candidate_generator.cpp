@@ -8,8 +8,8 @@
 
 #include "common/data_types.h"
 #include "index/hnsw.h"
-#include "operator/async_candidate_generator.h"
-#include "operator/distance_verifier.h"
+#include "operator/join_operator_methods/vsjoin_components/async_candidate_generator.h"
+#include "operator/join_operator_methods/vsjoin_components/distance_verifier.h"
 #include "storage/storage_manager.h"
 
 namespace sageFlow {

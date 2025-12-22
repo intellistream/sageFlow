@@ -8,7 +8,7 @@
 #include <gtest/gtest.h>
 
 #include "test_utils/integration_test_config.h"
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 
 #include <filesystem>
 #include <fstream>

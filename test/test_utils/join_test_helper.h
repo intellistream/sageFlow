@@ -24,13 +24,15 @@ public:
    * 
    * @param generator TestDataGenerator instance
    * @param apply_uid_offset Whether to offset right UIDs (default: true)
+   * @param time_interval_ms Time interval between consecutive records in ms (default: 0 uses generator's config)
    * @return Pair of (left_records, right_records)
    */
   static std::pair<std::vector<std::unique_ptr<VectorRecord>>,
                    std::vector<std::unique_ptr<VectorRecord>>>
   generateJoinStreamsFromGenerator(
       TestDataGenerator& generator,
-      bool apply_uid_offset = true);
+      bool apply_uid_offset = true,
+      int64_t time_interval_ms = 0);
 
   /**
    * @brief Create join streams using a data source pair
