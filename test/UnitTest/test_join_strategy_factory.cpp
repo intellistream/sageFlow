@@ -4,6 +4,7 @@
 
 #include "operator/join_strategy_config.h"
 #include "operator/join_strategy_factory.h"
+#include "operator/join_operator_methods/lsh_method.h"
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"
 
@@ -208,6 +209,24 @@ TEST_F(JoinStrategyConfigTest, InferDefaultsForBruteforce) {
     EXPECT_EQ(config.partition_strategy, PartitionStrategy::ROUND_ROBIN);
     EXPECT_EQ(config.window_state_type, WindowStateType::SHARED);
     EXPECT_EQ(config.index_strategy, IndexStrategy::SHARED);
+}
+
+TEST_F(JoinStrategyConfigTest, CreateLSHMethod) {
+    auto storage = std::make_shared<StorageManager>();
+    auto cm = std::make_shared<ConcurrencyManager>(storage);
+
+    JoinStrategyConfig config;
+    config.algorithm = JoinAlgorithm::LSH;
+    config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+    config.window_state_type = WindowStateType::SHARED;
+    config.similarity_threshold = 0.8;
+    config.dimension = 4;
+    config.lsh_num_tables = 2;
+    config.lsh_num_hashes = 8;
+
+    auto method = JoinStrategyFactory::createJoinMethod(config, cm, -1, -1);
+    ASSERT_NE(method, nullptr);
+    EXPECT_NE(dynamic_cast<LSHMethod*>(method.get()), nullptr);
 }
 
 // 测试从 TOML 加载配置

@@ -26,6 +26,7 @@ std::string toString(JoinAlgorithm algo) {
         case JoinAlgorithm::IVF: return "ivf";
         case JoinAlgorithm::HNSW: return "hnsw";
         case JoinAlgorithm::HDR_TREE: return "hdr_tree";
+        case JoinAlgorithm::LSH: return "lsh";
         case JoinAlgorithm::CLUSTERED_JOIN: return "clustered_join";
         case JoinAlgorithm::S3J: return "s3j";
         case JoinAlgorithm::VSJOIN: return "vsjoin";
@@ -68,6 +69,7 @@ JoinAlgorithm parseJoinAlgorithm(const std::string& s) {
     if (lower == "ivf") return JoinAlgorithm::IVF;
     if (lower == "hnsw") return JoinAlgorithm::HNSW;
     if (lower == "hdr_tree" || lower == "hdrtree") return JoinAlgorithm::HDR_TREE;
+    if (lower == "lsh") return JoinAlgorithm::LSH;
     if (lower == "clustered_join" || lower == "clusteredjoin") return JoinAlgorithm::CLUSTERED_JOIN;
     if (lower == "s3j") return JoinAlgorithm::S3J;
     if (lower == "vsjoin") return JoinAlgorithm::VSJOIN;
@@ -190,6 +192,14 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
     if (vsjoin_boundary_threshold < 0.0 || vsjoin_boundary_threshold > 1.0) {
         errors.emplace_back("vsjoin_boundary_threshold must be in [0.0, 1.0]");
     }
+
+    if (lsh_num_tables <= 0 || lsh_num_tables > 64) {
+        errors.emplace_back("lsh_num_tables must be in (0, 64]");
+    }
+
+    if (lsh_num_hashes <= 0 || lsh_num_hashes > 256) {
+        errors.emplace_back("lsh_num_hashes must be in (0, 256]");
+    }
     
     return errors;
 }
@@ -226,6 +236,13 @@ void JoinStrategyConfig::inferDefaults() {
                 window_state_type = WindowStateType::PARTITIONED;
                 index_strategy = IndexStrategy::PARTITIONED;
             }
+            break;
+
+        case JoinAlgorithm::LSH:
+            // 先采用共享窗口与索引，后续可按需切换到分区模式
+            partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            window_state_type = WindowStateType::SHARED;
+            index_strategy = IndexStrategy::SHARED;
             break;
             
         case JoinAlgorithm::BRUTEFORCE:
@@ -317,6 +334,17 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     if (auto efs = node["hnsw_ef_search"].value<int64_t>()) {
         config.hnsw_ef_search = static_cast<int>(*efs);
+    }
+
+    // LSH 参数
+    if (auto ltables = node["lsh_num_tables"].value<int64_t>()) {
+        config.lsh_num_tables = static_cast<int>(*ltables);
+    }
+    if (auto lhashes = node["lsh_num_hashes"].value<int64_t>()) {
+        config.lsh_num_hashes = static_cast<int>(*lhashes);
+    }
+    if (auto lseed = node["lsh_seed"].value<int64_t>()) {
+        config.lsh_seed = static_cast<uint32_t>(*lseed);
     }
     
     // VSJoin 参数

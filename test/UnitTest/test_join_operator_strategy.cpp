@@ -123,6 +123,29 @@ TEST_F(JoinOperatorStrategyTest, CreateWithHNSWConfig) {
     });
 }
 
+TEST_F(JoinOperatorStrategyTest, CreateWithLSHConfig) {
+    JoinStrategyConfig config;
+    config.algorithm = JoinAlgorithm::LSH;
+    config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+    config.window_state_type = WindowStateType::SHARED;
+    config.similarity_threshold = 0.8;
+    config.dimension = 16;  // 使用更高维度避免触发与 HDR 相关的全局校验
+    config.lsh_num_tables = 2;
+    config.lsh_num_hashes = 8;
+
+    auto join_func = createJoinFunction(16);
+
+    EXPECT_NO_THROW({
+        auto op = std::make_shared<JoinOperator>(
+            join_func,
+            concurrency_manager_,
+            config);
+
+        RuntimeContext ctx(0, 1);
+        op->open(ctx);
+    });
+}
+
 // ============================================================
 // 配置验证测试
 // ============================================================

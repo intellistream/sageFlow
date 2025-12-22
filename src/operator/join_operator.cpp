@@ -7,6 +7,7 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_operator_methods/hdr_tree_method.h"
+#include "operator/join_operator_methods/lsh_method.h"
 #include "operator/join_metrics.h"
 #include "operator/join_strategy_factory.h"
 #include "operator/join_config_validator.h"
@@ -1322,6 +1323,11 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
         else if (auto* hnsw = dynamic_cast<HNSWJoinMethod*>(join_method_.get())) {
             use_index_ = true;
             SAGEFLOW_LOG_INFO("JOIN", "HNSWJoinMethod initialized via strategy config");
+        }
+        // 尝试作为 LSHMethod 初始化（纯窗口 + LSH 桶过滤）
+        else if (auto* lsh = dynamic_cast<LSHMethod*>(join_method_.get())) {
+            lsh->open(context, left_state_.get(), right_state_.get());
+            SAGEFLOW_LOG_INFO("JOIN", "LSHMethod initialized via strategy config");
         }
     }
 

@@ -161,6 +161,10 @@ PartitionStrategy JoinConfigValidator::getRecommendedPartitionStrategy(
             // 通用算法推荐 ROUND_ROBIN
             return PartitionStrategy::ROUND_ROBIN;
 
+        case JoinAlgorithm::LSH:
+            // 新 LSH 方法暂按共享分区默认值处理
+            return PartitionStrategy::ROUND_ROBIN;
+
         case JoinAlgorithm::VSJOIN:
             return PartitionStrategy::LSH;
 

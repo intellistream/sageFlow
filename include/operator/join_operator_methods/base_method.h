@@ -14,6 +14,7 @@ enum class JoinMethodType {
   IVF,
   HNSW,
   HDR_TREE,
+  LSH,
   CLUSTERED_JOIN,
   S3J
 };

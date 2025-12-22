@@ -213,6 +213,11 @@ private:
         const JoinStrategyConfig& config,
         std::shared_ptr<ConcurrencyManager> cm,
         int left_idx, int right_idx);
+
+    static std::unique_ptr<BaseMethod> createLshMethod(
+        const JoinStrategyConfig& config,
+        std::shared_ptr<ConcurrencyManager> cm,
+        int left_idx, int right_idx);
     
     static std::unique_ptr<BaseMethod> createClusteredJoinMethod(
         const JoinStrategyConfig& config,

@@ -21,6 +21,7 @@ add_lib(
         join_operator_methods/ivf.cpp
         join_operator_methods/hnsw.cpp
         join_operator_methods/hdr_tree_method.cpp
+        join_operator_methods/lsh_method.cpp
         join_operator_methods/clustered_join_method.cpp
         join_operator_methods/s3j_method.cpp
         join_operator_methods/s3j_components/adaptive_partitioner.cpp

@@ -4,6 +4,7 @@
 #include "operator/join_operator_methods/ivf.h"
 #include "operator/join_operator_methods/hnsw.h"
 #include "operator/join_operator_methods/hdr_tree_method.h"
+#include "operator/join_operator_methods/lsh_method.h"
 #include "operator/join_operator_methods/clustered_join_method.h"
 #include "operator/join_operator_methods/s3j_method.h"
 #include "state/shared_window_state.h"
@@ -128,6 +129,9 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createJoinMethod(
         case JoinAlgorithm::HDR_TREE:
             return createHdrTreeMethod(config, concurrency_manager, 
                                        left_index_id, right_index_id);
+        case JoinAlgorithm::LSH:
+            return createLshMethod(config, concurrency_manager,
+                                   left_index_id, right_index_id);
         case JoinAlgorithm::CLUSTERED_JOIN:
             return createClusteredJoinMethod(config, concurrency_manager, 
                                             left_index_id, right_index_id);
@@ -197,6 +201,24 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createHdrTreeMethod(
         config.similarity_threshold,
         cm,
         hdr_config);
+}
+
+std::unique_ptr<BaseMethod> JoinStrategyFactory::createLshMethod(
+    const JoinStrategyConfig& config,
+    std::shared_ptr<ConcurrencyManager> cm,
+    int left_idx, int right_idx) {
+    LSHMethod::Config lsh_config;
+    lsh_config.similarity_threshold = config.similarity_threshold;
+    lsh_config.num_tables = config.lsh_num_tables;
+    lsh_config.num_hashes = config.lsh_num_hashes;
+    lsh_config.dimension = config.dimension;
+    lsh_config.seed = config.lsh_seed;
+
+    (void)cm;       // LSHMethod 当前不依赖共享索引
+    (void)left_idx; // 占位以保持签名一致
+    (void)right_idx;
+
+    return std::make_unique<LSHMethod>(lsh_config);
 }
 
 std::unique_ptr<BaseMethod> JoinStrategyFactory::createClusteredJoinMethod(
@@ -437,6 +459,8 @@ IndexType JoinStrategyFactory::getIndexType(const JoinStrategyConfig& config) {
             return IndexType::HNSW;
         case JoinAlgorithm::HDR_TREE:
             return IndexType::HDRForest;
+        case JoinAlgorithm::LSH:
+            return IndexType::BruteForce;
         case JoinAlgorithm::VSJOIN:
         case JoinAlgorithm::S3J:
         case JoinAlgorithm::CLUSTERED_JOIN:

@@ -14,6 +14,7 @@ enum class JoinAlgorithm {
     IVF,             ///< IVF-based approximate join
     HNSW,            ///< HNSW-based approximate join
     HDR_TREE,        ///< HDR-Tree baseline
+    LSH,             ///< Hyperplane LSH 近似 Join（移植 Danny baseline）
     CLUSTERED_JOIN,  ///< VectraFlow ClusteredJoin
     S3J,             ///< DEBS'23 S3J baseline
     VSJOIN           ///< Our method
@@ -81,6 +82,11 @@ struct JoinStrategyConfig {
     int hnsw_m = 16;                   ///< 每层最大邻居数
     int hnsw_ef_construction = 200;    ///< 构建时候选集大小
     int hnsw_ef_search = 50;           ///< 搜索时候选集大小
+
+    // ==================== LSH 参数 ====================
+    int lsh_num_tables = 4;            ///< LSH 表数量（重复次数）
+    int lsh_num_hashes = 8;            ///< 每张表的超平面数量
+    uint32_t lsh_seed = 42;            ///< 随机种子，确保可复现
     
     // ==================== VSJoin 参数 ====================
     int vsjoin_num_hash_functions = 8;    ///< LSH 哈希函数数量

@@ -82,6 +82,7 @@ set(UNIT_TEST_SPECS
     test_hdr_rknn                  UnitTest/test_hdr_rknn.cpp                 300 UNIT
     test_clustered_join            UnitTest/test_clustered_join.cpp           300 UNIT
     test_s3j_method                UnitTest/test_s3j_method.cpp               300 UNIT
+    test_lsh_method                UnitTest/test_lsh_method.cpp               300 UNIT
     test_partitioner               UnitTest/test_partitioner.cpp              120 UNIT
     test_compute_engine            UnitTest/test_compute_engine.cpp           180 UNIT
     test_file_stream_source        UnitTest/test_file_stream_source.cpp       120 UNIT
