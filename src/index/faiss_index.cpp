@@ -8,6 +8,8 @@
 #include <vector>
 #include <mutex>
 #include <shared_mutex>
+#include <cmath>
+#include <limits>
 
 #include "index/faiss_index.h"
 #include "utils/logger.h"
@@ -165,8 +167,28 @@ auto FaissIndex::query_for_join(const VectorRecord &record, double join_similari
   // 获取读锁
   std::shared_lock<std::shared_mutex> lock(mutex_);
   
+  float radius = 0.0f;
+  constexpr double alpha = 0.1;
+
+  if (faiss_index_->metric_type == faiss::METRIC_L2) {
+      if (join_similarity_threshold >= 1.0) {
+          radius = 0.0f;
+      } else if (join_similarity_threshold <= 0.0) {
+          radius = std::numeric_limits<float>::max();
+      } else {
+          // Similarity = exp(-alpha * EuclideanDistance)
+          // EuclideanDistance = -ln(Similarity) / alpha
+          // Faiss L2 uses Squared Euclidean Distance
+          double distance = -std::log(join_similarity_threshold) / alpha;
+          radius = static_cast<float>(std::pow(distance, 2));
+      }
+  } else {
+      // METRIC_INNER_PRODUCT
+      radius = static_cast<float>(join_similarity_threshold);
+  }
+  
   try {
-    faiss_index_->range_search(1, reinterpret_cast<const float*>(record.data_.data_.get()), join_similarity_threshold, &res);
+    faiss_index_->range_search(1, reinterpret_cast<const float*>(record.data_.data_.get()), radius, &res);
   } catch (const std::exception& e) {
     SAGEFLOW_LOG_ERROR("FaissIndex", "Range search failed: {}", e.what());
     return {};
