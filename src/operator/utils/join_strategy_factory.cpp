@@ -268,7 +268,7 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createVSJoinMethod(
     std::shared_ptr<ConcurrencyManager> cm,
     int left_idx, int right_idx) {
     
-    // VSJoin 暂时使用 BruteForce 作为基
+    // VSJoin 暂时使用 BruteForce 作为基础
     // TODO: 实现完整的 VSJoin 方法
     // Issue URL: https://github.com/intellistream/sageFlow/issues/78
     SAGEFLOW_LOG_WARN("JOIN_FACTORY", "VSJoin method is not fully implemented yet, "
@@ -295,6 +295,7 @@ std::unique_ptr<WindowState> JoinStrategyFactory::createWindowState(
                 config.two_tier_compact_threshold);
             
         case WindowStateType::PARTITIONED_VECTOR: {
+            // 需要先创建 VectorSpacePartitioner
             auto vsp = createVectorSpacePartitioner(config);
             return std::make_unique<PartitionedVectorState>(
                 static_cast<size_t>(config.num_partitions),

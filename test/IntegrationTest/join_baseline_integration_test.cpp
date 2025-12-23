@@ -23,7 +23,6 @@
 #include "test_utils/join_test_helper.h"
 #include "test_utils/test_report_generator.h"
 #include "operator/utils/join_config_validator.h"
-#include "operator/utils/join_config_validator.h"
 #include "operator/join_metrics.h"
 #include "metrics/join_metrics_collector.h"
 #include "utils/metrics/join_metrics.h"  // For JoinMetrics::instance()

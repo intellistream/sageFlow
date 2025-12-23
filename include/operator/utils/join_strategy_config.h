@@ -19,6 +19,7 @@ enum class JoinAlgorithm {
     VSJOIN,          ///< Our method
     FAISS_IVF,
     FAISS_HNSW
+
 };
 
 /**
