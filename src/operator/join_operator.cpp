@@ -230,6 +230,64 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
               -1, -1, join_similarity_threshold_, concurrency_manager_);
             SAGEFLOW_LOG_WARN("JOIN", "Failed to create HNSW index pair, falling back to BruteForce");
         }
+        } else if (algo == "faiss_ivf") {
+        index_kind_ = InternalIndexKind::IVF;
+        use_shared_state_ = true;
+
+        int nlist = std::max(100, static_cast<int>(join_func_->getWindowSize() / 1000));
+        int nprobe = std::max(10, nlist / 10);
+
+        FaissIVFParameters faiss_params;
+        faiss_params.nlist = nlist;
+        faiss_params.nprobe = nprobe;
+        faiss_params.disable_omp = true;
+
+        if (createIndexPair(IndexType::FaissIVF, "join_faiss_ivf", faiss_params)) {
+            use_index_ = true;
+            
+            IVFMethod::Config ivf_config;
+            ivf_config.similarity_threshold = join_similarity_threshold_;
+            ivf_config.use_existing_index = true;
+            ivf_config.nlist = nlist;
+            ivf_config.nprobes = nprobe;
+            
+            join_method_ = std::make_unique<IVFMethod>(ivf_config);
+            SAGEFLOW_LOG_INFO("JOIN", "Faiss IVF mode enabled, nlist={} nprobe={} disable_omp=true", 
+                             nlist, nprobe);
+        } else {
+            use_index_ = false;
+            join_method_ = std::make_unique<BruteForceBaseline>(join_similarity_threshold_);
+            SAGEFLOW_LOG_WARN("JOIN", "Failed to create Faiss IVF index pair, falling back to BruteForce");
+        }
+    } else if (algo == "faiss_hnsw") {
+        index_kind_ = InternalIndexKind::NONE;
+        use_shared_state_ = true;
+
+        FaissHNSWParameters faiss_params;
+        faiss_params.M = 32;
+        faiss_params.efConstruction = 200;
+        faiss_params.efSearch = 64;
+        faiss_params.disable_omp = true;
+
+        if (createIndexPair(IndexType::FaissHNSW, "join_faiss_hnsw", faiss_params)) {
+            use_index_ = true;
+            
+            HNSWJoinMethod::Config hnsw_config;
+            hnsw_config.m = faiss_params.M;
+            hnsw_config.ef_construction = faiss_params.efConstruction;
+            hnsw_config.ef_search = faiss_params.efSearch;
+            
+            join_method_ = std::make_unique<HNSWJoinMethod>(left_index_id_, right_index_id_,
+                                                            join_similarity_threshold_, concurrency_manager_,
+                                                            hnsw_config);
+            SAGEFLOW_LOG_INFO("JOIN", "Faiss HNSW mode enabled, M={} efConstruction={} efSearch={} disable_omp=true",
+                             faiss_params.M, faiss_params.efConstruction, faiss_params.efSearch);
+        } else {
+            use_index_ = false;
+            join_method_ = std::make_unique<BruteForceJoinMethod>(
+              -1, -1, join_similarity_threshold_, concurrency_manager_);
+            SAGEFLOW_LOG_WARN("JOIN", "Failed to create Faiss HNSW index pair, falling back to BruteForce");
+        }
     } else {
         index_kind_ = InternalIndexKind::NONE;
         use_index_ = false;

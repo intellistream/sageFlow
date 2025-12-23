@@ -1,68 +1,58 @@
+# ==============================================================================
+# Performance Comparison Tests: Native vs Faiss
+# ==============================================================================
+
 [[performance_test]]
-# Test Mode 1: Generate-Save-Load (generate data, save to file, then load from file)
-name = "perf_join_gen_save_load_random"
-mode = "generate_save_load"
-methods = ["bruteforce", "ivf", "hdr_tree"]
-sizes = [2000]
+# 场景 1: 内存直接生成并使用 (Generate-Direct-Use)
+# 目的: 纯计算性能对比，消除 IO 影响，最适合观察算法本身的效率差异
+name = "perf_comparison_direct_use"
+mode = "generate_direct_use"
+
+# [核心修改]: 这里同时列出两套实现，加上 bruteforce 作为基准
+# - Native: "ivf", "hnsw"
+# - Faiss:  "faiss_ivf", "faiss_hnsw"
+# - Baseline: "bruteforce"
+methods = ["bruteforce", "ivf", "hnsw", "faiss_ivf", "faiss_hnsw"]
+
+# 数据规模：建议测试不同规模，这里先用 2000 和 5000
+sizes = [2000, 5000]
 records_count = 10
 vector_dim = 64
-parallelism = [1,2,4,8,16,32]
+
+# [核心修改]: 并行度测试
+# 1 = 单线程基准
+# 4, 8 = 测试多线程下的锁竞争和加速比 (Faiss 在这里可能会因为全局锁而变慢，原生实现可能会更好)
+parallelism = [1, 4, 8]
+
 window_time_ms = [10000]
 window_trigger_ms = 50
 time_interval = 10
 similarity_threshold = 0.8
 seed = 42
 
-# HDR-Tree specific parameters
-[performance_test.hdr_tree_params]
-projected_dim = 8
-max_node_size = 100
-delta_buffer_size = 1000
-pca_sample_size = 5000
+[performance_test.data_source]
+type = "random"
+
+
+[[performance_test]]
+# 场景 2: 生成-保存-加载 (Generate-Save-Load)
+# 目的: 对比序列化/反序列化以及冷启动构建索引的性能
+name = "perf_comparison_gen_save_load"
+mode = "generate_save_load"
+methods = ["ivf", "hnsw", "faiss_ivf", "faiss_hnsw"]
+sizes = [2000]
+records_count = 10
+vector_dim = 64
+parallelism = [1, 4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
 
 [performance_test.data_source]
 type = "random"
 
 [performance_test.storage]
-format = "json"  # Options: "fvecs", "json"
-file_path = "test/data/generated_test_data.json"
-#
-#[[performance_test]]
-## Test Mode 2: Direct Load (load data directly from existing file)
-#name = "perf_join_direct_load_sift"
-#mode = "direct_load"
-#methods = ["bruteforce_eager", "ivf_eager"]
-#sizes = [2000]
-#records_count = 10
-#vector_dim = 128
-#parallelism = [1,2,4,8,16,32]
-#window_time_ms = [10000]
-#window_trigger_ms = 50
-#time_interval = 10
-#similarity_threshold = 0.8
-#
-#[performance_test.data_source]
-#type = "dataset"
-#file_path = "data/siftsmall/siftsmall_query.fvecs"
-#expected_dim = 128
-#loop = true
-#
-#[[performance_test]]
-## Test Mode 3: Generate and Use Directly (no file I/O)
-#name = "perf_join_direct_use_random"
-#mode = "generate_direct_use"
-#methods = ["bruteforce_eager", "ivf_eager"]
-#sizes = [2000]
-#records_count = 10
-#vector_dim = 64
-#parallelism = [1,2,4,8,16,32]
-#window_time_ms = [10000]
-#window_trigger_ms = 50
-#time_interval = 10
-#similarity_threshold = 0.8
-#seed = 42
-#
-#[performance_test.data_source]
-#type = "random"
-
-log.level = "debug"
+format = "json"
+file_path = "test/data/comparison_test_data.json"

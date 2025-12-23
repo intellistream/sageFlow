@@ -46,7 +46,8 @@ METHOD_FILTER_MAP = {
     'clustered_join': '*clustered_join*',
     's3j': '*s3j*',
     'vsjoin': '*vsjoin*',
-    'faiss': '*faiss*',
+    'faiss_ivf': '*faiss_ivf*',   # 只运行 Faiss IVF
+    'faiss_hnsw': '*faiss_hnsw*', # 只运行 Faiss HNSW
 }
 
 # 支持的所有方法
