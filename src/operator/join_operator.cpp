@@ -9,8 +9,8 @@
 #include "operator/join_operator_methods/hdr_tree_method.h"
 #include "operator/join_operator_methods/lsh_method.h"
 #include "operator/join_metrics.h"
-#include "operator/join_strategy_factory.h"
-#include "operator/join_config_validator.h"
+#include "operator/utils/join_strategy_factory.h"
+#include "operator/utils/join_config_validator.h"
 #include "execution/partitioner_factory.h"
 #include "utils/monitoring.h"
 
@@ -248,16 +248,6 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         join_method_ = std::make_unique<LSHMethod>(lsh_cfg);
         SAGEFLOW_LOG_INFO("JOIN", "LSH mode enabled (window-state buckets)");
 
-    } else if (algo == "vsjoin") {
-        // VSJoin 模式：启用 VSJoin 配置，组件在 open() 中初始化
-        vsjoin_config_.enabled = true;
-        // VSJoin 不使用传统的索引系统，使用自己的 PartitionedIndex
-        index_kind_ = InternalIndexKind::NONE;
-        use_index_ = false;
-        // 仍然创建一个基础的 join_method_ 作为后备
-        join_method_ = std::make_unique<BruteForceJoinMethod>(
-          -1, -1, join_similarity_threshold_, concurrency_manager_);
-        SAGEFLOW_LOG_INFO("JOIN", "VSJoin mode enabled, is_eager={}", is_eager_);
     } else {
         index_kind_ = InternalIndexKind::NONE;
         use_index_ = false;
@@ -324,10 +314,22 @@ JoinOperator::~JoinOperator() {
             g_total_queries.load(), g_total_candidates.load(),
             g_total_queries.load() > 0 ? static_cast<double>(g_total_candidates.load()) / g_total_queries.load() : 0.0,
             g_total_filtered_by_ts.load());
+        
+        // 输出 QIQ 三阶段统计
+        auto& m = JoinMetrics::instance();
+        uint64_t q1_count = m.qiq_q1_count.load();
+        uint64_t insert_count = m.qiq_insert_count.load();
+        uint64_t q2_count = m.qiq_q2_count.load();
+        
+        double q1_avg_us = q1_count > 0 ? static_cast<double>(m.qiq_q1_ns.load()) / q1_count / 1000.0 : 0.0;
+        double insert_avg_us = insert_count > 0 ? static_cast<double>(m.qiq_insert_ns.load()) / insert_count / 1000.0 : 0.0;
+        double q2_avg_us = q2_count > 0 ? static_cast<double>(m.qiq_q2_ns.load()) / q2_count / 1000.0 : 0.0;
+        
+        SAGEFLOW_LOG_INFO("JOIN_QIQ_STATS", 
+            "QIQ per-vector avg time (including lock wait): Q1={:.2f}us ({} calls), Insert={:.2f}us ({} calls), Q2={:.2f}us ({} calls), Total={:.2f}us",
+            q1_avg_us, q1_count, insert_avg_us, insert_count, q2_avg_us, q2_count,
+            q1_avg_us + insert_avg_us + q2_avg_us);
     }
-    
-    // 关闭 VSJoin 组件
-    closeVSJoinComponents();
     
     // Stop profiling if it was enabled
     if (profiler_) {
@@ -360,14 +362,6 @@ void JoinOperator::open(const RuntimeContext& context) {
         initializeWithStrategyConfig(context);
         return;
     }
-    
-    // 如果启用了 VSJoin 模式，初始化 VSJoin 组件
-    if (vsjoin_config_.enabled) {
-        initVSJoinComponents(context);
-        SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened with VSJoin mode: subtask={}/{}", 
-                         context.getSubtaskIndex(), context.getParallelism());
-      return;
-  }
   
   // 根据配置创建窗口状态
   if (use_shared_state_) {
@@ -383,6 +377,15 @@ void JoinOperator::open(const RuntimeContext& context) {
   
   left_state_->setEvictionBufferMultiplier(1.5);
   right_state_->setEvictionBufferMultiplier(1.5);
+  
+  // 计算批量删除阈值：基于窗口向量数量和并行度动态调整
+  {
+      int64_t window_size = join_func_ ? join_func_->getWindowSize() : 10000;
+      size_t computed_threshold = window_size * parallelism_ / kBatchDeleteDivisor;
+      batch_delete_threshold_ = std::max(kMinBatchDeleteThreshold, computed_threshold);
+      SAGEFLOW_LOG_INFO("JOIN", "Batch delete threshold computed: {} (window={}, parallelism={})",
+                       batch_delete_threshold_, window_size, parallelism_);
+  }
   
   // 初始化新架构的 Join 方法（传入 WindowState）
   if (join_method_) {
@@ -721,9 +724,6 @@ std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidatesFromState(
     return join_method_->ExecuteEager(*data_ptr, query_slot);
 }
 
-// 批量删除阈值：当过期记录数超过此值时，触发批量删除
-constexpr size_t kBatchDeleteThreshold = 100;
-
 auto JoinOperator::updateSideWithState(
     WindowState* state,
     int index_id_for_cc,
@@ -812,7 +812,7 @@ auto JoinOperator::updateSideWithState(
     // 只有当过期记录数超过阈值时才执行，避免频繁删除
     if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
         size_t expired_count = state->getExpiredCount(subtask_index);
-        if (expired_count >= kBatchDeleteThreshold) {
+        if (expired_count >= batch_delete_threshold_) {
             // 获取并清空过期 UID buffer
             auto expired_uids = state->flushExpiredUids(subtask_index);
             
@@ -865,7 +865,6 @@ void JoinOperator::executeJoinWithState(
     
     for (const auto& cand : candidates) {
         // 使用时间戳直接判断候选项是否在窗口范围内
-        // 这避免了与 evictExpired 的竞争条件
         if (cand->timestamp_ < window_lower_bound || cand->timestamp_ > window_upper_bound) {
             g_total_filtered_by_ts.fetch_add(1, std::memory_order_relaxed);
             continue;
@@ -914,12 +913,6 @@ void JoinOperator::executeJoinWithState(
 
 auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
                         const RuntimeContext& context) -> void {
-    // 如果启用了 VSJoin 模式，使用 VSJoin 专用路径
-    if (vsjoin_config_.enabled) {
-        applyVSJoin(std::move(record), slot, collector, context);
-        return;
-    }
-    
     // 统计 apply 处理总耗时
     metrics_increment(JoinMetrics::instance().apply_processing_count);
     MetricsTimer t_apply(JoinMetrics::instance().apply_processing_ns);
@@ -991,11 +984,15 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
         
         // 阶段1：第一次 Query（读锁，可并行）
         {
+            uint64_t q1_start = metrics_timestamp();
             uint64_t before_lock = metrics_timestamp();
             std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
             metrics_record_lock_wait(before_lock);
             executeJoinWithState(data_for_join.get(), opposite_state, slot, 
                                 subtask_index, local_return_pool);
+            // 统计 Q1 总耗时（含锁等待）
+            metrics_record_elapsed(JoinMetrics::instance().qiq_q1_ns, q1_start);
+            JoinMetrics::instance().qiq_q1_count.fetch_add(1, std::memory_order_relaxed);
         }
         
         for (const auto& p : local_return_pool) {
@@ -1006,27 +1003,36 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
         
         // 阶段2：Insert（写锁，独占）
         {
+            uint64_t insert_start = metrics_timestamp();
             uint64_t before_lock = metrics_timestamp();
             std::unique_lock<std::shared_mutex> write_lock(join_rw_mutex_);
             metrics_record_lock_wait(before_lock);
             updateSideWithState(
                 current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
+            // 统计 Insert 总耗时（含锁等待）
+            metrics_record_elapsed(JoinMetrics::instance().qiq_insert_ns, insert_start);
+            JoinMetrics::instance().qiq_insert_count.fetch_add(1, std::memory_order_relaxed);
         }
         
-        // 阶段3：第二次 Query（读锁，捕获同时插入的记录）
+        // 阶段3：第二次 Query（读锁，可并行）
+        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> second_query_results;
         {
+            uint64_t q2_start = metrics_timestamp();
             uint64_t before_lock = metrics_timestamp();
             std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
             metrics_record_lock_wait(before_lock);
-            std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> second_query_results;
             executeJoinWithState(data_for_join.get(), opposite_state, slot, 
                                 subtask_index, second_query_results);
-            
-            for (auto& p : second_query_results) {
-                if (p.second && matched_uids.find(p.second->uid_) == matched_uids.end()) {
-                    matched_uids.insert(p.second->uid_);
-                    local_return_pool.push_back(std::move(p));
-                }
+            // 统计 Q2 总耗时（含锁等待）
+            metrics_record_elapsed(JoinMetrics::instance().qiq_q2_ns, q2_start);
+            JoinMetrics::instance().qiq_q2_count.fetch_add(1, std::memory_order_relaxed);
+        }
+        
+        // 去重逻辑移到锁外：matched_uids 和 second_query_results 都是线程本地变量
+        for (auto& p : second_query_results) {
+            if (p.second && matched_uids.find(p.second->uid_) == matched_uids.end()) {
+                matched_uids.insert(p.second->uid_);
+                local_return_pool.push_back(std::move(p));
             }
         }
     }
@@ -1056,248 +1062,6 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     
     SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "Apply (with context) completed: slot={} results={} subtask={}/{}", 
                       slot, local_return_pool.size(), subtask_index, context.getParallelism());
-}
-
-// ================== VSJoin 相关方法实现 ==================
-
-void JoinOperator::setVSJoinConfig(const VSJoinConfig& config) {
-    vsjoin_config_ = config;
-    SAGEFLOW_LOG_INFO("JOIN", "VSJoin config set: enabled={}, partitions={}, probes={}", 
-                     config.enabled, config.num_partitions, config.num_probes);
-}
-
-void JoinOperator::initVSJoinComponents(const RuntimeContext& context) {
-    SAGEFLOW_LOG_INFO("JOIN", "Initializing VSJoin components with {} partitions, subtask={}/{}",
-                      vsjoin_config_.num_partitions, 
-                      context.getSubtaskIndex(), context.getParallelism());
-    
-    int dimension = join_func_->getDim();
-    
-    // 1. 初始化向量空间分区器（使用 LSH）
-    vsjoin_partitioner_ = std::make_shared<LSHPartitioner>(
-        dimension, 
-        /*num_hash_functions=*/8,
-        /*seed=*/42,
-        /*boundary_threshold=*/0.1);
-    
-    // 2. 初始化分区向量状态（双层窗口 + 向量空间分区）
-    left_vsjoin_state_ = std::make_unique<PartitionedVectorState>(
-        static_cast<size_t>(vsjoin_config_.num_partitions),
-        vsjoin_partitioner_,
-        vsjoin_config_.compact_threshold,
-        vsjoin_config_.enable_boundary_tracking);
-    
-    right_vsjoin_state_ = std::make_unique<PartitionedVectorState>(
-        static_cast<size_t>(vsjoin_config_.num_partitions),
-        vsjoin_partitioner_,
-        vsjoin_config_.compact_threshold,
-        vsjoin_config_.enable_boundary_tracking);
-    
-    // 3. 初始化分区索引
-    left_vsjoin_index_ = std::make_shared<PartitionedIndex>(
-        static_cast<size_t>(vsjoin_config_.num_partitions),
-        dimension,
-        vsjoin_partitioner_,
-        vsjoin_config_.ivf_nlist,
-        vsjoin_config_.ivf_nprobes);
-    
-    right_vsjoin_index_ = std::make_shared<PartitionedIndex>(
-        static_cast<size_t>(vsjoin_config_.num_partitions),
-        dimension,
-        vsjoin_partitioner_,
-        vsjoin_config_.ivf_nlist,
-        vsjoin_config_.ivf_nprobes);
-    
-    // 通过 ConcurrencyManager 注册索引
-    // 遵循索引创建规范：所有索引必须通过 ConcurrencyManager 注册才能获得正确的 storage 配置
-    if (concurrency_manager_) {
-        std::string prefix = "vsjoin_" + std::to_string(context.getSubtaskIndex());
-        concurrency_manager_->register_index(prefix + "_left", left_vsjoin_index_);
-        concurrency_manager_->register_index(prefix + "_right", right_vsjoin_index_);
-    }
-    
-    // 4. 初始化分区协调器
-    vsjoin_coordinator_ = std::make_unique<PartitionCoordinator>(
-        static_cast<size_t>(vsjoin_config_.num_partitions),
-        vsjoin_partitioner_,
-        vsjoin_config_.allowed_lateness,
-        vsjoin_config_.watermark_delay);
-    
-    // 5. 初始化异步候选生成器
-    left_async_generator_ = std::make_unique<AsyncCandidateGenerator>(
-        left_vsjoin_index_,
-        vsjoin_config_.async_generator_threads);
-    
-    right_async_generator_ = std::make_unique<AsyncCandidateGenerator>(
-        right_vsjoin_index_,
-        vsjoin_config_.async_generator_threads);
-    
-    // 6. 初始化距离验证器
-    vsjoin_verifier_ = std::make_shared<DistanceVerifier>(
-        join_similarity_threshold_,
-        vsjoin_config_.distance_alpha);
-    
-    SAGEFLOW_LOG_INFO("JOIN", "VSJoin components initialized successfully");
-}
-
-std::unique_ptr<VectorRecord> JoinOperator::extractVectorRecord(const Response& record) {
-    if (!record.record_) {
-        return nullptr;
-    }
-    return std::make_unique<VectorRecord>(*record.record_);
-}
-
-void JoinOperator::applyVSJoin(Response&& record, int slot, Collector& collector,
-                               const RuntimeContext& context) {
-    // 统计 apply 处理总耗时
-    metrics_increment(JoinMetrics::instance().apply_processing_count);
-    MetricsTimer t_apply(JoinMetrics::instance().apply_processing_ns);
-    
-    auto vec_record = extractVectorRecord(record);
-    if (!vec_record) return;
-    
-    size_t subtask_index = context.getSubtaskIndex();
-    int64_t now_time_stamp = vec_record->timestamp_;
-    uint64_t uid = vec_record->uid_;
-    
-    SAGEFLOW_LOG_DEBUG("JOIN_VSJOIN", "VSJoin apply: slot={} uid={} ts={} subtask={}/{}", 
-                      slot, uid, now_time_stamp, 
-                      subtask_index, context.getParallelism());
-    
-    // 1. 处理延迟到达
-    auto process_result = vsjoin_coordinator_->processRecord(*vec_record);
-    
-    if (process_result.status == ArrivalStatus::TOO_LATE) {
-        SAGEFLOW_LOG_DEBUG("JOIN_VSJOIN", "Dropping too late record uid={}", uid);
-        return;
-    }
-    
-    if (process_result.status == ArrivalStatus::LATE) {
-        // 延迟记录缓冲处理 - 创建副本
-        vsjoin_coordinator_->bufferLateRecord(std::make_unique<VectorRecord>(*vec_record));
-        SAGEFLOW_LOG_DEBUG("JOIN_VSJOIN", "Buffered late record uid={}", uid);
-    }
-    
-    // 2. 确定当前记录属于哪一侧
-    PartitionedVectorState* current_state = (slot == left_slot_id_) 
-        ? left_vsjoin_state_.get() : right_vsjoin_state_.get();
-    PartitionedIndex* current_index = (slot == left_slot_id_) 
-        ? left_vsjoin_index_.get() : right_vsjoin_index_.get();
-    
-    // 保存一份用于 join 的记录副本
-    auto record_for_join = std::make_unique<VectorRecord>(*vec_record);
-    
-    // 3. 更新状态和索引
-    {
-        MetricsTimer t_window_ins(JoinMetrics::instance().window_insert_ns);
-        current_state->addRecord(std::move(vec_record), subtask_index);
-    }
-    
-    // 插入到分区索引
-    // PartitionedIndex::insert(uid) 需要从 storage_manager_ 获取记录
-    // 索引通过 ConcurrencyManager::register_index() 已获得 storage_manager_ 引用
-    {
-        MetricsTimer t_idx(JoinMetrics::instance().index_insert_ns);
-        // 先存储记录到 StorageManager（通过索引的 storage_manager_ 引用）
-        if (current_index->storage_manager_) {
-            current_index->storage_manager_->insert(
-                std::make_unique<VectorRecord>(*record_for_join));
-        }
-        // 然后插入索引
-        current_index->insert(record_for_join->uid_);
-    }
-    
-    // 4. 更新分区协调器的记录计数
-    vsjoin_coordinator_->updatePartitionCount(process_result.partition_id, 1);
-    
-    // 5. 窗口过期清理
-    {
-        MetricsTimer t_window_evict(JoinMetrics::instance().expire_ns);
-        int64_t window_size = join_func_->getWindowSize();
-        current_state->evictExpired(now_time_stamp, window_size, subtask_index);
-    }
-    
-    // 6. 检查是否需要触发 join
-    auto& window = (slot == left_slot_id_) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
-    bool trigger_flag = window.isNeedTrigger(now_time_stamp);
-    
-    if (!trigger_flag) {
-        return;
-    }
-    
-    // 7. 执行 join（所有方法均使用 Eager 模式）
-    executeVSJoinEager(*record_for_join, slot, collector, context);
-}
-
-void JoinOperator::executeVSJoinEager(const VectorRecord& query, int slot,
-                                       Collector& collector, const RuntimeContext& context) {
-    MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
-    const uint64_t apply_enter_ns = metrics_timestamp();
-    
-    // 确定查询的目标侧
-    PartitionedVectorState* target_state = (slot == left_slot_id_) 
-        ? right_vsjoin_state_.get() : left_vsjoin_state_.get();
-    
-    size_t subtask_index = context.getSubtaskIndex();
-    
-    // 获取候选分区
-    auto candidate_partitions = vsjoin_coordinator_->routeQuery(query, vsjoin_config_.num_probes);
-    
-    // 从目标状态中获取相关记录用于 join
-    auto candidate_records = target_state->getRecordsForQuery(query, vsjoin_config_.num_probes);
-    
-    SAGEFLOW_LOG_DEBUG("JOIN_VSJOIN", "Eager: query_uid={} candidate_count={}", 
-                      query.uid_, candidate_records.size());
-    
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
-    
-    // 验证候选并执行 join
-    for (const VectorRecord* cand_ptr : candidate_records) {
-        if (!cand_ptr) continue;
-        
-        // 使用距离验证器验证
-        auto result = vsjoin_verifier_->verify(query, *cand_ptr);
-        if (result.passed) {
-            // 生成 join 结果
-            std::unique_ptr<VectorRecord> left_copy;
-            std::unique_ptr<VectorRecord> right_copy;
-            
-            if (slot == left_slot_id_) {
-                left_copy = std::make_unique<VectorRecord>(query);
-                right_copy = std::make_unique<VectorRecord>(*cand_ptr);
-            } else {
-                left_copy = std::make_unique<VectorRecord>(*cand_ptr);
-                right_copy = std::make_unique<VectorRecord>(query);
-            }
-            
-            Response lhs{ResponseType::Record, std::move(left_copy)};
-            Response rhs{ResponseType::Record, std::move(right_copy)};
-            
-            try {
-                MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                auto res = join_func_->Execute(lhs, rhs);
-                if (res.record_) {
-                    local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
-                }
-            } catch (const std::exception& e) {
-                SAGEFLOW_LOG_ERROR("JOIN_VSJOIN", "Exception in executeVSJoinEager: what={}", e.what());
-                throw;
-            }
-        }
-    }
-    
-    // 发送 Join 结果
-    {
-        MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
-        for (auto& p : local_return_pool) {
-            Response out{ResponseType::Record, std::move(p.second)};
-            collector.collect(std::make_unique<Response>(std::move(out)), p.first);
-            metrics_increment(JoinMetrics::instance().total_emits);
-            metrics_record_e2e_latency(apply_enter_ns);
-        }
-    }
-    
-    SAGEFLOW_LOG_DEBUG("JOIN_VSJOIN", "Eager completed: results={}", local_return_pool.size());
 }
 
 // ============================================================
@@ -1362,56 +1126,23 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
             lsh->open(context, left_state_.get(), right_state_.get());
             SAGEFLOW_LOG_INFO("JOIN", "LSHMethod initialized via strategy config");
         }
-    }
-
-    // 9. 处理 VSJoin 特殊组件
-    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
-        vsjoin_config_.enabled = true;
-        vsjoin_config_.num_partitions = strategy_config_.num_partitions;
-        // TODO: 如果有其他 VSJoin 组件，在此处设置
-        // Issue URL: https://github.com/intellistream/sageFlow/issues/85
-        SAGEFLOW_LOG_INFO("JOIN", "VSJoin mode enabled via strategy config");
+        // VSJoin 将通过 VSJoinMethod 处理，不再需要特殊初始化
+        // 参考: include/operator/join_operator_methods/vsjoin_method.h
     }
 
     SAGEFLOW_LOG_INFO("JOIN", "JoinOperator initialized with strategy config: subtask={}/{} shared_state={}",
                      context.getSubtaskIndex(), context.getParallelism(), use_shared_state_);
 }
 
-void JoinOperator::closeVSJoinComponents() {
-    // 关闭异步候选生成器
-    if (left_async_generator_) {
-        left_async_generator_->shutdown();
-        SAGEFLOW_LOG_DEBUG("JOIN", "Left async generator shutdown");
-    }
-    if (right_async_generator_) {
-        right_async_generator_->shutdown();
-        SAGEFLOW_LOG_DEBUG("JOIN", "Right async generator shutdown");
-    }
-    
-    // 清理其他 VSJoin 组件（智能指针会自动析构）
-    if (vsjoin_config_.enabled) {
-        SAGEFLOW_LOG_INFO("JOIN", "VSJoin components closed");
-    }
-}
-
 std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
     int dimension, int num_partitions) const {
     // 根据 Join 配置返回适当的分区器
-    
-    if (vsjoin_config_.enabled) {
-        // VSJoin 模式：使用 LSH 分区器
-        // 如果没有指定维度/分区数，使用 VSJoin 配置的值
-        int actual_dim = (dimension > 0) ? dimension : 128;  // 默认维度
-        int actual_partitions = (num_partitions > 0) ? num_partitions : vsjoin_config_.num_partitions;
-        
-        return std::make_unique<LSHIPartitioner>(
-            actual_dim,
-            8,  // num_hash_functions
-            actual_partitions,
-            42,  // seed
-            0.1  // boundary_threshold
-        );
-    }
+    // 
+    // VSJoin 模式将通过策略配置 + VSJoinMethod 处理，
+    // 这里仅保留通用的分区器选择逻辑。
+    // 
+    // 对于需要 LSH 分区的 VSJoin 场景，应通过 JoinStrategyFactory 
+    // 创建对应的 Partitioner。
     
     // 共享索引 Join（bruteforce/ivf）：使用 RoundRobin 实现负载均衡
     // 返回 nullptr 让 ConnectionStrategy 使用默认的 RoundRobin

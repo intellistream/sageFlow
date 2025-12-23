@@ -3,7 +3,7 @@
 #include "execution/partitioner_factory.h"
 #include "execution/centroid_partitioner.h"
 #include "execution/vector_space_partitioner.h"
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 #include "test_utils/test_data_adapter.h"
 
 #include <random>

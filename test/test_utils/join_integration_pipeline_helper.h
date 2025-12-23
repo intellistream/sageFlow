@@ -7,7 +7,7 @@
 
 #pragma once
 
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 #include "common/data_types.h"
 #include "stream/data_stream_source/data_stream_source.h"
 #include "function/sink_function.h"

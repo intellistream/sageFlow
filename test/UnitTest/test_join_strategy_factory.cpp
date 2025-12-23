@@ -2,8 +2,8 @@
 #include <fstream>
 #include <filesystem>
 
-#include "operator/join_strategy_config.h"
-#include "operator/join_strategy_factory.h"
+#include "operator/utils/join_strategy_config.h"
+#include "operator/utils/join_strategy_factory.h"
 #include "operator/join_operator_methods/lsh_method.h"
 #include "execution/partitioner.h"
 #include "concurrency/concurrency_manager.h"

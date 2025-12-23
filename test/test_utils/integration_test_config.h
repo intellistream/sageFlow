@@ -1,6 +1,6 @@
 #pragma once
 
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 
 #include <optional>
 #include <string>

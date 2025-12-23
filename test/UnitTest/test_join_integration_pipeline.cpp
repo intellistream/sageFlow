@@ -13,7 +13,7 @@
 #include "test_utils/join_integration_pipeline_helper.h"
 #include "test_utils/test_data_generator.h"
 #include "test_utils/test_data_adapter.h"
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 #include "utils/logger.h"
 
 namespace sageFlow {

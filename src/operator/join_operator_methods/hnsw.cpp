@@ -1,5 +1,5 @@
 #include "operator/join_operator_methods/hnsw.h"
-#include "operator/join_method_registry.h"
+#include "operator/utils/join_method_registry.h"
 #include "utils/logger.h"
 #include <deque>
 

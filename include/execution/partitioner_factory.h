@@ -1,7 +1,7 @@
 #pragma once
 
 #include "execution/partitioner.h"
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 
 #include <memory>
 

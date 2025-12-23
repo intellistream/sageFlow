@@ -398,6 +398,23 @@ class JoinDataSourceModesTest : public ::testing::TestWithParam<std::tuple<DataS
   }
 
   void TearDown() override {
+    // 输出 QIQ 三阶段统计
+    auto& m = JoinMetrics::instance();
+    uint64_t q1_count = m.qiq_q1_count.load();
+    uint64_t insert_count = m.qiq_insert_count.load();
+    uint64_t q2_count = m.qiq_q2_count.load();
+    
+    if (q1_count > 0 || insert_count > 0 || q2_count > 0) {
+      double q1_avg_us = q1_count > 0 ? static_cast<double>(m.qiq_q1_ns.load()) / q1_count / 1000.0 : 0.0;
+      double insert_avg_us = insert_count > 0 ? static_cast<double>(m.qiq_insert_ns.load()) / insert_count / 1000.0 : 0.0;
+      double q2_avg_us = q2_count > 0 ? static_cast<double>(m.qiq_q2_ns.load()) / q2_count / 1000.0 : 0.0;
+      
+      SAGEFLOW_LOG_INFO("QIQ_STATS", 
+          "Per-vector avg (incl lock): Q1={:.1f}us ({} calls), I={:.1f}us ({} calls), Q2={:.1f}us ({} calls), Total={:.1f}us",
+          q1_avg_us, q1_count, insert_avg_us, insert_count, q2_avg_us, q2_count,
+          q1_avg_us + insert_avg_us + q2_avg_us);
+    }
+    
     std::filesystem::create_directories("build/metrics");
     std::string metrics_path = "build/metrics/join_datasource_modes_" +
                                std::to_string(std::chrono::system_clock::now().time_since_epoch().count()) + ".tsv";

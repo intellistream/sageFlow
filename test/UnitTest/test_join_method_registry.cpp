@@ -11,8 +11,8 @@
  */
 
 #include <gtest/gtest.h>
-#include "operator/join_method_registry.h"
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_method_registry.h"
+#include "operator/utils/join_strategy_config.h"
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"
 
