@@ -7,7 +7,8 @@ std::pair<std::vector<std::unique_ptr<VectorRecord>>,
           std::vector<std::unique_ptr<VectorRecord>>>
 JoinTestHelper::generateJoinStreamsFromGenerator(
     TestDataGenerator& generator,
-    bool apply_uid_offset) {
+    bool apply_uid_offset,
+    int64_t time_interval_ms) {
   
   // Generate data
   auto [records, _] = generator.generateData();
@@ -21,6 +22,14 @@ JoinTestHelper::generateJoinStreamsFromGenerator(
   // Create a vector list source and use Duplicate mode
   auto source = std::make_shared<VectorListSource>(vectors);
   auto config = JoinDataSourceFactory::createDuplicated(source, apply_uid_offset);
+  
+  // Set time_interval from parameter or use generator's config
+  if (time_interval_ms > 0) {
+    config.time_interval = time_interval_ms;
+  } else {
+    config.time_interval = generator.getConfig().time_interval;
+  }
+  
   JoinDataSourcePair pair(config);
   
   return pair.generateStreams();

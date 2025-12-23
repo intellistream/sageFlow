@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "common/data_types.h"
-#include "operator/distance_verifier.h"
+#include "operator/join_operator_methods/vsjoin_components/distance_verifier.h"
 
 namespace sageFlow {
 namespace {

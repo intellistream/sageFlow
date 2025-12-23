@@ -26,6 +26,7 @@ void InputGate::addQueues(std::vector<QueuePtr>&& queues) {
   }
 }
 
+
 std::optional<TaggedResponse> InputGate::read() {
   if (input_queues_.empty()) {
     return std::nullopt;
