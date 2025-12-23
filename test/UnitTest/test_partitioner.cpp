@@ -5,6 +5,7 @@
 #include "common/data_types.h"
 #include "test_utils/test_data_adapter.h"
 #include <memory>
+#include <set>
 #include <vector>
 
 namespace sageFlow {
@@ -73,6 +74,27 @@ TEST(PartitionerTest, RoundRobinDistribution) {
     for (size_t count : counts) {
         EXPECT_EQ(count, 25);
     }
+}
+
+// LSHPartitionerAdapter: 相同向量应落在同一分区
+TEST(PartitionerTest, LSHPartitionerAdapterStableHash) {
+    auto vsp = std::make_shared<LSHPartitioner>(4, 4, 123, 0.05);
+    LSHPartitionerAdapter adapter(vsp);
+
+    std::vector<float> data = {0.2f, -0.1f, 0.5f, 0.3f};
+    auto record1 = createVectorRecord(1, 1000, data);
+    auto record2 = createVectorRecord(2, 1005, data);
+
+    Response response1{ResponseType::Record, std::move(record1)};
+    Response response2{ResponseType::Record, std::move(record2)};
+
+    const size_t channels = 8;
+    auto p1 = adapter.partition(response1, channels);
+    auto p2 = adapter.partition(response2, channels);
+
+    EXPECT_LT(p1, channels);
+    EXPECT_LT(p2, channels);
+    EXPECT_EQ(p1, p2);
 }
 
 // Test standard partitioning in ResultPartition

@@ -79,7 +79,13 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
     components.right_state = createWindowState(config, parallelism);
     
     // 5. 创建 Partitioner
-    components.partitioner = createPartitioner(config);
+    if (config.partition_strategy == PartitionStrategy::LSH) {
+        auto vsp = createVectorSpacePartitioner(config);
+        components.vector_partitioner = vsp;
+        components.partitioner = std::make_unique<LSHPartitionerAdapter>(vsp);
+    } else {
+        components.partitioner = createPartitioner(config);
+    }
     
     // 6. 创建算法特定组件
     switch (config.algorithm) {
@@ -213,6 +219,7 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createLshMethod(
     lsh_config.num_hashes = config.lsh_num_hashes;
     lsh_config.dimension = config.dimension;
     lsh_config.seed = config.lsh_seed;
+    lsh_config.window_size_ms = config.window_size_ms;
 
     (void)cm;       // LSHMethod 当前不依赖共享索引
     (void)left_idx; // 占位以保持签名一致
@@ -326,13 +333,8 @@ std::unique_ptr<IPartitioner> JoinStrategyFactory::createPartitioner(
             return std::make_unique<VectorHashPartitioner>();
             
         case PartitionStrategy::LSH: {
-            // LSH 分区需要使用基于 VectorSpacePartitioner 的适配器
-            // 这里暂时返回 VectorHashPartitioner 作为替代
-            // TODO: 实现 LSHPartitionerAdapter
-            // Issue URL: https://github.com/intellistream/sageFlow/issues/77
-            SAGEFLOW_LOG_WARN("JOIN_FACTORY", 
-                             "LSH partitioner adapter not implemented, using VectorHash");
-            return std::make_unique<VectorHashPartitioner>();
+            auto vsp = createVectorSpacePartitioner(config);
+            return std::make_unique<LSHPartitionerAdapter>(vsp);
         }
             
         case PartitionStrategy::CENTROID: {
@@ -364,8 +366,10 @@ std::shared_ptr<VectorSpacePartitioner> JoinStrategyFactory::createVectorSpacePa
         case PartitionStrategy::LSH:
             return std::make_shared<LSHPartitioner>(
                 config.dimension,
-                config.vsjoin_num_hash_functions,
-                42,  // seed
+                (config.algorithm == JoinAlgorithm::LSH)
+                    ? config.lsh_num_hashes
+                    : config.vsjoin_num_hash_functions,
+                config.lsh_seed,
                 config.vsjoin_boundary_threshold);
             
         case PartitionStrategy::CENTROID: {

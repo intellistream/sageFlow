@@ -372,6 +372,31 @@ TEST_F(JoinOperatorStrategyTest, ConfigInferDefaults_IVF) {
     });
 }
 
+TEST_F(JoinOperatorStrategyTest, ConfigInferDefaults_LSH) {
+    JoinStrategyConfig config;
+    config.algorithm = JoinAlgorithm::LSH;
+    config.dimension = 16;
+    config.similarity_threshold = 0.8;
+
+    config.inferDefaults();
+
+    // LSH 应推断为 LSH 分区 + 分区向量窗口
+    EXPECT_EQ(config.partition_strategy, PartitionStrategy::LSH);
+    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED_VECTOR);
+
+    auto join_func = createJoinFunction(16);
+
+    EXPECT_NO_THROW({
+        auto op = std::make_shared<JoinOperator>(
+            join_func,
+            concurrency_manager_,
+            config);
+
+        RuntimeContext ctx(0, 2);
+        op->open(ctx);
+    });
+}
+
 // ============================================================
 // Slot ID 配置测试
 // ============================================================

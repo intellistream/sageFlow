@@ -239,10 +239,10 @@ void JoinStrategyConfig::inferDefaults() {
             break;
 
         case JoinAlgorithm::LSH:
-            // 先采用共享窗口与索引，后续可按需切换到分区模式
-            partition_strategy = PartitionStrategy::ROUND_ROBIN;
-            window_state_type = WindowStateType::SHARED;
-            index_strategy = IndexStrategy::SHARED;
+            // LSH 推荐使用基于哈希的分区与分区窗口，保证相似向量落同一分区
+            partition_strategy = PartitionStrategy::LSH;
+            window_state_type = WindowStateType::PARTITIONED_VECTOR;
+            index_strategy = IndexStrategy::SHARED;  // 当前实现不依赖索引
             break;
             
         case JoinAlgorithm::BRUTEFORCE:

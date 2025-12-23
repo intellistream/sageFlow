@@ -231,6 +231,23 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
               -1, -1, join_similarity_threshold_, concurrency_manager_);
             SAGEFLOW_LOG_WARN("JOIN", "Failed to create HNSW index pair, falling back to BruteForce");
         }
+    } else if (algo == "lsh") {
+        // Hyperplane LSH: window-state only, no shared index
+        index_kind_ = InternalIndexKind::NONE;
+        use_shared_state_ = true;   // share window so all subtasks see full bucket contents
+        use_index_ = false;
+
+        LSHMethod::Config lsh_cfg;
+        lsh_cfg.similarity_threshold = join_similarity_threshold_;
+        lsh_cfg.num_tables = 4;
+        lsh_cfg.num_hashes = 8;
+        lsh_cfg.dimension = join_func_->getDim();
+        lsh_cfg.seed = 42;
+        lsh_cfg.window_size_ms = join_func_->getWindowSize();
+
+        join_method_ = std::make_unique<LSHMethod>(lsh_cfg);
+        SAGEFLOW_LOG_INFO("JOIN", "LSH mode enabled (window-state buckets)");
+
     } else if (algo == "vsjoin") {
         // VSJoin 模式：启用 VSJoin 配置，组件在 open() 中初始化
         vsjoin_config_.enabled = true;
@@ -382,6 +399,11 @@ void JoinOperator::open(const RuntimeContext& context) {
           SAGEFLOW_LOG_INFO("JOIN", "IVFMethod initialized with ConcurrencyManager index, left_idx={} right_idx={}",
                            left_index_id_, right_index_id_);
       }
+      // LSH path: initialize hyperplane tables with window state pointers
+      else if (auto* lsh = dynamic_cast<LSHMethod*>(join_method_.get())) {
+          lsh->open(context, left_state_.get(), right_state_.get());
+          SAGEFLOW_LOG_INFO("JOIN", "LSHMethod initialized with WindowState");
+      }
   }
   
   SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened: subtask={}/{}, shared_state={}", 
@@ -412,6 +434,11 @@ auto JoinOperator::updateSideThreadSafe(
     } else {
       JoinMetrics::instance().total_records_right.fetch_add(1, std::memory_order_relaxed);
     }
+        if (auto* lsh = dynamic_cast<LSHMethod*>(join_method_.get())) {
+                if (data_ptr) {
+                        lsh->onRecordAdded(*data_ptr, slot);
+                }
+        }
     // 窗口插入阶段（仅插入）
     {
         MetricsTimer t_window_ins(JoinMetrics::instance().window_insert_ns);
@@ -716,6 +743,12 @@ auto JoinOperator::updateSideWithState(
         JoinMetrics::instance().total_records_left.fetch_add(1, std::memory_order_relaxed);
     } else {
         JoinMetrics::instance().total_records_right.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    if (auto* lsh = dynamic_cast<LSHMethod*>(join_method_.get())) {
+        if (data_ptr) {
+            lsh->onRecordAdded(*data_ptr, slot);
+        }
     }
     
     // 添加记录到窗口状态

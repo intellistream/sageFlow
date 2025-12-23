@@ -3,6 +3,9 @@
 #include <cmath>
 #include <algorithm>
 #include <cstring>
+#include <unordered_set>
+#include <unordered_map>
+#include <mutex>
 
 #include "operator/join_method_registry.h"
 #include "utils/logger.h"
@@ -16,6 +19,22 @@ float dotProduct(const std::vector<float>& a, const std::vector<float>& b) {
         sum += a[i] * b[i];
     }
     return sum;
+}
+
+// 与 BruteForceBaseline 保持一致的相似度计算：exp(-alpha * L2)
+inline double l2Similarity(const std::vector<float>& a,
+                           const std::vector<float>& b) {
+    if (a.empty() || b.empty() || a.size() != b.size()) {
+        return 0.0;
+    }
+    double distance_sq = 0.0;
+    for (size_t i = 0; i < a.size(); ++i) {
+        const double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
+        distance_sq += diff * diff;
+    }
+    constexpr double kAlpha = 0.1;
+    const double distance = std::sqrt(distance_sq);
+    return std::exp(-kAlpha * distance);
 }
 }
 
@@ -34,6 +53,15 @@ LSHMethod::LSHMethod(const Config& config)
         SAGEFLOW_LOG_WARN("LSHMethod", "维度 dimension={} 非法，使用默认值 128", config_.dimension);
         config_.dimension = 128;
     }
+    if (config_.max_probes_per_table <= 0) {
+        SAGEFLOW_LOG_WARN("LSHMethod", "max_probes_per_table={} 非法，使用默认值 4", config_.max_probes_per_table);
+        config_.max_probes_per_table = 4;
+    }
+    if (config_.max_hamming_radius < 0) {
+        SAGEFLOW_LOG_WARN("LSHMethod", "max_hamming_radius={} 非法，使用默认值 2", config_.max_hamming_radius);
+        config_.max_hamming_radius = 2;
+    }
+    config_.max_hamming_radius = std::min(config_.max_hamming_radius, config_.num_hashes);
 }
 
 void LSHMethod::open(const RuntimeContext& context,
@@ -42,10 +70,41 @@ void LSHMethod::open(const RuntimeContext& context,
     subtask_index_ = context.getSubtaskIndex();
     left_state_ = left_state;
     right_state_ = right_state;
+    window_size_ms_ = config_.window_size_ms;
+    buckets_.assign(static_cast<size_t>(config_.num_tables), BucketMap{});
     initHyperplanes();
     SAGEFLOW_LOG_INFO("LSHMethod", "初始化完成：tables={} hashes/table={} dim={} subtask={}/{}",
                       config_.num_tables, config_.num_hashes, config_.dimension,
                       context.getSubtaskIndex(), context.getParallelism());
+}
+
+void LSHMethod::onRecordAdded(const VectorRecord& record, int slot) {
+    // slot: 0=left, 1=right. 我们的桶对两侧都存储，查询时按 query_slot 选择对面窗口。
+    (void)slot;
+    auto record_ptr = std::make_shared<VectorRecord>(record);
+    const auto& vec = toFloatVector(*record_ptr);
+    if (vec.empty()) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(buckets_mutex_);
+    if (buckets_.size() != static_cast<size_t>(config_.num_tables)) {
+        buckets_.assign(static_cast<size_t>(config_.num_tables), BucketMap{});
+    }
+    for (size_t t = 0; t < tables_.size(); ++t) {
+        const auto key = hashVector(*record_ptr, tables_[t]);
+        auto& bucket = buckets_[t][key];
+        // 去重：同 uid 不重复插入
+        bool exists = false;
+        for (const auto& ptr : bucket) {
+            if (ptr && ptr->uid_ == record_ptr->uid_) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            bucket.push_back(record_ptr);
+        }
+    }
 }
 
 std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
@@ -58,6 +117,12 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
         return results;
     }
 
+    // 预先提取查询向量，避免在循环中重复拷贝
+    const auto query_vec = toFloatVector(query_record);
+    if (query_vec.empty()) {
+        return results;
+    }
+
     // 预先计算查询向量的桶键
     std::vector<uint64_t> query_keys;
     query_keys.reserve(static_cast<size_t>(config_.num_tables));
@@ -65,39 +130,76 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
         query_keys.push_back(hashVector(query_record, planes));
     }
 
-    // 获取目标窗口快照，避免长时间持锁（WindowState 内部已做同步）
-    auto records_snapshot = target_state->getRecordsSnapshot(subtask_index_);
+    const int64_t window_lower_bound = query_record.timestamp_ - window_size_ms_;
 
-    for (const auto& candidate_ptr : records_snapshot) {
-        if (!candidate_ptr || candidate_ptr->uid_ == query_record.uid_) {
-            continue;
+    // 从桶中收集候选（联合多个表的命中）
+    std::unordered_map<uint64_t, std::shared_ptr<const VectorRecord>> candidate_map;
+    size_t buckets_scanned = 0;
+    size_t probes_used = 0;
+    const size_t min_candidates = config_.min_candidates;
+    {
+        std::lock_guard<std::mutex> lock(buckets_mutex_);
+        if (buckets_.size() != tables_.size()) {
+            buckets_.assign(tables_.size(), BucketMap{});
         }
-        // 简单桶过滤：任意一张表命中即可进入精排
-        bool bucket_hit = false;
         for (size_t t = 0; t < tables_.size(); ++t) {
-            auto key = hashVector(*candidate_ptr, tables_[t]);
-            if (key == query_keys[t]) {
-                bucket_hit = true;
-                break;
+            const auto probe_keys = buildProbeKeys(query_keys[t]);
+            size_t probes_for_table = 0;
+            for (uint64_t key : probe_keys) {
+                if (probes_for_table >= static_cast<size_t>(config_.max_probes_per_table)) {
+                    break;
+                }
+                ++probes_for_table;
+                ++probes_used;
+                ++buckets_scanned;
+                auto map_it = buckets_[t].find(key);
+                if (map_it == buckets_[t].end()) {
+                    continue;
+                }
+                auto& bucket = map_it->second;
+                bucket.erase(std::remove_if(bucket.begin(), bucket.end(), [&](const std::shared_ptr<const VectorRecord>& ptr) {
+                    return !ptr || ptr->timestamp_ < window_lower_bound;
+                }), bucket.end());
+                for (const auto& ptr : bucket) {
+                    if (!ptr) continue;
+                    if (ptr->uid_ == query_record.uid_) continue;
+                    candidate_map.emplace(ptr->uid_, ptr);
+                }
             }
         }
-        if (!bucket_hit) continue;
+    }
 
-        // 计算余弦相似度
+    bool fallback_used = false;
+    if (min_candidates > 0 && config_.fallback_on_sparse && candidate_map.size() < min_candidates) {
+        fallback_used = true;
+        auto snapshot = target_state->getRecordsSnapshot(subtask_index_);
+        for (const auto& ptr : snapshot) {
+            if (!ptr || ptr->uid_ == query_record.uid_) continue;
+            if (ptr->timestamp_ < window_lower_bound) continue;
+            candidate_map.emplace(ptr->uid_, ptr);
+        }
+    }
+
+    for (const auto& kv : candidate_map) {
+        const auto& candidate_ptr = kv.second;
         const auto cand_vec = toFloatVector(*candidate_ptr);
-        const auto query_vec = toFloatVector(query_record);
-        if (cand_vec.empty() || query_vec.empty()) {
+        if (cand_vec.empty() || cand_vec.size() != query_vec.size()) {
             continue;
         }
-        // 使用 SIMD 余弦相似度，加速候选验证
-        float sim = SIMDDistance::cosineSimilarity(query_vec.data(), cand_vec.data(), cand_vec.size());
-        if (sim >= static_cast<float>(join_similarity_threshold_)) {
+        const double sim = l2Similarity(query_vec, cand_vec);
+        if (sim >= join_similarity_threshold_) {
             results.emplace_back(std::make_unique<VectorRecord>(*candidate_ptr));
         }
     }
 
-    SAGEFLOW_LOG_DEBUG("LSHMethod", "slot={} 输入 uid={}，候选数={} 通过过滤后={} ",
-                      query_slot, query_record.uid_, records_snapshot.size(), results.size());
+    SAGEFLOW_LOG_DEBUG("LSHMethod", "slot={} uid={} probes={} buckets={} candidates={} fallback={} kept={}",
+                      query_slot,
+                      query_record.uid_,
+                      probes_used,
+                      buckets_scanned,
+                      candidate_map.size(),
+                      fallback_used,
+                      results.size());
     return results;
 }
 
@@ -133,6 +235,36 @@ uint64_t LSHMethod::hashVector(const VectorRecord& record,
         }
     }
     return bits;
+}
+
+std::vector<uint64_t> LSHMethod::buildProbeKeys(uint64_t base_key) const {
+    const size_t limit = static_cast<size_t>(std::max(1, config_.max_probes_per_table));
+    std::vector<uint64_t> keys;
+    keys.reserve(limit);
+    keys.push_back(base_key);
+
+    const int bits = std::min(config_.num_hashes, 63);
+    auto push_if_room = [&](uint64_t key) {
+        if (keys.size() < limit) {
+            keys.push_back(key);
+        }
+    };
+
+    if (config_.max_hamming_radius >= 1) {
+        for (int i = 0; i < bits && keys.size() < limit; ++i) {
+            push_if_room(base_key ^ (uint64_t(1) << i));
+        }
+    }
+
+    if (config_.max_hamming_radius >= 2) {
+        for (int i = 0; i < bits && keys.size() < limit; ++i) {
+            for (int j = i + 1; j < bits && keys.size() < limit; ++j) {
+                push_if_room(base_key ^ ((uint64_t(1) << i) | (uint64_t(1) << j)));
+            }
+        }
+    }
+
+    return keys;
 }
 
 std::vector<float> LSHMethod::toFloatVector(const VectorRecord& record) {

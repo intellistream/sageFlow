@@ -113,7 +113,7 @@ bool JoinConfigValidator::isCompatible(PartitionStrategy partition_strategy,
                    window_state_type == WindowStateType::TWO_TIER;
 
         case PartitionStrategy::LSH:
-            // LSH 需要 PARTITIONED_VECTOR（VSJoin 专用）
+            // LSH 需要 PARTITIONED_VECTOR（LSH/VSJoin 均复用）
             return window_state_type == WindowStateType::PARTITIONED_VECTOR;
 
         case PartitionStrategy::CENTROID:
@@ -162,8 +162,8 @@ PartitionStrategy JoinConfigValidator::getRecommendedPartitionStrategy(
             return PartitionStrategy::ROUND_ROBIN;
 
         case JoinAlgorithm::LSH:
-            // 新 LSH 方法暂按共享分区默认值处理
-            return PartitionStrategy::ROUND_ROBIN;
+            // LSH 默认采用 LSH 分区
+            return PartitionStrategy::LSH;
 
         case JoinAlgorithm::VSJOIN:
             return PartitionStrategy::LSH;

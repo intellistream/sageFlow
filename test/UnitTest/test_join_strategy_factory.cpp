@@ -5,6 +5,7 @@
 #include "operator/join_strategy_config.h"
 #include "operator/join_strategy_factory.h"
 #include "operator/join_operator_methods/lsh_method.h"
+#include "execution/partitioner.h"
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"
 
@@ -370,6 +371,26 @@ TEST_F(JoinStrategyFactoryTest, CreateVSJoinStrategy) {
     EXPECT_FALSE(components.left_state->isShared());
 }
 
+// LSH 默认使用 LSH 分区器 + PartitionedVectorState
+TEST_F(JoinStrategyFactoryTest, CreateLSHStrategy) {
+    JoinStrategyConfig config;
+    config.algorithm = JoinAlgorithm::LSH;
+    config.inferDefaults();
+    config.dimension = 64;
+    config.lsh_num_tables = 2;
+    config.lsh_num_hashes = 8;
+
+    auto components = JoinStrategyFactory::create(config, cm_, 4);
+
+    EXPECT_NE(components.join_method, nullptr);
+    EXPECT_NE(dynamic_cast<LSHMethod*>(components.join_method.get()), nullptr);
+    EXPECT_NE(components.vector_partitioner, nullptr);
+    EXPECT_NE(components.partitioner, nullptr);
+    EXPECT_FALSE(components.left_state->isShared());
+    EXPECT_GE(components.left_index_id, 0);
+    EXPECT_GE(components.right_index_id, 0);
+}
+
 // 测试无效配置应该抛出异常
 TEST_F(JoinStrategyFactoryTest, CreateWithInvalidConfigThrows) {
     JoinStrategyConfig config;
@@ -415,6 +436,13 @@ TEST_F(JoinStrategyFactoryTest, CreateWindowStateOnly) {
     config.two_tier_compact_threshold = 50;
     auto tt_state = JoinStrategyFactory::createWindowState(config, 4);
     EXPECT_FALSE(tt_state->isShared());
+
+    // PartitionedVector
+    config.window_state_type = WindowStateType::PARTITIONED_VECTOR;
+    config.partition_strategy = PartitionStrategy::LSH;
+    config.num_partitions = 4;
+    auto pv_state = JoinStrategyFactory::createWindowState(config, 4);
+    EXPECT_FALSE(pv_state->isShared());
 }
 
 // 测试仅创建 Partitioner
@@ -436,6 +464,14 @@ TEST_F(JoinStrategyFactoryTest, CreatePartitionerOnly) {
     config.partition_strategy = PartitionStrategy::VECTOR_HASH;
     auto vh_part = JoinStrategyFactory::createPartitioner(config);
     EXPECT_NE(vh_part, nullptr);
+
+    // LSH
+    config.partition_strategy = PartitionStrategy::LSH;
+    config.dimension = 64;
+    config.lsh_num_hashes = 6;
+    auto lsh_part = JoinStrategyFactory::createPartitioner(config);
+    EXPECT_NE(lsh_part, nullptr);
+    EXPECT_NE(dynamic_cast<LSHPartitionerAdapter*>(lsh_part.get()), nullptr);
 }
 
 // 测试创建索引对

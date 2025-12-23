@@ -8,6 +8,7 @@
 #include <functional>
 #include <memory>
 #include "common/data_types.h"
+#include "execution/vector_space_partitioner.h"
 
 namespace sageFlow {
 class IPartitioner {
@@ -73,6 +74,23 @@ public:
   
   // 标记此分区器需要广播（供ResultPartition检测使用）
   bool isBroadcast() const { return true; }
+};
+
+// 基于向量空间分区器的适配器，用于将 VectorSpacePartitioner 输出对接到运行时 IPartitioner 接口
+class LSHPartitionerAdapter : public IPartitioner {
+public:
+  explicit LSHPartitionerAdapter(std::shared_ptr<VectorSpacePartitioner> vsp)
+      : vsp_(std::move(vsp)) {}
+
+  size_t partition(const Response& data, size_t num_channels) override {
+    if (!vsp_ || !data.record_) {
+      return 0;
+    }
+    return vsp_->partition(*data.record_, num_channels);
+  }
+
+private:
+  std::shared_ptr<VectorSpacePartitioner> vsp_;
 };
 
 } // namespace sageFlow
