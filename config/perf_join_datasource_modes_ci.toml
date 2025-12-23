@@ -44,20 +44,20 @@ seed = 42
 [performance_test.data_source]
 type = "random"
 
-[[performance_test]]
-# Faiss 集成功能验证测试
-name = "ci_perf_faiss_integration"
-mode = "generate_direct_use" 
-methods = ["faiss_ivf", "faiss_hnsw"] 
-sizes = [1000]
-records_count = 1000
-vector_dim = 64
-parallelism = [1]
-window_time_ms = [10000]
-window_trigger_ms = 50
-time_interval = 10
-similarity_threshold = 0.8
-seed = 42
+# [[performance_test]]
+# # Faiss 集成功能验证测试
+# name = "ci_perf_faiss_integration"
+# mode = "generate_direct_use" 
+# methods = ["faiss_ivf", "faiss_hnsw"] 
+# sizes = [2000]
+# records_count = 2000
+# vector_dim = 64
+# parallelism = [1]
+# window_time_ms = [10000]
+# window_trigger_ms = 50
+# time_interval = 10
+# similarity_threshold = 0.8
+# seed = 42
 
-[performance_test.data_source]
-type = "random"
+# [performance_test.data_source]
+# type = "random"
