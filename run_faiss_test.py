@@ -58,13 +58,24 @@ def run_tests():
 
             # 实时读取输出
             for line in process.stdout:
-                # 写入文件
+                # 写入文件 (保存所有详细 Debug 信息)
                 log_file.write(line)
                 
-                # 关键信息打印到控制台，防止用户觉得卡死，但过滤掉大量 debug 信息
+                # 关键信息打印到控制台
                 strip_line = line.strip()
-                if any(k in strip_line for k in ["[ RUN ]", "[ PASSED ]", "[ FAILED ]", "Segmentation fault", "Error", "Recall"]):
+                
+                keywords = [
+                    "[ RUN ]", "[ PASSED ]", "[ FAILED ]", 
+                    "Segmentation fault", "Error", 
+                    "Recall", "Throughput", "Latency", "rec/s",
+                    "Auto-trained", "Loading index"
+                ]
+                
+                if any(k in strip_line for k in keywords):
                     print(strip_line)
+                    # 如果这行包含 Error 或 FAILED，强制刷新缓冲区确保立刻看到
+                    if "Error" in strip_line or "FAILED" in strip_line:
+                        sys.stdout.flush()
             
             process.wait()
             
