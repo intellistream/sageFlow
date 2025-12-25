@@ -131,12 +131,47 @@ size_t CentroidPartitioner::partition(const Response& data, size_t num_channels)
   }
   
   if (!trained_.load()) {
-    // 未训练时使用简单哈希
-    return data.record_->uid_ % num_channels;
+    // 未训练时：所有数据路由到 subtask 0
+    // 这确保了 ClusteredJoin 的正确性，但会退化为单线程模式
+    // TODO: 实现在线训练或使用 LSH 分区来支持并行
+    return 0;
   }
   
   int partition_idx = getPrimaryPartition(*data.record_);
   return static_cast<size_t>(partition_idx) % num_channels;
+}
+
+std::vector<size_t> CentroidPartitioner::partitionMulti(const Response& data, size_t num_channels) {
+  // 多播未启用或未训练时，降级为单播
+  if (!multicast_enabled_ || !trained_.load()) {
+    return {partition(data, num_channels)};;
+  }
+  
+  if (!data.record_) {
+    return {0};
+  }
+  
+  // 获取向量的所有相关分区（主分区 + 边界分区）
+  auto partitions = getPartitions(*data.record_);
+  
+  // 如果只有一个分区，直接返回
+  if (partitions.size() == 1) {
+    return {static_cast<size_t>(partitions[0]) % num_channels};
+  }
+  
+  // 转换为 size_t 并映射到 channel 空间
+  std::vector<size_t> result;
+  result.reserve(partitions.size());
+  
+  for (int p : partitions) {
+    result.push_back(static_cast<size_t>(p) % num_channels);
+  }
+  
+  // 去重（多个分区可能映射到同一个 channel）
+  std::sort(result.begin(), result.end());
+  result.erase(std::unique(result.begin(), result.end()), result.end());
+  
+  return result;
 }
 
 // ==================== 质心管理 ====================

@@ -165,6 +165,72 @@ enabled = false
 
 # ==================== ClusteredJoin 测试 ====================
 # VectraFlow-style clustered join
+
+# BruteForce 模式 - 用于验证正确性 (Ground Truth)
+[[test_case]]
+name = "clustered_bruteforce_baseline"
+description = "ClusteredJoin with BruteForce for correctness verification"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_border_replication = true
+clustered_training_samples = 500
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+data_sizes = [100]
+parallelism = [1, 2, 4]
+expected_min_recall = 0.95
+expected_min_precision = 0.95
+enabled = true
+
+# IVF 模式 - 默认推荐配置
+[[test_case]]
+name = "clustered_ivf_standard"
+description = "ClusteredJoin with IVF index (recommended)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_border_replication = true
+clustered_training_samples = 1000
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 5
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 0.85
+enabled = true
+
+# 无多播模式 - 预期较低召回率
+[[test_case]]
+name = "clustered_no_multicast"
+description = "ClusteredJoin without multicast (lower recall expected)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_overlap_ratio = 0.0
+clustered_border_replication = false
+clustered_training_samples = 500
+clustered_index_type = "ivf"
+clustered_multicast_enabled = false
+ivf_nlist = 50
+ivf_nprobes = 5
+data_sizes = [500]
+parallelism = [2, 4]
+expected_min_recall = 0.70
+enabled = true
+
+# 兼容旧配置的测试用例
 [[test_case]]
 name = "clustered_join_standard"
 description = "VectraFlow-style clustered join with centroid partitioning"
@@ -177,6 +243,10 @@ clustered_overlap_ratio = 0.1
 clustered_rebalance_threshold = 0.3
 clustered_border_replication = true
 clustered_training_samples = 500
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 5
 data_sizes = [500, 1000]
 parallelism = [2, 4]
 expected_min_recall = 0.80
@@ -193,6 +263,10 @@ num_partitions = 8
 clustered_overlap_ratio = 0.0
 clustered_border_replication = false
 clustered_training_samples = 500
+clustered_index_type = "ivf"
+clustered_multicast_enabled = false
+ivf_nlist = 50
+ivf_nprobes = 5
 data_sizes = [500]
 parallelism = [2, 4]
 expected_min_recall = 0.70
@@ -209,6 +283,10 @@ num_partitions = 4
 clustered_overlap_ratio = 0.2
 clustered_border_replication = true
 clustered_training_samples = 500
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 5
 data_sizes = [500]
 parallelism = [2, 4]
 expected_min_recall = 0.88

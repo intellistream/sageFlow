@@ -7,10 +7,12 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_operator_methods/hdr_tree_method.h"
+#include "operator/join_operator_methods/clustered_join_method.h"
 #include "operator/join_metrics.h"
 #include "operator/utils/join_strategy_factory.h"
 #include "operator/utils/join_config_validator.h"
 #include "execution/partitioner_factory.h"
+#include "execution/centroid_partitioner.h"
 #include "utils/monitoring.h"
 
 #include <algorithm>
@@ -230,6 +232,44 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
               -1, -1, join_similarity_threshold_, concurrency_manager_);
             SAGEFLOW_LOG_WARN("JOIN", "Failed to create HNSW index pair, falling back to BruteForce");
         }
+    } else if (algo == "clustered_join" || algo == "clusteredjoin" || algo == "clustered") {
+        // ClusteredJoin 模式：每个 subtask 独立索引 + CentroidPartitioner
+        // 使用 PartitionedWindowState，数据通过质心分区器路由
+        use_shared_state_ = false;
+        index_kind_ = InternalIndexKind::NONE;  // ClusteredJoinMethod 自己管理索引
+        use_index_ = false;  // 不使用共享索引
+        
+        // 设置默认的策略配置，以便 getPreferredPartitioner() 能返回正确的分区器
+        strategy_config_.algorithm = JoinAlgorithm::CLUSTERED_JOIN;
+        strategy_config_.partition_strategy = PartitionStrategy::CENTROID;  // 必须使用质心分区
+        strategy_config_.window_state_type = WindowStateType::PARTITIONED; // 必须使用分区状态
+        strategy_config_.index_strategy = IndexStrategy::PARTITIONED;       // 每个 subtask 独立索引
+        strategy_config_.similarity_threshold = join_similarity_threshold_;
+        strategy_config_.dimension = join_func_->getDim();
+        strategy_config_.window_size_ms = join_func_->getWindowSize();
+        strategy_config_.step_size_ms = join_func_->getStepSize();
+        // 使用默认的 clustered 配置参数
+        strategy_config_.num_partitions = 8;  // 默认8个分区
+        strategy_config_.clustered_overlap_ratio = 0.1;
+        strategy_config_.clustered_rebalance_threshold = 0.3;
+        strategy_config_.clustered_multicast_enabled = true;  // 启用边界向量多播
+        strategy_config_.clustered_index_type = ClusteredIndexType::BRUTEFORCE;  // 默认使用 bruteforce
+        use_strategy_config_ = true;  // 启用策略配置模式
+        
+        // 创建 ClusteredJoinMethod（实际初始化在 open() 中完成）
+        ClusteredJoinMethod::Config clustered_config;
+        clustered_config.similarity_threshold = join_similarity_threshold_;
+        clustered_config.dimension = join_func_->getDim();
+        clustered_config.window_size_ms = join_func_->getWindowSize();
+        clustered_config.num_partitions = strategy_config_.num_partitions;
+        clustered_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
+        // 默认使用 BruteForce 索引（高召回率）
+        clustered_config.index_type = ClusteredIndexType::BRUTEFORCE;
+        
+        join_method_ = std::make_unique<ClusteredJoinMethod>(clustered_config);
+        
+        SAGEFLOW_LOG_INFO("JOIN", "ClusteredJoin mode enabled: partitions={} overlap={:.2f} index_type=bruteforce",
+                         clustered_config.num_partitions, clustered_config.overlap_ratio);
     } else {
         index_kind_ = InternalIndexKind::NONE;
         use_index_ = false;
@@ -911,6 +951,83 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     // 保存数据指针副本用于后续 join
     auto data_for_join = std::make_unique<VectorRecord>(*data_ptr);
     
+    // ====== ClusteredJoin 专用处理路径 ======
+    // ClusteredJoinMethod 维护自己的窗口状态和索引
+    // 不使用 JoinOperator 的 left_state_/right_state_ 和 left_index_id_/right_index_id_
+    if (auto* clustered = dynamic_cast<ClusteredJoinMethod*>(join_method_.get())) {
+        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
+        
+        // 更新 JoinMetrics（与 updateSideWithState 一致）
+        if (slot == left_slot_id_) {
+            JoinMetrics::instance().total_records_left.fetch_add(1, std::memory_order_relaxed);
+        } else {
+            JoinMetrics::instance().total_records_right.fetch_add(1, std::memory_order_relaxed);
+        }
+        
+        // 1. 添加记录到 ClusteredJoinMethod 自己的窗口和索引
+        auto record_copy = std::make_unique<VectorRecord>(*data_for_join);
+        clustered->addRecord(std::move(record_copy), slot);
+        
+        // 2. 清理过期记录
+        clustered->evictExpired(now_time_stamp);
+        
+        // 3. 执行 Eager Join 查询
+        auto candidates = clustered->ExecuteEager(*data_for_join, slot);
+        
+        // 4. 执行 Join 函数并收集结果
+        for (auto& cand : candidates) {
+            if (!cand) continue;
+            
+            std::unique_ptr<VectorRecord> left_copy;
+            std::unique_ptr<VectorRecord> right_copy;
+            
+            if (slot == left_slot_id_) {
+                left_copy = std::make_unique<VectorRecord>(*data_for_join);
+                right_copy = std::make_unique<VectorRecord>(*cand);
+            } else {
+                left_copy = std::make_unique<VectorRecord>(*cand);
+                right_copy = std::make_unique<VectorRecord>(*data_for_join);
+            }
+            
+            Response lhs{ResponseType::Record, std::move(left_copy)};
+            Response rhs{ResponseType::Record, std::move(right_copy)};
+            
+            try {
+                MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
+                auto res = join_func_->Execute(lhs, rhs);
+                if (res.record_) {
+                    local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
+                }
+            } catch (const std::exception& e) {
+                SAGEFLOW_LOG_ERROR("CLUSTERED_JOIN", "Exception in Execute: {}", e.what());
+            }
+        }
+        
+        // 5. 发送结果
+        {
+            MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
+            for (auto& p : local_return_pool) {
+                auto out = std::make_unique<Response>(ResponseType::Record, std::move(p.second));
+                collector.collect(std::move(out), p.first);
+            }
+        }
+        
+        // 调试：记录匹配数量
+        static std::atomic<uint64_t> clustered_total_matches{0};
+        static std::atomic<uint64_t> clustered_debug_count{0};
+        clustered_total_matches.fetch_add(local_return_pool.size(), std::memory_order_relaxed);
+        uint64_t dc = clustered_debug_count.fetch_add(1, std::memory_order_relaxed);
+        if (dc % 500 == 0) {
+            SAGEFLOW_LOG_INFO("CLUSTERED_JOIN_DEBUG", 
+                "subtask={}/{} slot={} uid={} candidates={} matches={} total={}",
+                subtask_index, context.getParallelism(), slot, 
+                data_for_join->uid_, candidates.size(), local_return_pool.size(),
+                clustered_total_matches.load());
+        }
+        
+        return;  // ClusteredJoin 处理完成，直接返回
+    }
+    
     // ====== 自适应并发策略 ======
     // 根据并行度选择不同的策略
     
@@ -1089,6 +1206,20 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
         }
         // VSJoin 将通过 VSJoinMethod 处理，不再需要特殊初始化
         // 参考: include/operator/join_operator_methods/vsjoin_method.h
+        
+        // ClusteredJoinMethod 初始化：每个 subtask 创建独立索引
+        // ClusteredJoinMethod 维护自己的窗口状态，不使用 JoinOperator 的 left_state_/right_state_
+        else if (auto* clustered = dynamic_cast<ClusteredJoinMethod*>(join_method_.get())) {
+            // ClusteredJoin 使用分区状态 + 每个 subtask 独立索引
+            // 初始化时创建独立索引，不依赖工厂创建的共享索引
+            clustered->initialize(context, concurrency_manager_);
+            
+            SAGEFLOW_LOG_INFO("JOIN", "ClusteredJoinMethod initialized via strategy config, "
+                             "subtask={}/{} partitions={} multicast={}",
+                             context.getSubtaskIndex(), context.getParallelism(),
+                             strategy_config_.num_partitions,
+                             strategy_config_.clustered_multicast_enabled);
+        }
     }
 
     SAGEFLOW_LOG_INFO("JOIN", "JoinOperator initialized with strategy config: subtask={}/{} shared_state={}",
@@ -1098,15 +1229,65 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
 std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
     int dimension, int num_partitions) const {
     // 根据 Join 配置返回适当的分区器
-    // 
-    // VSJoin 模式将通过策略配置 + VSJoinMethod 处理，
-    // 这里仅保留通用的分区器选择逻辑。
-    // 
-    // 对于需要 LSH 分区的 VSJoin 场景，应通过 JoinStrategyFactory 
-    // 创建对应的 Partitioner。
     
-    // 共享索引 Join（bruteforce/ivf）：使用 RoundRobin 实现负载均衡
-    // 返回 nullptr 让 ConnectionStrategy 使用默认的 RoundRobin
+    if (use_strategy_config_) {
+        switch (strategy_config_.algorithm) {
+            case JoinAlgorithm::CLUSTERED_JOIN: {
+                // ClusteredJoin 使用 CentroidPartitioner
+                // 构建配置：使用策略配置中的参数
+                CentroidPartitioner::Config cp_config;
+                cp_config.num_partitions = (num_partitions > 0) 
+                    ? num_partitions : strategy_config_.num_partitions;
+                cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
+                cp_config.dimension = (dimension > 0) 
+                    ? dimension : strategy_config_.dimension;
+                cp_config.seed = 42;
+                cp_config.rebalance_threshold = strategy_config_.clustered_rebalance_threshold;
+                
+                auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
+                
+                // 设置多播模式（边界向量复制）
+                partitioner->setMulticastEnabled(strategy_config_.clustered_multicast_enabled);
+                
+                SAGEFLOW_LOG_INFO("JOIN", "Created CentroidPartitioner for ClusteredJoin: "
+                                 "partitions={} overlap={:.2f} multicast={}",
+                                 cp_config.num_partitions, cp_config.overlap_ratio,
+                                 strategy_config_.clustered_multicast_enabled);
+                
+                return partitioner;
+            }
+            
+            case JoinAlgorithm::S3J: {
+                // S3J 也使用 CentroidPartitioner，但使用 S3J 特有参数
+                CentroidPartitioner::Config cp_config;
+                cp_config.num_partitions = (num_partitions > 0) 
+                    ? num_partitions : strategy_config_.s3j_num_centroids;
+                cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
+                cp_config.dimension = (dimension > 0) 
+                    ? dimension : strategy_config_.dimension;
+                cp_config.seed = 42;
+                
+                return std::make_unique<CentroidPartitioner>(cp_config);
+            }
+            
+            case JoinAlgorithm::VSJOIN: {
+                // VSJoin 使用 LSH 分区（通过 PartitionerFactory 创建）
+                // 这里返回 nullptr，让 ExecutionGraph 使用 PartitionerFactory
+                return nullptr;
+            }
+            
+            case JoinAlgorithm::BRUTEFORCE:
+            case JoinAlgorithm::IVF:
+            case JoinAlgorithm::HNSW:
+            case JoinAlgorithm::HDR_TREE:
+            default:
+                // 共享索引 Join：使用 RoundRobin 实现负载均衡
+                // 返回 nullptr 让 ConnectionStrategy 使用默认的 RoundRobin
+                return nullptr;
+        }
+    }
+    
+    // 向后兼容：没有使用策略配置时返回 nullptr（使用默认 RoundRobin）
     return nullptr;
 }
 

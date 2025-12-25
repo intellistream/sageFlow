@@ -17,6 +17,7 @@ std::string toString(JoinAlgorithm algo);
 std::string toString(PartitionStrategy ps);
 std::string toString(WindowStateType ws);
 std::string toString(IndexStrategy is);
+std::string toString(ClusteredIndexType cit);
 
 // ==================== ValidationResult 方法实现 ====================
 
@@ -270,6 +271,35 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
             result.addError(
                 "ClusteredJoin requires PartitionedWindowState or TwoTierWindowState. "
                 "Current: " + sageFlow::toString(config.window_state_type) + ".");
+        }
+        
+        // 新增：验证 clustered_index_type 相关参数
+        if (config.clustered_index_type == ClusteredIndexType::HNSW) {
+            // HNSW 需要有效的参数
+            if (config.hnsw_m <= 0 || config.hnsw_ef_construction <= 0) {
+                result.addError(
+                    "ClusteredJoin with HNSW index requires valid hnsw_m and "
+                    "hnsw_ef_construction. Current: hnsw_m=" + 
+                    std::to_string(config.hnsw_m) + ", hnsw_ef_construction=" +
+                    std::to_string(config.hnsw_ef_construction) + ".");
+            }
+        }
+        
+        if (config.clustered_index_type == ClusteredIndexType::IVF) {
+            // IVF 需要检查 nlist
+            if (config.ivf_nlist <= 0) {
+                result.addError(
+                    "ClusteredJoin with IVF index requires valid ivf_nlist. "
+                    "Current: " + std::to_string(config.ivf_nlist) + ".");
+            }
+        }
+        
+        // 警告：多播与边界复制应一致
+        if (config.clustered_border_replication && !config.clustered_multicast_enabled) {
+            result.addWarning(
+                "clustered_border_replication is true but clustered_multicast_enabled is false. "
+                "This may cause missed matches at partition boundaries. "
+                "Consider enabling clustered_multicast_enabled for better recall.");
         }
     }
 }

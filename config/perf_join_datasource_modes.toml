@@ -65,4 +65,99 @@ file_path = "test/data/generated_test_data.json"
 #[performance_test.data_source]
 #type = "random"
 
+# ==================== Clustered Join 性能测试 ====================
+
+[[performance_test]]
+# Clustered Join with BruteForce (ground truth verification)
+name = "perf_clustered_bruteforce"
+mode = "generate_save_load"
+methods = ["clustered_join"]
+sizes = [500, 1000, 2000]
+records_count = 10
+vector_dim = 128
+parallelism = [1, 2, 4, 8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 0.1
+training_samples = 500
+
+[performance_test.data_source]
+type = "random"
+
+[performance_test.storage]
+format = "json"
+file_path = "test/data/clustered_bruteforce_test_data.json"
+
+
+[[performance_test]]
+# Clustered Join with IVF index (recommended configuration)
+name = "perf_clustered_ivf"
+mode = "generate_save_load"
+methods = ["clustered_join"]
+sizes = [1000, 2000, 5000]
+records_count = 10
+vector_dim = 128
+parallelism = [2, 4, 8, 16]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "ivf"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 0.1
+training_samples = 1000
+ivf_nlist = 50
+ivf_nprobes = 5
+
+[performance_test.data_source]
+type = "random"
+
+[performance_test.storage]
+format = "json"
+file_path = "test/data/clustered_ivf_test_data.json"
+
+
+[[performance_test]]
+# Clustered Join without multicast (lower recall expected)
+name = "perf_clustered_no_multicast"
+mode = "generate_save_load"
+methods = ["clustered_join"]
+sizes = [500, 1000]
+records_count = 10
+vector_dim = 128
+parallelism = [2, 4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "ivf"
+num_partitions = 8
+multicast_enabled = false
+overlap_ratio = 0.0
+training_samples = 500
+ivf_nlist = 50
+ivf_nprobes = 5
+
+[performance_test.data_source]
+type = "random"
+
+[performance_test.storage]
+format = "json"
+file_path = "test/data/clustered_no_multicast_test_data.json"
+
 log.level = "debug"

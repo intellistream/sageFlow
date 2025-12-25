@@ -204,19 +204,30 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createClusteredJoinMethod(
     std::shared_ptr<ConcurrencyManager> cm,
     int left_idx, int right_idx) {
     
+    // 构建 ClusteredJoinMethod::Config
+    // 注意：新架构中每个 subtask 通过 initialize() 创建独立索引，
+    // left_idx 和 right_idx 参数在新架构中不再使用
     ClusteredJoinMethod::Config cj_config;
     cj_config.similarity_threshold = config.similarity_threshold;
+    cj_config.dimension = config.dimension;
+    cj_config.window_size_ms = config.window_size_ms;
     cj_config.num_partitions = config.num_partitions;
     cj_config.overlap_ratio = config.clustered_overlap_ratio;
     cj_config.rebalance_threshold = config.clustered_rebalance_threshold;
     cj_config.use_border_replication = config.clustered_border_replication;
-    cj_config.dimension = config.dimension;
     cj_config.training_samples = config.clustered_training_samples;
+    cj_config.index_type = config.clustered_index_type;
     
-    return std::make_unique<ClusteredJoinMethod>(
-        left_idx, right_idx,
-        cj_config,
-        cm);
+    // IVF 参数
+    cj_config.ivf_nlist = config.ivf_nlist;
+    cj_config.ivf_nprobes = config.ivf_nprobes;
+    
+    // HNSW 参数
+    cj_config.hnsw_m = config.hnsw_m;
+    cj_config.hnsw_ef_construction = config.hnsw_ef_construction;
+    cj_config.hnsw_ef_search = config.hnsw_ef_search;
+    
+    return std::make_unique<ClusteredJoinMethod>(cj_config);
 }
 
 std::unique_ptr<BaseMethod> JoinStrategyFactory::createS3JMethod(

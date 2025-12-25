@@ -43,7 +43,7 @@ METHOD_FILTER_MAP = {
     'ivf': '*ivf*',
     'hnsw': '*hnsw*',
     'hdr_tree': '*hdr_tree*',
-    'clustered_join': '*clustered_join*',
+    'clustered_join': '*clustered*',
     's3j': '*s3j*',
     'vsjoin': '*vsjoin*',
 }

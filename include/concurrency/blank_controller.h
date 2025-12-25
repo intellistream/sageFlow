@@ -23,6 +23,12 @@ class BlankController final : public ConcurrencyController {
 
   auto erase(uint64_t uid) -> bool override;
 
+  /**
+   * @brief 获取底层索引（用于分区索引访问）
+   * @return Index 共享指针
+   */
+  auto getIndex() const -> std::shared_ptr<Index> { return index_; }
+
  private:
   std::shared_ptr<Index> index_;
 };

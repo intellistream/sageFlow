@@ -81,8 +81,10 @@ set(UNIT_TEST_SPECS
     test_hdr_tree                  UnitTest/test_hdr_tree.cpp                 300 UNIT
     test_hdr_rknn                  UnitTest/test_hdr_rknn.cpp                 300 UNIT
     test_clustered_join            UnitTest/test_clustered_join.cpp           300 UNIT
+    test_clustered_join_method     UnitTest/test_clustered_join_method.cpp    300 UNIT
     test_s3j_method                UnitTest/test_s3j_method.cpp               300 UNIT
     test_partitioner               UnitTest/test_partitioner.cpp              120 UNIT
+    test_clustered_partitioner     UnitTest/test_clustered_partitioner.cpp    120 UNIT
     test_compute_engine            UnitTest/test_compute_engine.cpp           180 UNIT
     test_file_stream_source        UnitTest/test_file_stream_source.cpp       120 UNIT
     test_data_source               UnitTest/test_data_source.cpp              120 UNIT
@@ -113,6 +115,8 @@ set(UNIT_TEST_SPECS
     test_join_operator_strategy    UnitTest/test_join_operator_strategy.cpp   180 UNIT
     test_join_metrics              UnitTest/test_join_metrics.cpp             180 UNIT
     test_report_generator          UnitTest/test_report_generator.cpp         180 UNIT
+    test_multicast_partitioner     UnitTest/test_multicast_partitioner.cpp    120 UNIT
+    test_clustered_config          UnitTest/test_clustered_config.cpp         120 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)
@@ -225,6 +229,62 @@ add_custom_target(run_quick_tests
     COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R "(test_join_bruteforce|test_join_ivf|test_pipeline_basic)"
     DEPENDS test_join_bruteforce test_join_ivf test_pipeline_basic
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+)
+
+# -----------------------------------------------------------------------------
+# Clustered Join 专用测试目标
+# -----------------------------------------------------------------------------
+# 运行 Clustered Join 单元测试
+add_custom_target(run_clustered_unit_tests
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R "(test_clustered_join|test_clustered_join_method|test_clustered_partitioner|test_clustered_config)"
+    DEPENDS test_clustered_join test_clustered_join_method test_clustered_partitioner test_clustered_config
+    WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
+    COMMENT "Running Clustered Join unit tests"
+)
+
+# 运行 Clustered Join 集成测试（通过 gtest_filter）
+add_custom_target(run_clustered_integration_tests
+    COMMAND $<TARGET_FILE:test_join_baseline_integration> --gtest_filter=*clustered*
+    DEPENDS test_join_baseline_integration
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Running Clustered Join integration tests"
+)
+
+# 组合目标：运行所有 Clustered Join 相关测试
+add_custom_target(run_clustered_tests
+    DEPENDS run_clustered_unit_tests run_clustered_integration_tests
+    COMMENT "Running all Clustered Join tests (unit + integration)"
+)
+
+# 添加 CTest 测试用例，便于 ctest -L CLUSTERED 过滤
+add_test(
+    NAME ClusteredJoinIntegration_BruteForce
+    COMMAND $<TARGET_FILE:test_join_baseline_integration> --gtest_filter=*clustered_bruteforce*
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(ClusteredJoinIntegration_BruteForce PROPERTIES 
+    TIMEOUT 600 
+    LABELS "INTEGRATION;CLUSTERED"
+)
+
+add_test(
+    NAME ClusteredJoinIntegration_IVF
+    COMMAND $<TARGET_FILE:test_join_baseline_integration> --gtest_filter=*clustered_ivf*
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(ClusteredJoinIntegration_IVF PROPERTIES 
+    TIMEOUT 600 
+    LABELS "INTEGRATION;CLUSTERED"
+)
+
+add_test(
+    NAME ClusteredJoinIntegration_NoMulticast
+    COMMAND $<TARGET_FILE:test_join_baseline_integration> --gtest_filter=*clustered_no_multicast*
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(ClusteredJoinIntegration_NoMulticast PROPERTIES 
+    TIMEOUT 600 
+    LABELS "INTEGRATION;CLUSTERED"
 )
 
 # 输出说明

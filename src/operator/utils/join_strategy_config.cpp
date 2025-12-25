@@ -100,6 +100,35 @@ IndexStrategy parseIndexStrategy(const std::string& s) {
     throw std::runtime_error("Unknown IndexStrategy: " + s);
 }
 
+// ==================== ClusteredIndexType 转换 ====================
+
+std::string toString(ClusteredIndexType cit) {
+    switch (cit) {
+        case ClusteredIndexType::BRUTEFORCE: return "bruteforce";
+        case ClusteredIndexType::IVF: return "ivf";
+        case ClusteredIndexType::HNSW: return "hnsw";
+        default: return "unknown";
+    }
+}
+
+ClusteredIndexType parseClusteredIndexType(const std::string& s) {
+    std::string lower = toLower(s);
+    
+    if (lower == "bruteforce" || lower == "brute_force") {
+        return ClusteredIndexType::BRUTEFORCE;
+    }
+    if (lower == "ivf") {
+        return ClusteredIndexType::IVF;
+    }
+    if (lower == "hnsw") {
+        return ClusteredIndexType::HNSW;
+    }
+    
+    // 默认返回 IVF，并记录警告
+    SAGEFLOW_LOG_WARN("Config", "Unknown clustered_index_type '{}', defaulting to IVF", s);
+    return ClusteredIndexType::IVF;
+}
+
 // ==================== JoinStrategyConfig 方法实现 ====================
 
 std::vector<std::string> JoinStrategyConfig::validate() const {
@@ -251,8 +280,20 @@ std::string JoinStrategyConfig::summary() const {
         << "  index: " << toString(index_strategy) << "\n"
         << "  similarity_threshold: " << similarity_threshold << "\n"
         << "  dimension: " << dimension << "\n"
-        << "  window: " << window_size_ms << "ms (step: " << step_size_ms << "ms)\n"
-        << "}";
+        << "  window: " << window_size_ms << "ms (step: " << step_size_ms << "ms)\n";
+    
+    // ClusteredJoin 特定参数
+    if (algorithm == JoinAlgorithm::CLUSTERED_JOIN) {
+        oss << "  -- ClusteredJoin --\n"
+            << "  clustered_index_type: " << toString(clustered_index_type) << "\n"
+            << "  clustered_overlap_ratio: " << clustered_overlap_ratio << "\n"
+            << "  clustered_border_replication: " << std::boolalpha 
+            << clustered_border_replication << "\n"
+            << "  clustered_multicast_enabled: " << clustered_multicast_enabled << "\n"
+            << "  clustered_training_samples: " << clustered_training_samples << "\n";
+    }
+    
+    oss << "}";
     return oss.str();
 }
 
@@ -359,6 +400,14 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     if (auto ts = node["clustered_training_samples"].value<int64_t>()) {
         config.clustered_training_samples = static_cast<int>(*ts);
+    }
+    // 新增：分区内索引类型
+    if (auto cit = node["clustered_index_type"].value<std::string>()) {
+        config.clustered_index_type = parseClusteredIndexType(*cit);
+    }
+    // 新增：是否启用多播
+    if (auto cme = node["clustered_multicast_enabled"].value<bool>()) {
+        config.clustered_multicast_enabled = *cme;
     }
     
     // HDR-Tree 参数

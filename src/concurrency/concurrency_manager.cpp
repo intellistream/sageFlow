@@ -10,6 +10,8 @@
 #include "index/vectraflow.h"
 #include "index/hdr_forest.h"
 #include "index/hdr_tree.h"
+#include "index/partitioned_index.h"
+#include "utils/logger.h"
 
 sageFlow::ConcurrencyManager::ConcurrencyManager(std::shared_ptr<StorageManager> storage) : storage_(std::move(storage)) {}
 
@@ -186,4 +188,44 @@ auto sageFlow::ConcurrencyManager::query_for_join(int index_id, const VectorReco
   }
   const auto& controller = it->second;
   return controller->query_for_join(record, join_similarity_threshold);
+}
+
+// ==================== 分区索引访问实现 ====================
+
+auto sageFlow::ConcurrencyManager::getPartitionedIndex(int index_id) -> std::shared_ptr<PartitionedIndex> {
+  auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return nullptr;
+  }
+  
+  auto controller = it->second;
+  if (!controller) return nullptr;
+  
+  auto index = controller->getIndex();
+  return std::dynamic_pointer_cast<PartitionedIndex>(index);
+}
+
+auto sageFlow::ConcurrencyManager::getPartitionedIndex(int index_id) const -> std::shared_ptr<const PartitionedIndex> {
+  auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return nullptr;
+  }
+  
+  auto controller = it->second;
+  if (!controller) return nullptr;
+  
+  auto index = controller->getIndex();
+  return std::dynamic_pointer_cast<const PartitionedIndex>(index);
+}
+
+auto sageFlow::ConcurrencyManager::isPartitionedIndex(int index_id) const -> bool {
+  return getPartitionedIndex(index_id) != nullptr;
+}
+
+auto sageFlow::ConcurrencyManager::getPartitionCount(int index_id) const -> size_t {
+  auto partitioned = getPartitionedIndex(index_id);
+  if (!partitioned) {
+    return 0;
+  }
+  return partitioned->getNumPartitions();
 }

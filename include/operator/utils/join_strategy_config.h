@@ -49,6 +49,17 @@ enum class IndexStrategy {
 };
 
 /**
+ * @brief Clustered Join 分区内索引类型
+ * 
+ * 控制 ClusteredJoin 在每个分区内使用的索引策略。
+ */
+enum class ClusteredIndexType {
+    BRUTEFORCE,  ///< 暴力扫描（Ground Truth，用于验证）
+    IVF,         ///< IVF 索引（默认，推荐用于生产）
+    HNSW         ///< HNSW 索引（可选）
+};
+
+/**
  * @brief Join 策略完整配置
  * 
  * 包含所有可配置的 Join 参数，支持从 TOML 配置文件加载。
@@ -99,6 +110,23 @@ struct JoinStrategyConfig {
     double clustered_rebalance_threshold = 0.3;  ///< 触发重平衡的阈值
     bool clustered_border_replication = true;    ///< 是否复制边界向量
     int clustered_training_samples = 1000;       ///< 训练样本数
+    
+    /**
+     * @brief 分区内索引类型
+     * 
+     * - BRUTEFORCE: 分区内全量扫描，100% 召回但较慢
+     * - IVF: 分区内 IVF 索引，平衡速度和召回
+     * - HNSW: 分区内 HNSW 索引，适合稀疏查询
+     */
+    ClusteredIndexType clustered_index_type = ClusteredIndexType::IVF;
+    
+    /**
+     * @brief 是否启用多播分区（边界向量复制）
+     * 
+     * 当为 true 时，边界向量会被复制到多个分区以保证召回率。
+     * 需要配合 CentroidPartitioner::setMulticastEnabled() 使用。
+     */
+    bool clustered_multicast_enabled = true;
     
     // ==================== HDR-Tree 参数 ====================
     int hdr_projected_dim = 8;           ///< PCA 降维目标维度
@@ -155,10 +183,12 @@ std::string toString(JoinAlgorithm algo);
 std::string toString(PartitionStrategy ps);
 std::string toString(WindowStateType ws);
 std::string toString(IndexStrategy is);
+std::string toString(ClusteredIndexType cit);
 
 JoinAlgorithm parseJoinAlgorithm(const std::string& s);
 PartitionStrategy parsePartitionStrategy(const std::string& s);
 WindowStateType parseWindowStateType(const std::string& s);
 IndexStrategy parseIndexStrategy(const std::string& s);
+ClusteredIndexType parseClusteredIndexType(const std::string& s);
 
 }  // namespace sageFlow

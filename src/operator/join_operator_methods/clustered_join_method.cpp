@@ -2,59 +2,201 @@
 #include "operator/utils/join_method_registry.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
-#include <unordered_set>
 
 #include "utils/logger.h"
 
 namespace sageFlow {
 
-ClusteredJoinMethod::ClusteredJoinMethod(
-    int left_index_id,
-    int right_index_id,
-    const Config& config,
-    const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
-    : BaseMethod(config.similarity_threshold),
-      config_(config),
-      left_index_id_(left_index_id),
-      right_index_id_(right_index_id),
-      concurrency_manager_(concurrency_manager) {
-  
-  // 创建质心分区器
-  CentroidPartitioner::Config partitioner_config;
-  partitioner_config.num_partitions = config_.num_partitions;
-  partitioner_config.overlap_ratio = config_.overlap_ratio;
-  partitioner_config.rebalance_threshold = config_.rebalance_threshold;
-  partitioner_config.dimension = config_.dimension;
-  
-  partitioner_ = std::make_shared<CentroidPartitioner>(partitioner_config);
-  
-  SAGEFLOW_LOG_INFO("ClusteredJoin", "Created with {} partitions, threshold={}",
-                    config_.num_partitions, config_.similarity_threshold);
+// ==================== 构造函数 ====================
+
+ClusteredJoinMethod::ClusteredJoinMethod(const Config& config)
+    : BaseMethod(config.similarity_threshold)
+    , config_(config) {
+  SAGEFLOW_LOG_INFO("ClusteredJoin", 
+      "Created with threshold={}, dimension={}, index_type={}",
+      config.similarity_threshold, 
+      config.dimension,
+      static_cast<int>(config.index_type));
 }
 
-ClusteredJoinMethod::ClusteredJoinMethod(
-    int left_index_id,
-    int right_index_id,
-    double join_similarity_threshold,
-    const std::shared_ptr<ConcurrencyManager>& concurrency_manager)
-    : BaseMethod(join_similarity_threshold),
-      left_index_id_(left_index_id),
-      right_index_id_(right_index_id),
-      concurrency_manager_(concurrency_manager) {
+ClusteredJoinMethod::ClusteredJoinMethod(double similarity_threshold, int dimension)
+    : BaseMethod(similarity_threshold) {
+  config_.similarity_threshold = similarity_threshold;
+  config_.dimension = dimension;
   
-  config_.similarity_threshold = join_similarity_threshold;
+  SAGEFLOW_LOG_INFO("ClusteredJoin", 
+      "Created with threshold={}, dimension={} (default config)",
+      similarity_threshold, dimension);
+}
+
+// ==================== 生命周期 ====================
+
+void ClusteredJoinMethod::initialize(
+    const RuntimeContext& context,
+    std::shared_ptr<ConcurrencyManager> concurrency_manager) {
   
-  // 创建默认配置的质心分区器
-  CentroidPartitioner::Config partitioner_config;
-  partitioner_config.num_partitions = config_.num_partitions;
-  partitioner_config.overlap_ratio = config_.overlap_ratio;
-  partitioner_config.dimension = config_.dimension;
+  if (initialized_) {
+    SAGEFLOW_LOG_WARN("ClusteredJoin", "Already initialized, skipping");
+    return;
+  }
   
-  partitioner_ = std::make_shared<CentroidPartitioner>(partitioner_config);
+  subtask_index_ = context.getSubtaskIndex();
+  parallelism_ = context.getParallelism();
+  concurrency_manager_ = std::move(concurrency_manager);
   
-  SAGEFLOW_LOG_INFO("ClusteredJoin", "Created with default config, threshold={}",
-                    join_similarity_threshold);
+  if (!concurrency_manager_) {
+    SAGEFLOW_LOG_ERROR("ClusteredJoin", "ConcurrencyManager is null");
+    return;
+  }
+  
+  // 每个 subtask 创建独立的索引
+  std::string prefix = "clustered_p" + std::to_string(subtask_index_);
+  left_index_id_ = createIndex(prefix + "_left");
+  right_index_id_ = createIndex(prefix + "_right");
+  
+  if (left_index_id_ < 0 || right_index_id_ < 0) {
+    SAGEFLOW_LOG_ERROR("ClusteredJoin", 
+        "Failed to create indexes: left={}, right={}", 
+        left_index_id_, right_index_id_);
+    return;
+  }
+  
+  initialized_ = true;
+  
+  SAGEFLOW_LOG_INFO("ClusteredJoin",
+      "Initialized subtask {} of {}, left_idx={}, right_idx={}, index_type={}",
+      subtask_index_, parallelism_, left_index_id_, right_index_id_,
+      static_cast<int>(config_.index_type));
+}
+
+int ClusteredJoinMethod::createIndex(const std::string& name) {
+  IndexType type;
+  IndexParameters params;
+  
+  switch (config_.index_type) {
+    case ClusteredIndexType::BRUTEFORCE:
+      type = IndexType::BruteForce;
+      params = NoParameters{};
+      break;
+      
+    case ClusteredIndexType::IVF: {
+      type = IndexType::IVF;
+      IVFParameters ivf_params;
+      ivf_params.nlist = config_.ivf_nlist;
+      ivf_params.nprobes = config_.ivf_nprobes;
+      ivf_params.rebuild_threshold = 1.5;  // 默认值
+      params = ivf_params;
+      break;
+    }
+      
+    case ClusteredIndexType::HNSW: {
+      type = IndexType::HNSW;
+      HNSWParameters hnsw_params;
+      hnsw_params.m = config_.hnsw_m;
+      hnsw_params.ef_construction = config_.hnsw_ef_construction;
+      hnsw_params.ef_search = config_.hnsw_ef_search;
+      params = hnsw_params;
+      break;
+    }
+      
+    default:
+      SAGEFLOW_LOG_WARN("ClusteredJoin", 
+          "Unknown index type {}, using BruteForce", 
+          static_cast<int>(config_.index_type));
+      type = IndexType::BruteForce;
+      params = NoParameters{};
+  }
+  
+  return concurrency_manager_->create_index(name, type, config_.dimension, params);
+}
+
+void ClusteredJoinMethod::close() {
+  // 清理窗口状态
+  left_window_.clear();
+  right_window_.clear();
+  left_uids_.clear();
+  right_uids_.clear();
+  
+  // 注意：索引由 ConcurrencyManager 管理生命周期
+  // 这里只重置 ID
+  left_index_id_ = -1;
+  right_index_id_ = -1;
+  
+  initialized_ = false;
+  
+  SAGEFLOW_LOG_INFO("ClusteredJoin", 
+      "Closed subtask {} of {}", subtask_index_, parallelism_);
+}
+
+// ==================== 状态管理 ====================
+
+void ClusteredJoinMethod::addRecord(std::unique_ptr<VectorRecord> record, int slot) {
+  if (!initialized_) {
+    SAGEFLOW_LOG_WARN("ClusteredJoin", "Not initialized, ignoring addRecord");
+    return;
+  }
+  
+  if (!record) {
+    return;
+  }
+  
+  uint64_t uid = record->uid_;
+  int index_id = getCurrentIndexId(slot);
+  auto& window = getCurrentWindow(slot);
+  auto& uids = getCurrentUids(slot);
+  
+  // 检查是否已存在（避免重复）
+  if (uids.find(uid) != uids.end()) {
+    SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+        "Record {} already exists in window, skipping", uid);
+    return;
+  }
+  
+  // 插入到索引
+  auto record_copy = std::make_unique<VectorRecord>(*record);
+  bool inserted = concurrency_manager_->insert(index_id, std::move(record_copy));
+  
+  if (!inserted) {
+    SAGEFLOW_LOG_WARN("ClusteredJoin", 
+        "Failed to insert record {} to index {}", uid, index_id);
+    return;
+  }
+  
+  // 添加到窗口和 UID 集合
+  uids.insert(uid);
+  window.push_back(std::move(record));
+  
+  SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+      "Added record {} to slot {} (window size: {})", 
+      uid, slot, window.size());
+}
+
+void ClusteredJoinMethod::evictExpired(int64_t current_timestamp) {
+  if (!initialized_) {
+    return;
+  }
+  
+  int64_t threshold = current_timestamp - config_.window_size_ms;
+  
+  // 清理左窗口
+  while (!left_window_.empty() && 
+         left_window_.front()->timestamp_ < threshold) {
+    uint64_t uid = left_window_.front()->uid_;
+    concurrency_manager_->erase(left_index_id_, uid);
+    left_uids_.erase(uid);
+    left_window_.pop_front();
+  }
+  
+  // 清理右窗口
+  while (!right_window_.empty() && 
+         right_window_.front()->timestamp_ < threshold) {
+    uint64_t uid = right_window_.front()->uid_;
+    concurrency_manager_->erase(right_index_id_, uid);
+    right_uids_.erase(uid);
+    right_window_.pop_front();
+  }
 }
 
 // ==================== BaseMethod 接口实现 ====================
@@ -62,200 +204,141 @@ ClusteredJoinMethod::ClusteredJoinMethod(
 std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot) {
+  
   std::vector<std::unique_ptr<VectorRecord>> results;
   
-  if (!concurrency_manager_) {
-    SAGEFLOW_LOG_WARN("ClusteredJoin", "ConcurrencyManager is null");
+  if (!initialized_) {
+    SAGEFLOW_LOG_WARN("ClusteredJoin", 
+        "Not initialized, returning empty results");
     return results;
   }
   
-  int target_idx = otherIndexId(query_slot);
-  if (target_idx == -1) [[unlikely]] {
-    return results;
+  uint64_t query_uid = query_record.uid_;
+  
+  // 根据索引类型选择查询策略
+  if (config_.index_type == ClusteredIndexType::BRUTEFORCE) {
+    // BruteForce 模式：直接遍历本地窗口（不使用索引）
+    // 因为 BruteForce 索引会查询整个 StorageManager，无法区分左右流
+    results = executeEagerBruteForce(query_record, query_slot);
+  } else {
+    // IVF/HNSW 模式：使用索引查询（IVF 维护自己的 inverted_lists_）
+    results = executeEagerWithIndex(query_record, query_slot);
   }
   
-  // 尝试自动训练分区器
-  tryAutoTrain(query_record);
+  SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+      "ExecuteEager: query_uid={}, slot={}, results={}", 
+      query_uid, query_slot, results.size());
   
-  // 收集所有候选结果
-  std::vector<std::shared_ptr<const VectorRecord>> candidates;
+  return results;
+}
+
+std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerBruteForce(
+    const VectorRecord& query_record,
+    int query_slot) {
   
-  if (partitioner_ && partitioner_->isTrained()) {
-    // 使用分区策略搜索
+  std::vector<std::unique_ptr<VectorRecord>> results;
+  uint64_t query_uid = query_record.uid_;
+  
+  // 获取对侧窗口
+  const auto& opposite_window = getOppositeWindow(query_slot);
+  
+  // 提取查询向量
+  const auto& query_data = query_record.data_;
+  if (query_data.dim_ <= 0 || !query_data.data_) {
+    return results;
+  }
+  const float* query_vec = reinterpret_cast<const float*>(query_data.data_.get());
+  int dim = query_data.dim_;
+  
+  // 遍历对侧窗口中的所有记录
+  for (const auto& record_ptr : opposite_window) {
+    if (!record_ptr) continue;
     
-    // 1. 搜索主分区
-    auto primary_results = searchPrimaryPartition(
-        query_record, config_.similarity_threshold, target_idx);
-    candidates.insert(candidates.end(), primary_results.begin(), primary_results.end());
+    uint64_t candidate_uid = record_ptr->uid_;
     
-    // 2. 如果启用边界处理，搜索边界分区
-    if (config_.use_border_replication && partitioner_->isBoundaryVector(query_record)) {
-      auto border_partitions = partitioner_->getBorderPartitions(query_record);
-      if (!border_partitions.empty()) {
-        auto border_results = searchBorderPartitions(
-            query_record, border_partitions, config_.similarity_threshold, target_idx);
-        candidates.insert(candidates.end(), border_results.begin(), border_results.end());
-      }
+    // 提取候选向量
+    const auto& cand_data = record_ptr->data_;
+    if (cand_data.dim_ != dim || !cand_data.data_) continue;
+    const float* cand_vec = reinterpret_cast<const float*>(cand_data.data_.get());
+    
+    // 计算 L2 距离并转换为相似度
+    double dist_sq = 0.0;
+    for (int i = 0; i < dim; ++i) {
+      double diff = static_cast<double>(query_vec[i]) - static_cast<double>(cand_vec[i]);
+      dist_sq += diff * diff;
+    }
+    double distance = std::sqrt(dist_sq);
+    constexpr double kAlpha = 0.1;
+    double similarity = std::exp(-kAlpha * distance);
+    
+    // 检查相似度阈值
+    if (similarity < config_.similarity_threshold) {
+      continue;
     }
     
-    // 去重
-    deduplicateResults(candidates);
+    // Owner-Computes 去重
+    uint64_t left_uid = (query_slot == 0) ? query_uid : candidate_uid;
+    uint64_t right_uid = (query_slot == 0) ? candidate_uid : query_uid;
     
-    // 更新分区器
-    updatePartitioner(query_record);
-  } else {
-    // 分区器未训练，回退到全局搜索
-    candidates = concurrency_manager_->query_for_join(
-        target_idx, query_record, config_.similarity_threshold);
-  }
-  
-  SAGEFLOW_LOG_DEBUG("ClusteredJoin", "Eager query slot={} found {} candidates",
-                     query_slot, candidates.size());
-  
-  // 转换结果
-  results.reserve(candidates.size());
-  for (const auto& c : candidates) {
-    if (c) {
-      results.emplace_back(std::make_unique<VectorRecord>(*c));
+    if (isOwner(left_uid, right_uid)) {
+      results.push_back(std::make_unique<VectorRecord>(*record_ptr));
+      
+      SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+          "BF Owner match: subtask {} owns ({}, {}) sim={:.4f}", 
+          subtask_index_, left_uid, right_uid, similarity);
     }
   }
   
   return results;
 }
 
-
-// ==================== ClusteredJoin 特有方法 ====================
-
-void ClusteredJoinMethod::trainPartitioner(const std::vector<std::vector<float>>& samples) {
-  if (!partitioner_) {
-    SAGEFLOW_LOG_ERROR("ClusteredJoin", "Partitioner is null");
-    return;
+std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerWithIndex(
+    const VectorRecord& query_record,
+    int query_slot) {
+  
+  std::vector<std::unique_ptr<VectorRecord>> results;
+  
+  // 在对侧索引中查询候选项
+  int target_index = getOppositeIndexId(query_slot);
+  if (target_index < 0) {
+    return results;
   }
   
-  partitioner_->train(samples);
-  SAGEFLOW_LOG_INFO("ClusteredJoin", "Partitioner trained with {} samples", samples.size());
-}
-
-void ClusteredJoinMethod::trainPartitioner(const std::vector<const VectorRecord*>& samples) {
-  if (!partitioner_) {
-    SAGEFLOW_LOG_ERROR("ClusteredJoin", "Partitioner is null");
-    return;
-  }
+  auto candidates = concurrency_manager_->query_for_join(
+      target_index, query_record, config_.similarity_threshold);
   
-  partitioner_->train(samples);
-  SAGEFLOW_LOG_INFO("ClusteredJoin", "Partitioner trained with {} samples", samples.size());
-}
-
-bool ClusteredJoinMethod::isPartitionerTrained() const {
-  return partitioner_ && partitioner_->isTrained();
-}
-
-void ClusteredJoinMethod::rebalance() {
-  if (!partitioner_) return;
+  // 应用 Owner-Computes 去重
+  uint64_t query_uid = query_record.uid_;
+  const auto& opposite_uids = getOppositeUids(query_slot);
   
-  auto stats = partitioner_->getStats();
-  if (partitioner_->needsRebalance(stats.sizes)) {
-    SAGEFLOW_LOG_INFO("ClusteredJoin", "Rebalance triggered, balance_score={}",
-                      stats.balance_score);
+  for (const auto& candidate : candidates) {
+    if (!candidate) {
+      continue;
+    }
     
-    // 收集训练缓冲区中的样本重新训练
-    std::lock_guard<std::mutex> lock(training_mutex_);
-    if (!training_buffer_.empty()) {
-      partitioner_->train(training_buffer_);
-      partitioner_->resetPartitionSizes();
+    uint64_t candidate_uid = candidate->uid_;
+    
+    // 检查候选项是否仍在窗口中（可能已被驱逐）
+    if (opposite_uids.find(candidate_uid) == opposite_uids.end()) {
+      SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+          "Candidate {} not in window, skipping", candidate_uid);
+      continue;
+    }
+    
+    // Owner-Computes 去重
+    uint64_t left_uid = (query_slot == 0) ? query_uid : candidate_uid;
+    uint64_t right_uid = (query_slot == 0) ? candidate_uid : query_uid;
+    
+    if (isOwner(left_uid, right_uid)) {
+      results.push_back(std::make_unique<VectorRecord>(*candidate));
+      
+      SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+          "Index Owner match: subtask {} owns ({}, {})", 
+          subtask_index_, left_uid, right_uid);
     }
   }
-}
-
-CentroidPartitioner::PartitionStats ClusteredJoinMethod::getPartitionStats() const {
-  if (!partitioner_) {
-    return {{}, 1.0};
-  }
-  return partitioner_->getStats();
-}
-
-void ClusteredJoinMethod::updatePartitioner(const VectorRecord& record) {
-  if (!partitioner_ || !partitioner_->isTrained()) return;
   
-  auto vec = extractFloatVector(record);
-  
-  // 增量更新质心
-  partitioner_->updateCentroidsIncremental(vec, config_.learning_rate);
-  
-  // 更新分区大小统计
-  int partition = partitioner_->getPrimaryPartition(record);
-  partitioner_->updatePartitionSize(partition, 1);
-}
-
-// ==================== 内部方法 ====================
-
-std::vector<std::shared_ptr<const VectorRecord>> ClusteredJoinMethod::searchPrimaryPartition(
-    const VectorRecord& query,
-    double threshold,
-    int target_index_id) {
-  
-  // 当前实现：直接使用全局索引搜索
-  // 未来可以扩展为使用分区内的局部索引
-  return concurrency_manager_->query_for_join(target_index_id, query, threshold);
-}
-
-std::vector<std::shared_ptr<const VectorRecord>> ClusteredJoinMethod::searchBorderPartitions(
-    const VectorRecord& query,
-    const std::vector<int>& partitions,
-    double threshold,
-    int target_index_id) {
-  
-  // 当前实现：对边界分区执行相同的全局搜索
-  // 由于使用共享索引，边界处理由 deduplicateResults 完成
-  // 未来可以扩展为使用分区内的局部索引
-  (void)partitions;  // 当前未使用分区信息
-  return concurrency_manager_->query_for_join(target_index_id, query, threshold);
-}
-
-void ClusteredJoinMethod::deduplicateResults(
-    std::vector<std::shared_ptr<const VectorRecord>>& results) {
-  if (results.size() <= 1) return;
-  
-  std::unordered_set<uint64_t> seen_uids;
-  auto new_end = std::remove_if(results.begin(), results.end(),
-      [&seen_uids](const std::shared_ptr<const VectorRecord>& record) {
-        if (!record) return true;
-        if (seen_uids.count(record->uid_)) return true;
-        seen_uids.insert(record->uid_);
-        return false;
-      });
-  results.erase(new_end, results.end());
-}
-
-void ClusteredJoinMethod::tryAutoTrain(const VectorRecord& record) {
-  if (auto_trained_ || (partitioner_ && partitioner_->isTrained())) {
-    return;
-  }
-  
-  std::lock_guard<std::mutex> lock(training_mutex_);
-  
-  // 再次检查（双重锁定检查）
-  if (auto_trained_) return;
-  
-  // 添加到训练缓冲区
-  auto vec = extractFloatVector(record);
-  training_buffer_.push_back(std::move(vec));
-  
-  // 达到训练样本数时自动训练
-  if (static_cast<int>(training_buffer_.size()) >= config_.training_samples) {
-    SAGEFLOW_LOG_INFO("ClusteredJoin", "Auto-training partitioner with {} samples",
-                      training_buffer_.size());
-    partitioner_->train(training_buffer_);
-    auto_trained_ = true;
-    training_buffer_.clear();
-    training_buffer_.shrink_to_fit();
-  }
-}
-
-std::vector<float> ClusteredJoinMethod::extractFloatVector(const VectorRecord& record) const {
-  int32_t dim = record.data_.dim_;
-  const auto* float_data = reinterpret_cast<const float*>(record.data_.data_.get());
-  return std::vector<float>(float_data, float_data + dim);
+  return results;
 }
 
 }  // namespace sageFlow
@@ -265,12 +348,12 @@ REGISTER_JOIN_METHOD(
     sageFlow::JoinAlgorithm::CLUSTERED_JOIN,
     (sageFlow::JoinMethodRegistry::MethodInfo{
         "ClusteredJoin",
-        "VectraFlow-style clustered join with k-means partitioning. "
-        "Uses centroid-based space partitioning with boundary replication. "
-        "Supports incremental centroid updates.",
+        "ClusteredJoin with independent indexes per subtask. "
+        "Uses Owner-Computes rule for deduplication. "
+        "Data distributed via CentroidPartitioner with multicast for boundary vectors.",
         sageFlow::JoinAlgorithm::CLUSTERED_JOIN,
         true,   // supports_eager
-        true,   // supports_lazy
+        false,  // supports_lazy (deprecated)
         sageFlow::PartitionStrategy::CENTROID,
         sageFlow::WindowStateType::PARTITIONED,
         ""      // paper_reference
@@ -278,16 +361,28 @@ REGISTER_JOIN_METHOD(
     [](const sageFlow::JoinStrategyConfig& config,
        std::shared_ptr<sageFlow::ConcurrencyManager> cm,
        int /*dim*/,
-       int left_idx,
-       int right_idx) {
+       int /*left_idx*/,
+       int /*right_idx*/) {
+        // 注意：新设计中不使用外部传入的 index_id
+        // 每个 subtask 在 initialize() 时创建自己的索引
         sageFlow::ClusteredJoinMethod::Config cj_config;
         cj_config.similarity_threshold = config.similarity_threshold;
+        cj_config.dimension = config.dimension;
+        cj_config.window_size_ms = config.window_size_ms;
+        cj_config.index_type = config.clustered_index_type;
+        cj_config.ivf_nlist = config.ivf_nlist;
+        cj_config.ivf_nprobes = config.ivf_nprobes;
+        cj_config.hnsw_m = config.hnsw_m;
+        cj_config.hnsw_ef_construction = config.hnsw_ef_construction;
+        cj_config.hnsw_ef_search = config.hnsw_ef_search;
+        // 旧参数（兼容性）
         cj_config.num_partitions = config.num_partitions;
         cj_config.overlap_ratio = config.clustered_overlap_ratio;
         cj_config.rebalance_threshold = config.clustered_rebalance_threshold;
         cj_config.use_border_replication = config.clustered_border_replication;
-        cj_config.dimension = config.dimension;
         cj_config.training_samples = config.clustered_training_samples;
-        return std::make_unique<sageFlow::ClusteredJoinMethod>(
-            left_idx, right_idx, cj_config, cm);
+        
+        auto method = std::make_unique<sageFlow::ClusteredJoinMethod>(cj_config);
+        // 注意：initialize() 将在 JoinOperator::open(context) 中调用
+        return method;
     });

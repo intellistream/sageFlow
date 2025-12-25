@@ -100,6 +100,41 @@ class CentroidPartitioner : public IPartitioner {
    */
   size_t partition(const Response& data, size_t num_channels) override;
 
+  // ==================== 多播支持（Clustered Join） ====================
+
+  /**
+   * @brief 启用/禁用多播模式
+   * 
+   * 启用后，边界向量将被复制到多个分区以保证 Join 召回率。
+   * 
+   * @param enable true 启用边界向量多播
+   */
+  void setMulticastEnabled(bool enable) { multicast_enabled_ = enable; }
+
+  /**
+   * @brief 检查多播是否启用
+   * @return true 表示多播已启用
+   */
+  bool isMulticastEnabled() const { return multicast_enabled_; }
+
+  /**
+   * @brief 检查是否支持多播
+   * @return true 表示支持 partitionMulti()
+   */
+  bool supportsMulticast() const override { return multicast_enabled_; }
+
+  /**
+   * @brief 多播分区实现
+   * 
+   * 对于边界向量，返回主分区 + 所有边界分区。
+   * 对于非边界向量，仅返回主分区。
+   * 
+   * @param data Response 数据
+   * @param num_channels 分区通道数
+   * @return 目标分区 ID 列表
+   */
+  std::vector<size_t> partitionMulti(const Response& data, size_t num_channels) override;
+
   // ==================== 质心管理 ====================
 
   /**
@@ -195,6 +230,9 @@ class CentroidPartitioner : public IPartitioner {
   
   // 分区大小统计（用于负载均衡检测）
   std::vector<std::atomic<size_t>> partition_sizes_;
+
+  // 多播模式开关（默认禁用）
+  bool multicast_enabled_ = false;
 
   // ==================== 内部方法 ====================
 

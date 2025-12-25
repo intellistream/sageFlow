@@ -8,8 +8,10 @@
 #include "concurrency/concurrency_manager.h"
 #include "execution/centroid_partitioner.h"
 #include "execution/collector.h"
+#include "execution/runtime_context.h"
 #include "function/join_function.h"
 #include "operator/join_operator_methods/clustered_join_method.h"
+#include "operator/utils/join_strategy_config.h"
 #include "storage/storage_manager.h"
 #include "test_utils/test_data_adapter.h"
 #include "test_utils/test_data_generator.h"
@@ -307,6 +309,9 @@ TEST_F(CentroidPartitionerTest, IncrementalUpdate) {
 }
 
 // ==================== ClusteredJoinMethod 测试 ====================
+// 注意：ClusteredJoinMethod 已重写为方案 A（独立索引）
+// 详细测试请参见 test_clustered_join_method.cpp
+// 这里只保留兼容新接口的基本测试
 
 class ClusteredJoinMethodTest : public ::testing::Test {
  protected:
@@ -314,14 +319,10 @@ class ClusteredJoinMethodTest : public ::testing::Test {
     auto storage = std::make_shared<StorageManager>();
     concurrency_manager_ = std::make_shared<ConcurrencyManager>(storage);
 
-    // 创建索引
-    left_index_id_ = concurrency_manager_->create_index("left_idx", IndexType::BruteForce, 128);
-    right_index_id_ = concurrency_manager_->create_index("right_idx", IndexType::BruteForce, 128);
-
     config_.similarity_threshold = 0.8;
-    config_.num_partitions = 4;
     config_.dimension = 128;
-    config_.training_samples = 50;  // 降低训练样本数以便测试
+    config_.window_size_ms = 10000;
+    config_.index_type = ClusteredIndexType::BRUTEFORCE;
   }
 
   std::vector<std::vector<float>> generateRandomVectors(int count, int dim) {
@@ -339,106 +340,61 @@ class ClusteredJoinMethodTest : public ::testing::Test {
   }
 
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
-  int left_index_id_ = -1;
-  int right_index_id_ = -1;
   ClusteredJoinMethod::Config config_;
 };
 
 TEST_F(ClusteredJoinMethodTest, Construction) {
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
+  ClusteredJoinMethod method(config_);
 
   EXPECT_EQ(method.getName(), "ClusteredJoin");
   EXPECT_EQ(method.getConfig().similarity_threshold, config_.similarity_threshold);
-  EXPECT_FALSE(method.isPartitionerTrained());
+  EXPECT_FALSE(method.isInitialized());
 }
 
 TEST_F(ClusteredJoinMethodTest, SimpleConstruction) {
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, 0.8, concurrency_manager_);
+  ClusteredJoinMethod method(0.8, 128);
 
   EXPECT_EQ(method.getName(), "ClusteredJoin");
-  EXPECT_FALSE(method.isPartitionerTrained());
+  EXPECT_FALSE(method.isInitialized());
 }
 
-TEST_F(ClusteredJoinMethodTest, ManualTraining) {
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
-
-  auto samples = generateRandomVectors(100, config_.dimension);
-  method.trainPartitioner(samples);
-
-  EXPECT_TRUE(method.isPartitionerTrained());
-}
-
-TEST_F(ClusteredJoinMethodTest, AutoTraining) {
-  config_.training_samples = 20;  // 小样本数便于测试
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
-
+TEST_F(ClusteredJoinMethodTest, InitializeAndExecute) {
+  ClusteredJoinMethod method(config_);
+  RuntimeContext context(0, 1);
+  method.initialize(context, concurrency_manager_);
+  
+  EXPECT_TRUE(method.isInitialized());
+  
   auto samples = generateRandomVectors(30, config_.dimension);
 
-  // 模拟流式数据到达
+  // 模拟流式数据到达并执行查询
   for (int i = 0; i < 25; ++i) {
     auto record = createVectorRecord(i, 1000 + i, samples[i]);
+    method.addRecord(std::make_unique<VectorRecord>(*record), 0);
     method.ExecuteEager(*record, 0);
   }
-
-  // 应该自动训练完成
-  EXPECT_TRUE(method.isPartitionerTrained());
+  
+  EXPECT_GT(method.getLeftWindowSize(), 0u);
 }
 
 TEST_F(ClusteredJoinMethodTest, EagerExecution) {
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
+  ClusteredJoinMethod method(config_);
+  RuntimeContext context(0, 1);
+  method.initialize(context, concurrency_manager_);
 
-  // 插入一些数据到索引
   auto samples = generateRandomVectors(50, config_.dimension);
+  
+  // 添加数据到右侧窗口
   for (int i = 0; i < 25; ++i) {
     auto record = createVectorRecord(i, 1000 + i, samples[i]);
-    concurrency_manager_->insert(right_index_id_, std::make_unique<VectorRecord>(*record));
+    method.addRecord(std::move(record), 1);  // 添加到右侧
   }
-
-  // 训练分区器
-  method.trainPartitioner(samples);
 
   // 执行 Eager 查询
   auto query = createVectorRecord(100, 2000, samples[0]);
   auto results = method.ExecuteEager(*query, 0);
 
-  // 应该能找到一些候选（至少包括自己的副本）
   SAGEFLOW_LOG_INFO("TEST", "Eager query found {} results", results.size());
-}
-
-TEST_F(ClusteredJoinMethodTest, PartitionStats) {
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
-
-  auto samples = generateRandomVectors(100, config_.dimension);
-  method.trainPartitioner(samples);
-
-  // 模拟一些更新
-  for (int i = 0; i < 50; ++i) {
-    auto record = createVectorRecord(i, 1000 + i, samples[i]);
-    method.updatePartitioner(*record);
-  }
-
-  auto stats = method.getPartitionStats();
-  EXPECT_EQ(stats.sizes.size(), static_cast<size_t>(config_.num_partitions));
-  EXPECT_GE(stats.balance_score, 0.0);
-  EXPECT_LE(stats.balance_score, 1.0);
-}
-
-TEST_F(ClusteredJoinMethodTest, Rebalance) {
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
-
-  auto samples = generateRandomVectors(100, config_.dimension);
-  method.trainPartitioner(samples);
-
-  // 调用 rebalance（即使不需要也不应崩溃）
-  EXPECT_NO_THROW(method.rebalance());
-}
-
-TEST_F(ClusteredJoinMethodTest, GetPartitioner) {
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, config_, concurrency_manager_);
-
-  auto partitioner = method.getPartitioner();
-  EXPECT_NE(partitioner, nullptr);
-  EXPECT_EQ(partitioner->getNumPartitions(), config_.num_partitions);
 }
 
 // ==================== 集成测试 ====================
@@ -449,9 +405,6 @@ class ClusteredJoinIntegrationTest : public ::testing::Test {
     auto storage = std::make_shared<StorageManager>();
     concurrency_manager_ = std::make_shared<ConcurrencyManager>(storage);
 
-    left_index_id_ = concurrency_manager_->create_index("left_idx", IndexType::BruteForce, 128);
-    right_index_id_ = concurrency_manager_->create_index("right_idx", IndexType::BruteForce, 128);
-
     generator_config_.vector_dim = 128;
     generator_config_.similarity_threshold = 0.8;
     generator_config_.positive_pairs = 30;
@@ -461,8 +414,6 @@ class ClusteredJoinIntegrationTest : public ::testing::Test {
   }
 
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
-  int left_index_id_ = -1;
-  int right_index_id_ = -1;
   TestDataGenerator::Config generator_config_;
 };
 
@@ -472,17 +423,19 @@ TEST_F(ClusteredJoinIntegrationTest, BasicPipeline) {
 
   ClusteredJoinMethod::Config method_config;
   method_config.similarity_threshold = generator_config_.similarity_threshold;
-  method_config.num_partitions = 4;
   method_config.dimension = generator_config_.vector_dim;
-  method_config.training_samples = 50;
+  method_config.window_size_ms = 10000;
+  method_config.index_type = ClusteredIndexType::BRUTEFORCE;
 
-  ClusteredJoinMethod method(left_index_id_, right_index_id_, method_config, concurrency_manager_);
+  ClusteredJoinMethod method(method_config);
+  RuntimeContext context(0, 1);
+  method.initialize(context, concurrency_manager_);
 
   std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash> actual_matches;
 
   for (auto& record : records) {
-    // 插入到对面索引
-    concurrency_manager_->insert(right_index_id_, std::make_unique<VectorRecord>(*record));
+    // 添加到右侧窗口（模拟双流）
+    method.addRecord(std::make_unique<VectorRecord>(*record), 1);
 
     // 执行查询
     auto candidates = method.ExecuteEager(*record, 0);
