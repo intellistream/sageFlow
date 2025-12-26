@@ -431,8 +431,8 @@ REGISTER_JOIN_METHOD(
     sageFlow::JoinAlgorithm::LSH,
     (sageFlow::JoinMethodRegistry::MethodInfo{
         "LSH",
-        "Hyperplane-based Locality-Sensitive Hashing join (cosine). "
-        "Uses multiple random hyperplane tables as coarse buckets, then cosine verify.",
+        "Hyperplane-based Locality-Sensitive Hashing join (L2-based similarity). "
+        "Uses multiple random hyperplane tables as coarse buckets, then verifies candidates using exp(-alpha * L2) similarity.",
         sageFlow::JoinAlgorithm::LSH,
         true,   // supports_eager
         false,  // supports_lazy
