@@ -114,8 +114,8 @@ TEST_F(JoinMethodRegistryTest, GetMethodInfo_LSH) {
     EXPECT_EQ(info.algorithm, JoinAlgorithm::LSH);
     EXPECT_TRUE(info.supports_eager);
     EXPECT_FALSE(info.supports_lazy);
-    EXPECT_EQ(info.recommended_partition, PartitionStrategy::ROUND_ROBIN);
-    EXPECT_EQ(info.recommended_window_state, WindowStateType::SHARED);
+    EXPECT_EQ(info.recommended_partition, PartitionStrategy::LSH);
+    EXPECT_EQ(info.recommended_window_state, WindowStateType::PARTITIONED_VECTOR);
     EXPECT_FALSE(info.description.empty());
 }
 
