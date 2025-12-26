@@ -94,6 +94,8 @@ coverage.xml
 *.cover
 *.log
 htmlcov/
+Testing/Temporary/
+Testing/Temporary/CTestCostData.txt
 
 # Documentation
 docs/_build/

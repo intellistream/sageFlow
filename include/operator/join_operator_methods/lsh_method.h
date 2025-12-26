@@ -32,8 +32,8 @@ class LSHMethod final : public BaseMethod {
     int64_t window_size_ms = 10000;      ///< 窗口大小（用于过期过滤）
     int max_probes_per_table = 128;      ///< 每个表的最大多探测桶数（含主桶），提高覆盖率
     int max_hamming_radius = 4;          ///< 多探测的最大汉明距离，取平衡的默认值
-    int sketch_bits = 8;                ///< 轻量级预过滤 sketch 位数
-    int max_sketch_hamming = 6;         ///< 允许的 sketch 汉明距离阈值（<0 表示禁用预过滤）
+    int sketch_bits = 8;                 ///< 轻量级预过滤 sketch 位数
+    int max_sketch_hamming = 6;          ///< 允许的 sketch 汉明距离阈值（<0 表示禁用预过滤）
   };
 
   explicit LSHMethod(const Config& config);
@@ -99,7 +99,6 @@ class LSHMethod final : public BaseMethod {
     void initSketchPlanes();
   uint64_t hashVector(const VectorRecord& record, const std::vector<Hyperplane>& planes) const;
     uint64_t sketchVector(const VectorRecord& record) const;
-  std::vector<float> normalizeForSignature(const VectorRecord& record) const;
   void splitHash(uint64_t full_hash, uint16_t& left, uint16_t& right) const;
   static std::vector<float> toFloatVector(const VectorRecord& record);
 };

@@ -120,12 +120,8 @@ void LSHMethod::onRecordAdded(const VectorRecord& record, int slot) {
     auto& target_buckets = (slot == 0) ? left_buckets_ : right_buckets_;
     auto& bucket_mutexes = (slot == 0) ? left_bucket_mutexes_ : right_bucket_mutexes_;
     if (target_buckets.size() != static_cast<size_t>(config_.num_tables)) {
-        target_buckets.clear();
-        bucket_mutexes.clear();
-        target_buckets.resize(static_cast<size_t>(config_.num_tables));
-        for (int i = 0; i < config_.num_tables; ++i) {
-            bucket_mutexes.emplace_back(std::make_unique<std::mutex>());
-        }
+        SAGEFLOW_LOG_ERROR("LSHMethod", "Buckets not initialized, call open() before onRecordAdded");
+        return;
     }
     const uint64_t sketch = use_sketch_filter_ ? sketchVector(*record_ptr) : 0; // 轻量 sketch 预过滤
     for (size_t t = 0; t < tables_.size(); ++t) {
@@ -180,12 +176,8 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
     auto& source_buckets = (query_slot == 0) ? right_buckets_ : left_buckets_;
     auto& bucket_mutexes = (query_slot == 0) ? right_bucket_mutexes_ : left_bucket_mutexes_;
     if (source_buckets.size() != tables_.size()) {
-        source_buckets.clear();
-        bucket_mutexes.clear();
-        source_buckets.resize(tables_.size());
-        for (size_t i = 0; i < tables_.size(); ++i) {
-            bucket_mutexes.emplace_back(std::make_unique<std::mutex>());
-        }
+        SAGEFLOW_LOG_ERROR("LSHMethod", "Buckets not initialized, call open() before ExecuteEager");
+        return results;
     }
     const uint64_t query_sketch = use_sketch_filter_ ? sketchVector(query_record) : 0; // 查询侧 sketch
     std::unordered_set<uint64_t> seen_tensor;  // Danny 风格重复控制：签名 + UID 去重
@@ -214,9 +206,12 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
                     continue;
                 }
                 auto& bucket = map_it->second;
-                bucket.erase(std::remove_if(bucket.begin(), bucket.end(), [&](const Entry& entry) {
-                    return !entry.record || entry.record->timestamp_ < window_lower_bound;
-                }), bucket.end()); // 窗口淘汰
+                if (!bucket.empty() && bucket.front().record &&
+                    bucket.front().record->timestamp_ < window_lower_bound) {
+                    bucket.erase(std::remove_if(bucket.begin(), bucket.end(), [&](const Entry& entry) {
+                        return !entry.record || entry.record->timestamp_ < window_lower_bound;
+                    }), bucket.end()); // 窗口淘汰（仅在看到过期头部时触发，降低开销）
+                }
                 const bool apply_sketch = use_sketch_filter_ && allow_sketch && bucket.size() >= kSketchBucketGate;
                 for (const auto& entry : bucket) {
                     const auto& ptr = entry.record;
@@ -436,13 +431,13 @@ REGISTER_JOIN_METHOD(
     sageFlow::JoinAlgorithm::LSH,
     (sageFlow::JoinMethodRegistry::MethodInfo{
         "LSH",
-        "Hyperplane-based Locality-Sensitive Hashing join (vector cosine). "
+        "Hyperplane-based Locality-Sensitive Hashing join (cosine). "
         "Uses multiple random hyperplane tables as coarse buckets, then cosine verify.",
         sageFlow::JoinAlgorithm::LSH,
         true,   // supports_eager
         false,  // supports_lazy
-        sageFlow::PartitionStrategy::ROUND_ROBIN,
-        sageFlow::WindowStateType::SHARED,
+        sageFlow::PartitionStrategy::LSH,
+        sageFlow::WindowStateType::PARTITIONED_VECTOR,
         "Charikar 2002 hyperplane LSH"
     }),
     [](const sageFlow::JoinStrategyConfig& config,
@@ -457,5 +452,6 @@ REGISTER_JOIN_METHOD(
         cfg.num_hashes = config.lsh_num_hashes;
         cfg.dimension = config.dimension;
         cfg.seed = config.lsh_seed;
+        cfg.window_size_ms = config.window_size_ms;
         return std::make_unique<sageFlow::LSHMethod>(cfg);
     });

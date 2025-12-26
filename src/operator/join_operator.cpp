@@ -234,7 +234,7 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
     } else if (algo == "lsh") {
         // Hyperplane LSH: window-state only, no shared index
         index_kind_ = InternalIndexKind::NONE;
-        use_shared_state_ = true;   // share window so all subtasks see full bucket contents
+        use_shared_state_ = false;  // 与 inferDefaults 保持一致，使用分区窗口
         use_index_ = false;
 
         LSHMethod::Config lsh_cfg;
@@ -246,7 +246,7 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         lsh_cfg.window_size_ms = join_func_->getWindowSize();
 
         join_method_ = std::make_unique<LSHMethod>(lsh_cfg);
-        SAGEFLOW_LOG_INFO("JOIN", "LSH mode enabled (window-state buckets)");
+        SAGEFLOW_LOG_INFO("JOIN", "LSH mode enabled (window-state buckets, partitioned state)");
 
     } else {
         index_kind_ = InternalIndexKind::NONE;

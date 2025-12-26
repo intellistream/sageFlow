@@ -40,6 +40,7 @@ class LSHMethodTest : public ::testing::Test {
 // 验证相同向量在不同 UID 下能够命中同一桶并通过相似度阈值
 TEST_F(LSHMethodTest, BasicMatch) {
   auto candidate = makeRecord(1, {1.0f, 0.0f, 0.0f, 0.0f});
+  method_->onRecordAdded(*candidate, /*slot=*/1);
   right_state_->addRecord(std::move(candidate), /*subtask_index=*/0);
 
   VectorRecord query = *makeRecord(2, {1.0f, 0.0f, 0.0f, 0.0f});
@@ -52,9 +53,10 @@ TEST_F(LSHMethodTest, BasicMatch) {
 // 验证相似度低的向量不会通过过滤
 TEST_F(LSHMethodTest, BelowThresholdNoMatch) {
   auto candidate = makeRecord(3, {1.0f, 0.0f, 0.0f, 0.0f});
+  method_->onRecordAdded(*candidate, /*slot=*/1);
   right_state_->addRecord(std::move(candidate), /*subtask_index=*/0);
 
-  VectorRecord query = *makeRecord(4, {-1.0f, 0.0f, 0.0f, 0.0f});
+  VectorRecord query = *makeRecord(4, {-3.0f, 0.0f, 0.0f, 0.0f});
   auto results = method_->ExecuteEager(query, /*query_slot=*/0);
 
   EXPECT_TRUE(results.empty());
