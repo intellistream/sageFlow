@@ -6,8 +6,9 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <mutex>
+#include <numeric>
 
-#include "operator/join_method_registry.h"
+#include "operator/utils/join_method_registry.h"
 #include "utils/logger.h"
 
 namespace sageFlow {
@@ -21,7 +22,7 @@ float dotProduct(const std::vector<float>& a, const std::vector<float>& b) {
     return sum;
 }
 
-// 与 BruteForceBaseline 保持一致的相似度计算：exp(-alpha * L2)
+// 与全局 E2E 评测保持一致：exp(-alpha * L2)
 inline double l2Similarity(const std::vector<float>& a,
                            const std::vector<float>& b) {
     if (a.empty() || b.empty() || a.size() != b.size()) {
@@ -32,7 +33,7 @@ inline double l2Similarity(const std::vector<float>& a,
         const double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
         distance_sq += diff * diff;
     }
-    constexpr double kAlpha = 0.1;
+    constexpr double kAlpha = 0.1;  // 与 BruteForceBaseline 一致
     const double distance = std::sqrt(distance_sq);
     return std::exp(-kAlpha * distance);
 }
@@ -54,12 +55,12 @@ LSHMethod::LSHMethod(const Config& config)
         config_.dimension = 128;
     }
     if (config_.max_probes_per_table <= 0) {
-        SAGEFLOW_LOG_WARN("LSHMethod", "max_probes_per_table={} 非法，使用默认值 4", config_.max_probes_per_table);
-        config_.max_probes_per_table = 4;
+        SAGEFLOW_LOG_WARN("LSHMethod", "max_probes_per_table={} 非法，使用默认值 64", config_.max_probes_per_table);
+        config_.max_probes_per_table = 64;
     }
     if (config_.max_hamming_radius < 0) {
-        SAGEFLOW_LOG_WARN("LSHMethod", "max_hamming_radius={} 非法，使用默认值 2", config_.max_hamming_radius);
-        config_.max_hamming_radius = 2;
+        SAGEFLOW_LOG_WARN("LSHMethod", "max_hamming_radius={} 非法，使用默认值 4", config_.max_hamming_radius);
+        config_.max_hamming_radius = 4;
     }
     config_.max_hamming_radius = std::min(config_.max_hamming_radius, config_.num_hashes);
 }
@@ -71,7 +72,8 @@ void LSHMethod::open(const RuntimeContext& context,
     left_state_ = left_state;
     right_state_ = right_state;
     window_size_ms_ = config_.window_size_ms;
-    buckets_.assign(static_cast<size_t>(config_.num_tables), BucketMap{});
+    left_buckets_.assign(static_cast<size_t>(config_.num_tables), BucketMap{});
+    right_buckets_.assign(static_cast<size_t>(config_.num_tables), BucketMap{});
     initHyperplanes();
     SAGEFLOW_LOG_INFO("LSHMethod", "初始化完成：tables={} hashes/table={} dim={} subtask={}/{}",
                       config_.num_tables, config_.num_hashes, config_.dimension,
@@ -87,12 +89,13 @@ void LSHMethod::onRecordAdded(const VectorRecord& record, int slot) {
         return;
     }
     std::lock_guard<std::mutex> lock(buckets_mutex_);
-    if (buckets_.size() != static_cast<size_t>(config_.num_tables)) {
-        buckets_.assign(static_cast<size_t>(config_.num_tables), BucketMap{});
+    auto& target_buckets = (slot == 0) ? left_buckets_ : right_buckets_;
+    if (target_buckets.size() != static_cast<size_t>(config_.num_tables)) {
+        target_buckets.assign(static_cast<size_t>(config_.num_tables), BucketMap{});
     }
     for (size_t t = 0; t < tables_.size(); ++t) {
         const auto key = hashVector(*record_ptr, tables_[t]);
-        auto& bucket = buckets_[t][key];
+        auto& bucket = target_buckets[t][key];
         // 去重：同 uid 不重复插入
         bool exists = false;
         for (const auto& ptr : bucket) {
@@ -136,11 +139,11 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
     std::unordered_map<uint64_t, std::shared_ptr<const VectorRecord>> candidate_map;
     size_t buckets_scanned = 0;
     size_t probes_used = 0;
-    const size_t min_candidates = config_.min_candidates;
     {
         std::lock_guard<std::mutex> lock(buckets_mutex_);
-        if (buckets_.size() != tables_.size()) {
-            buckets_.assign(tables_.size(), BucketMap{});
+        auto& source_buckets = (query_slot == 0) ? right_buckets_ : left_buckets_;
+        if (source_buckets.size() != tables_.size()) {
+            source_buckets.assign(tables_.size(), BucketMap{});
         }
         for (size_t t = 0; t < tables_.size(); ++t) {
             const auto probe_keys = buildProbeKeys(query_keys[t]);
@@ -152,8 +155,8 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
                 ++probes_for_table;
                 ++probes_used;
                 ++buckets_scanned;
-                auto map_it = buckets_[t].find(key);
-                if (map_it == buckets_[t].end()) {
+                auto map_it = source_buckets[t].find(key);
+                if (map_it == source_buckets[t].end()) {
                     continue;
                 }
                 auto& bucket = map_it->second;
@@ -169,17 +172,6 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
         }
     }
 
-    bool fallback_used = false;
-    if (min_candidates > 0 && config_.fallback_on_sparse && candidate_map.size() < min_candidates) {
-        fallback_used = true;
-        auto snapshot = target_state->getRecordsSnapshot(subtask_index_);
-        for (const auto& ptr : snapshot) {
-            if (!ptr || ptr->uid_ == query_record.uid_) continue;
-            if (ptr->timestamp_ < window_lower_bound) continue;
-            candidate_map.emplace(ptr->uid_, ptr);
-        }
-    }
-
     for (const auto& kv : candidate_map) {
         const auto& candidate_ptr = kv.second;
         const auto cand_vec = toFloatVector(*candidate_ptr);
@@ -192,13 +184,12 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
         }
     }
 
-    SAGEFLOW_LOG_DEBUG("LSHMethod", "slot={} uid={} probes={} buckets={} candidates={} fallback={} kept={}",
+    SAGEFLOW_LOG_DEBUG("LSHMethod", "slot={} uid={} probes={} buckets={} candidates={} kept={}",
                       query_slot,
                       query_record.uid_,
                       probes_used,
                       buckets_scanned,
                       candidate_map.size(),
-                      fallback_used,
                       results.size());
     return results;
 }
@@ -244,22 +235,40 @@ std::vector<uint64_t> LSHMethod::buildProbeKeys(uint64_t base_key) const {
     keys.push_back(base_key);
 
     const int bits = std::min(config_.num_hashes, 63);
+
     auto push_if_room = [&](uint64_t key) {
         if (keys.size() < limit) {
             keys.push_back(key);
         }
     };
 
-    if (config_.max_hamming_radius >= 1) {
-        for (int i = 0; i < bits && keys.size() < limit; ++i) {
-            push_if_room(base_key ^ (uint64_t(1) << i));
-        }
-    }
+    // 多半径探测，按汉明距离从小到大生成组合，直到达到半径或探测上限
+    const int max_radius = std::min(config_.max_hamming_radius, bits);
+    std::vector<int> indices;
+    for (int r = 1; r <= max_radius && keys.size() < limit; ++r) {
+        indices.resize(static_cast<size_t>(r));
+        std::iota(indices.begin(), indices.end(), 0);
 
-    if (config_.max_hamming_radius >= 2) {
-        for (int i = 0; i < bits && keys.size() < limit; ++i) {
-            for (int j = i + 1; j < bits && keys.size() < limit; ++j) {
-                push_if_room(base_key ^ ((uint64_t(1) << i) | (uint64_t(1) << j)));
+        while (true) {
+            uint64_t mask = 0;
+            for (int idx : indices) {
+                mask |= (uint64_t(1) << idx);
+            }
+            push_if_room(base_key ^ mask);
+            if (keys.size() >= limit) {
+                break;
+            }
+
+            int i = r - 1;
+            while (i >= 0 && indices[static_cast<size_t>(i)] == bits - r + i) {
+                --i;
+            }
+            if (i < 0) {
+                break;
+            }
+            ++indices[static_cast<size_t>(i)];
+            for (int j = i + 1; j < r; ++j) {
+                indices[static_cast<size_t>(j)] = indices[static_cast<size_t>(j - 1)] + 1;
             }
         }
     }

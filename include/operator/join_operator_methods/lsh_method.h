@@ -30,10 +30,8 @@ class LSHMethod final : public BaseMethod {
     int dimension = 128;                 ///< 向量维度
     uint32_t seed = 42;                  ///< 随机种子
     int64_t window_size_ms = 10000;      ///< 窗口大小（用于过期过滤）
-    int max_probes_per_table = 4;        ///< 每个表的最大多探测桶数（含主桶）
-    int max_hamming_radius = 2;          ///< 多探测的最大汉明距离
-    size_t min_candidates = 0;           ///< 若>0且候选低于阈值则扩展/兜底
-    bool fallback_on_sparse = false;     ///< 默认关闭兜底，纯 LSH 路径
+    int max_probes_per_table = 128;      ///< 每个表的最大多探测桶数（含主桶），提高覆盖率
+    int max_hamming_radius = 5;          ///< 多探测的最大汉明距离，取平衡的默认值
   };
 
   explicit LSHMethod(const Config& config);
@@ -68,9 +66,10 @@ class LSHMethod final : public BaseMethod {
   size_t subtask_index_ = 0;
   std::vector<std::vector<Hyperplane>> tables_;  // tables_[table][hash]
 
-  // 桶结构：tables -> hash -> candidates
+  // 桶结构：tables -> hash -> candidates（左右分开，避免同侧自匹配）
   using BucketMap = std::unordered_map<uint64_t, std::vector<std::shared_ptr<const VectorRecord>>>;
-  std::vector<BucketMap> buckets_;
+  std::vector<BucketMap> left_buckets_;
+  std::vector<BucketMap> right_buckets_;
   std::mutex buckets_mutex_;
   int64_t window_size_ms_ = 10000;
 
