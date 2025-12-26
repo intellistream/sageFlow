@@ -31,7 +31,9 @@ class LSHMethod final : public BaseMethod {
     uint32_t seed = 42;                  ///< 随机种子
     int64_t window_size_ms = 10000;      ///< 窗口大小（用于过期过滤）
     int max_probes_per_table = 128;      ///< 每个表的最大多探测桶数（含主桶），提高覆盖率
-    int max_hamming_radius = 5;          ///< 多探测的最大汉明距离，取平衡的默认值
+    int max_hamming_radius = 4;          ///< 多探测的最大汉明距离，取平衡的默认值
+    int sketch_bits = 8;                ///< 轻量级预过滤 sketch 位数
+    int max_sketch_hamming = 6;         ///< 允许的 sketch 汉明距离阈值（<0 表示禁用预过滤）
   };
 
   explicit LSHMethod(const Config& config);
@@ -59,24 +61,46 @@ class LSHMethod final : public BaseMethod {
 
  private:
   using Hyperplane = std::vector<float>;
+    struct Entry {
+      std::shared_ptr<const VectorRecord> record;
+      uint64_t hash = 0;      ///< table 专属哈希（用于桶命中）
+      uint64_t sketch = 0;    ///< 轻量 sketch（用于快速过滤）
+      uint16_t left_sig = 0;  ///< 偶位签名（结构分片左）
+      uint16_t right_sig = 0; ///< 奇位签名（结构分片右）
+    };
 
   Config config_;
   WindowState* left_state_ = nullptr;
   WindowState* right_state_ = nullptr;
   size_t subtask_index_ = 0;
   std::vector<std::vector<Hyperplane>> tables_;  // tables_[table][hash]
+    std::vector<Hyperplane> sketch_planes_;        // 用于生成轻量级 sketch
+  
+  // 左右签名掩码（兼容保留）
+  uint32_t left_mask_ = 0;
+  uint32_t right_mask_ = 0;
+  int left_bits_ = 0;
+  int right_bits_ = 0;
 
   // 桶结构：tables -> hash -> candidates（左右分开，避免同侧自匹配）
-  using BucketMap = std::unordered_map<uint64_t, std::vector<std::shared_ptr<const VectorRecord>>>;
-  std::vector<BucketMap> left_buckets_;
-  std::vector<BucketMap> right_buckets_;
-  std::mutex buckets_mutex_;
+    using BucketMap = std::unordered_map<uint64_t, std::vector<Entry>>;
+    std::vector<BucketMap> left_buckets_;
+    std::vector<BucketMap> right_buckets_;
+    std::vector<std::unique_ptr<std::mutex>> left_bucket_mutexes_;
+    std::vector<std::unique_ptr<std::mutex>> right_bucket_mutexes_;
   int64_t window_size_ms_ = 10000;
+    bool use_sketch_filter_ = true;        ///< 是否启用 sketch 预过滤
 
-  std::vector<uint64_t> buildProbeKeys(uint64_t base_key) const;
+  std::vector<uint64_t> buildProbeKeys(uint64_t base_key,
+                                       int max_radius,
+                                       size_t max_probes) const;
 
   void initHyperplanes();
+    void initSketchPlanes();
   uint64_t hashVector(const VectorRecord& record, const std::vector<Hyperplane>& planes) const;
+    uint64_t sketchVector(const VectorRecord& record) const;
+  std::vector<float> normalizeForSignature(const VectorRecord& record) const;
+  void splitHash(uint64_t full_hash, uint16_t& left, uint16_t& right) const;
   static std::vector<float> toFloatVector(const VectorRecord& record);
 };
 

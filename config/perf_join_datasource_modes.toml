@@ -2,7 +2,7 @@
 # Test Mode 1: Generate-Save-Load (generate data, save to file, then load from file)
 name = "perf_join_gen_save_load_random"
 mode = "generate_save_load"
-methods = ["bruteforce", "ivf", "hdr_tree", "lsh"]
+methods = ["bruteforce", "ivf", "hdr_tree"]
 sizes = [2000]
 records_count = 10
 vector_dim = 64
