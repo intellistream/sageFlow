@@ -67,6 +67,31 @@ void S3JMethod::open(const RuntimeContext& context,
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot) {
+
+    // [TODO-S3J] 实现 Workset Formulation (论文 Figure 3)
+    // 当前逻辑：直接在全部分区或索引中搜索。
+    // 目标逻辑：
+    // Step 1. 找到最近的 Workset 质心 c_i。
+    // Step 2. 判断 Inner Set 归属：
+    //    IF dist(query, c_i) <= t/2:
+    //       -> 归入 Inner Set。
+    //       -> [CRITICAL] 剪枝优化：直接输出 Inner Set 所有数据作为结果 (无需计算距离!)。
+    //       -> 仅需与 Outer Set 和 Outliers 进行距离计算。
+    //
+    // Step 3. 判断新 Workset 创建：
+    //    IF dist(query, ALL_centroids) > t:
+    //       -> 创建新 Workset，将 query 作为新质心。
+    //       -> 从邻居 Workset 借调数据填充新 Outer Set。
+    //
+    // Step 4. 离群点处理：
+    //    ELSE:
+    //       -> 归入最近 Workset 的 Outliers。
+    //       -> 执行暴力比对。
+    
+    // Step 5. 边界复制 (Outer Partition Logic):
+    //    IF dist(query, neighbor_centroid) <= 2*t:
+    //       -> 将 query 复制到邻居 Workset 的 Outer Set。
+
     
     auto start = std::chrono::steady_clock::now();
     std::vector<std::unique_ptr<VectorRecord>> results;

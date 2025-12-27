@@ -7,6 +7,11 @@ namespace sageFlow {
 void BoundaryTracker::markAsBoundary(uint64_t vector_uid, size_t partition_id) {
   std::unique_lock lock(mutex_);
 
+  // [TODO-S3J] 验证 2*t 规则
+  // 确保调用此函数的地方（通常在 Partitioner 或 State 中），
+  // 使用的判定公式是 dist(r, c_j) <= dist(r, c_i) + 2*t。
+  // 这里的逻辑本身是通用的，只需确认调用源的判定条件正确。
+
   // 检查是否已存在，如果在不同分区则先移除旧记录
   auto it = boundary_vectors_.find(vector_uid);
   if (it != boundary_vectors_.end()) {

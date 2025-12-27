@@ -21,6 +21,13 @@ namespace metrics {
  * 汇总来自 JoinMetrics 的原始计数器，并提供计算指标（召回率、精确率等）。
  */
 struct JoinExecutionStats {
+
+  // [TODO-S3J] 新增 Workset 粒度指标
+  // 负载均衡算法需要知道每个 Workset 的“重量”。
+  // std::unordered_map<uint64_t, size_t> workset_computation_cost; // 比较次数
+  // std::unordered_map<uint64_t, size_t> workset_data_size;       // 用于估算迁移网络开销
+
+
     // ==================== 时间指标（纳秒） ====================
     std::chrono::nanoseconds total_time{0};
     std::chrono::nanoseconds index_build_time{0};

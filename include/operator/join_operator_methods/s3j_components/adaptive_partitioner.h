@@ -100,6 +100,17 @@ struct PartitionStats {
  * 4. 自适应调整历史记录
  */
 class AdaptivePartitioner : public KMeansPartitioner {
+    // [TODO-S3J] 废弃 Split/Merge 策略
+    // 论文明确指出 S3J 不改变分区数量，而是移动 Workset。
+    // 动作：
+    // 1. 标记 splitPartition() 和 mergePartitions() 为 [DEPRECATED]。
+    // 2. 它们将被 migrateWorkset(workset_id, src, dest) 取代。
+
+    // [TODO-S3J] 实现 Algorithm 1 (Greedy Balancing)
+    // 1. 计算不平衡度 DI (Degree of Imbalance)。
+    // 2. 识别 Overloaded Worker 和 Underloaded Worker。
+    // 3. 贪心选择 benefit 最大的 Workset 进行迁移。
+    // void rebalanceWorksets(const std::vector<PartitionStats>& global_stats);
 public:
     /**
      * @brief 构造函数

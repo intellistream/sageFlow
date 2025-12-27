@@ -44,6 +44,22 @@ public:
                            size_t compact_threshold = 100,
                            bool enable_boundary_tracking = true);
 
+    // [TODO-S3J] 核心数据结构重构
+    // 目前：partitions_ 是简单的 TwoTierWindowState 列表。
+    // 目标：我们需要一个 Map<WorksetId, S3JWorkset>。
+    // 工作内容：
+    // 1. 定义 struct S3JWorkset { 
+    //      VectorRecord centroid; 
+    //      TwoTierWindowState inner; 
+    //      TwoTierWindowState outer; 
+    //      TwoTierWindowState outliers; 
+    //    };
+    // 2. 将 partitions_ 替换为 std::unordered_map<uint64_t, S3JWorkset> worksets_;
+    
+    // [TODO-S3J] 新增查询接口
+    // 目标：支持按 Workset ID 查询，以及寻找最近 Workset。
+    // S3JWorkset* findNearestWorkset(const VectorRecord& record, double threshold);
+
     /**
      * @brief 析构函数
      */
