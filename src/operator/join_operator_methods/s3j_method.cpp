@@ -5,8 +5,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <limits>
 
 #include "spdlog/spdlog.h"
+#include "compute_engine/simd_distance.h" 
+#include "state/partitioned_vector_state.h" 
 
 namespace sageFlow {
 
@@ -64,40 +67,77 @@ void S3JMethod::open(const RuntimeContext& context,
                  context.getTaskName(), config_.similarity_threshold);
 }
 
+//  辅助函数：安全获取 float*
+const float* S3JMethod::getRawData(const VectorRecord& record) const {
+    if (record.data_.dim_ <= 0 || !record.data_.data_) return nullptr;
+    return reinterpret_cast<const float*>(record.data_.data_.get());
+}
+
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot) {
 
-    // [TODO-S3J] 实现 Workset Formulation (论文 Figure 3)
-    // 当前逻辑：直接在全部分区或索引中搜索。
-    // 目标逻辑：
-    // Step 1. 找到最近的 Workset 质心 c_i。
-    // Step 2. 判断 Inner Set 归属：
-    //    IF dist(query, c_i) <= t/2:
-    //       -> 归入 Inner Set。
-    //       -> [CRITICAL] 剪枝优化：直接输出 Inner Set 所有数据作为结果 (无需计算距离!)。
-    //       -> 仅需与 Outer Set 和 Outliers 进行距离计算。
-    //
-    // Step 3. 判断新 Workset 创建：
-    //    IF dist(query, ALL_centroids) > t:
-    //       -> 创建新 Workset，将 query 作为新质心。
-    //       -> 从邻居 Workset 借调数据填充新 Outer Set。
-    //
-    // Step 4. 离群点处理：
-    //    ELSE:
-    //       -> 归入最近 Workset 的 Outliers。
-    //       -> 执行暴力比对。
-    
-    // Step 5. 边界复制 (Outer Partition Logic):
-    //    IF dist(query, neighbor_centroid) <= 2*t:
-    //       -> 将 query 复制到邻居 Workset 的 Outer Set。
-
-    
     auto start = std::chrono::steady_clock::now();
     std::vector<std::unique_ptr<VectorRecord>> results;
+
+    // 1. 确定目标状态 (Target State)
+    WindowState* raw_target_state = (query_slot == 0) ? right_state_ : left_state_;
+    auto* target_state = dynamic_cast<PartitionedVectorState*>(raw_target_state);
+
+    // 计算距离阈值 t
+    // 注意：假设 similarity_threshold 是相似度 (0~1)，转为距离阈值
+    float t = 1.0f - static_cast<float>(config_.similarity_threshold);
+    float t_half = t / 2.0f;
+    int dim = config_.dimension;
+
+    // 预先获取 Query 指针
+    const float* query_ptr = getRawData(query_record);
     
-    // 方法1：使用 ConcurrencyManager（如果可用）
-    if (concurrency_manager_) {
+    // 如果是 S3J 状态且 Query 数据有效
+    if (target_state && query_ptr) {
+        // [S3J Core Logic] Workset-based Search & Pruning
+        
+        // 获取所有 Workset 的快照
+        auto worksets = target_state->getWorksetsSnapshot();
+
+        for (auto* workset : worksets) {
+            if (!workset || !workset->centroid) continue;
+
+            const float* centroid_ptr = getRawData(*workset->centroid);
+            if (!centroid_ptr) continue;
+            
+            //  使用 SIMD 库计算到质心的距离
+            float dist_to_centroid = SIMDDistance::l2Distance(query_ptr, centroid_ptr, dim);
+
+            // Step 2: Inner Set 判定 (剪枝优化核心)
+            // IF dist(query, c_i) <= t/2:
+            if (dist_to_centroid <= t_half) {
+                // -> 归入 Inner Set (逻辑上)
+                // -> [CRITICAL] 剪枝优化：直接输出 Inner Set 所有数据作为结果 (无需计算距离!)
+                if (workset->inner_set) {
+                    auto inner_records = workset->inner_set->getAllRecords(0);
+                    for (const auto* rec : inner_records) {
+                        results.emplace_back(std::make_unique<VectorRecord>(*rec));
+                    }
+                }
+                // -> 仅需与 Outer Set 和 Outliers 进行距离计算
+                if (workset->outer_set) scanTierForMatches(query_record, workset->outer_set.get(), t, results);
+                if (workset->outliers)  scanTierForMatches(query_record, workset->outliers.get(), t, results);
+            }
+            // Step 5: 边界复制/邻居检查 (简化版逻辑)
+            // 如果 query 虽然不在 Inner Set，但离质心足够近，可能匹配 Outer Set 或 Outliers
+            // 这里的 3.0*t 是一个宽松的边界，确保不错过匹配
+            else if (dist_to_centroid <= 3.0f * t) {
+                if (workset->inner_set) scanTierForMatches(query_record, workset->inner_set.get(), t, results);
+                if (workset->outer_set) scanTierForMatches(query_record, workset->outer_set.get(), t, results);
+                if (workset->outliers)  scanTierForMatches(query_record, workset->outliers.get(), t, results);
+            }
+            // ELSE: 距离太远 (> 3t)，根据三角不等式，该 Workset 不可能有匹配点，跳过 (Pruned)
+        }
+
+    } 
+    // 方法1：使用 ConcurrencyManager（如果可用，且没有走上面的 S3J 逻辑）
+    else if (concurrency_manager_) {
         int idx = otherIndexId(query_slot);
         if (idx != -1) {
             auto candidates = concurrency_manager_->query_for_join(
@@ -111,7 +151,7 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
             }
         }
     }
-    // 方法2：使用窗口状态（如果没有 ConcurrencyManager）
+    // 方法2：使用窗口状态（如果没有 ConcurrencyManager 且非 PartitionedVectorState）
     else if (left_state_ && right_state_) {
         results = searchInWindowState(query_record, query_slot);
     }
@@ -140,6 +180,31 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     return results;
 }
 
+//  辅助函数实现：扫描具体层的匹配项
+void S3JMethod::scanTierForMatches(const VectorRecord& query, 
+                                   TwoTierWindowState* tier, 
+                                   float threshold,
+                                   std::vector<std::unique_ptr<VectorRecord>>& results) {
+    if (!tier) return;
+    
+    const float* query_ptr = getRawData(query);
+    if (!query_ptr) return;
+
+    int dim = config_.dimension;
+    
+    auto candidates = tier->getAllRecords(0);
+    for (const auto* candidate : candidates) {
+        const float* cand_ptr = getRawData(*candidate);
+        if (!cand_ptr) continue;
+        
+        //  使用 SIMD 库计算距离
+        float dist = SIMDDistance::l2Distance(query_ptr, cand_ptr, dim);
+        
+        if (dist <= threshold) {
+            results.emplace_back(std::make_unique<VectorRecord>(*candidate));
+        }
+    }
+}
 
 void S3JMethod::close() {
     initialized_ = false;

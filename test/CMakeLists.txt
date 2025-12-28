@@ -113,6 +113,7 @@ set(UNIT_TEST_SPECS
     test_join_operator_strategy    UnitTest/test_join_operator_strategy.cpp   180 UNIT
     test_join_metrics              UnitTest/test_join_metrics.cpp             180 UNIT
     test_report_generator          UnitTest/test_report_generator.cpp         180 UNIT
+    test_s3j_verification          UnitTest/test_s3j_verification.cpp         300 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)

@@ -91,30 +91,30 @@ bool AdaptivePartitioner::forceAdapt() {
     }
     double avg_load = total_load / num_partitions;
     
-    // 检查是否需要分裂
-    if (num_partitions < adapt_config_.max_partitions &&
-        max_partition < partition_stats_.size()) {
-        double max_load = static_cast<double>(partition_stats_[max_partition].count.load());
-        if (max_load > avg_load * adapt_config_.split_threshold) {
-            if (splitPartition(max_partition)) {
-                adapted = true;
-            }
-        }
-    }
+    // // 检查是否需要分裂
+    // if (num_partitions < adapt_config_.max_partitions &&
+    //     max_partition < partition_stats_.size()) {
+    //     double max_load = static_cast<double>(partition_stats_[max_partition].count.load());
+    //     if (max_load > avg_load * adapt_config_.split_threshold) {
+    //         if (splitPartition(max_partition)) {
+    //             adapted = true;
+    //         }
+    //     }
+    // }
     
-    // 检查是否需要合并
-    if (!adapted && num_partitions > adapt_config_.min_partitions &&
-        min_partition < partition_stats_.size()) {
-        double min_load = static_cast<double>(partition_stats_[min_partition].count.load());
-        if (min_load < avg_load * adapt_config_.merge_threshold) {
-            size_t neighbor = findNeighborPartition(min_partition);
-            if (neighbor != min_partition && mergePartitions(min_partition, neighbor)) {
-                adapted = true;
-            }
-        }
-    }
+    // // 检查是否需要合并
+    // if (!adapted && num_partitions > adapt_config_.min_partitions &&
+    //     min_partition < partition_stats_.size()) {
+    //     double min_load = static_cast<double>(partition_stats_[min_partition].count.load());
+    //     if (min_load < avg_load * adapt_config_.merge_threshold) {
+    //         size_t neighbor = findNeighborPartition(min_partition);
+    //         if (neighbor != min_partition && mergePartitions(min_partition, neighbor)) {
+    //             adapted = true;
+    //         }
+    //     }
+    // }
     
-    return adapted;
+    return false;
 }
 
 int AdaptivePartitioner::getCurrentNumPartitions() const {
@@ -171,68 +171,68 @@ void AdaptivePartitioner::resetStats() {
     }
 }
 
-bool AdaptivePartitioner::splitPartition(size_t partition) {
-    // 注意：调用此函数时应持有 stats_mutex_
-    int num_partitions = current_num_partitions_.load();
+// bool AdaptivePartitioner::splitPartition(size_t partition) {
+//     // 注意：调用此函数时应持有 stats_mutex_
+//     int num_partitions = current_num_partitions_.load();
     
-    if (num_partitions >= adapt_config_.max_partitions) {
-        return false;
-    }
+//     if (num_partitions >= adapt_config_.max_partitions) {
+//         return false;
+//     }
     
-    // 增加分区数
-    current_num_partitions_.fetch_add(1);
+//     // 增加分区数
+//     current_num_partitions_.fetch_add(1);
     
-    // 扩展统计数组
-    partition_stats_.resize(num_partitions + 1);
+//     // 扩展统计数组
+//     partition_stats_.resize(num_partitions + 1);
     
-    // 重置被分裂分区和新分区的统计
-    if (partition < partition_stats_.size()) {
-        partition_stats_[partition].reset();
-    }
-    partition_stats_[num_partitions].reset();
+//     // 重置被分裂分区和新分区的统计
+//     if (partition < partition_stats_.size()) {
+//         partition_stats_[partition].reset();
+//     }
+//     partition_stats_[num_partitions].reset();
     
-    // 记录历史
-    std::ostringstream ss;
-    ss << "Split partition " << partition << " into " << partition << " and " << num_partitions;
-    recordHistory("split", static_cast<int>(partition), ss.str());
+//     // 记录历史
+//     std::ostringstream ss;
+//     ss << "Split partition " << partition << " into " << partition << " and " << num_partitions;
+//     recordHistory("split", static_cast<int>(partition), ss.str());
     
-    return true;
-}
+//     return true;
+// }
 
-bool AdaptivePartitioner::mergePartitions(size_t partition1, size_t partition2) {
-    // 注意：调用此函数时应持有 stats_mutex_
-    int num_partitions = current_num_partitions_.load();
+// bool AdaptivePartitioner::mergePartitions(size_t partition1, size_t partition2) {
+//     // 注意：调用此函数时应持有 stats_mutex_
+//     int num_partitions = current_num_partitions_.load();
     
-    if (num_partitions <= adapt_config_.min_partitions) {
-        return false;
-    }
+//     if (num_partitions <= adapt_config_.min_partitions) {
+//         return false;
+//     }
     
-    if (partition1 >= static_cast<size_t>(num_partitions) || 
-        partition2 >= static_cast<size_t>(num_partitions)) {
-        return false;
-    }
+//     if (partition1 >= static_cast<size_t>(num_partitions) || 
+//         partition2 >= static_cast<size_t>(num_partitions)) {
+//         return false;
+//     }
     
-    // 减少分区数
-    current_num_partitions_.fetch_sub(1);
+//     // 减少分区数
+//     current_num_partitions_.fetch_sub(1);
     
-    // 合并统计到 partition1
-    if (partition1 < partition_stats_.size() && partition2 < partition_stats_.size()) {
-        partition_stats_[partition1].count.fetch_add(
-            partition_stats_[partition2].count.load());
-        partition_stats_[partition1].total_latency_us.fetch_add(
-            partition_stats_[partition2].total_latency_us.load());
-        partition_stats_[partition1].data_size.fetch_add(
-            partition_stats_[partition2].data_size.load());
-        partition_stats_[partition2].reset();
-    }
+//     // 合并统计到 partition1
+//     if (partition1 < partition_stats_.size() && partition2 < partition_stats_.size()) {
+//         partition_stats_[partition1].count.fetch_add(
+//             partition_stats_[partition2].count.load());
+//         partition_stats_[partition1].total_latency_us.fetch_add(
+//             partition_stats_[partition2].total_latency_us.load());
+//         partition_stats_[partition1].data_size.fetch_add(
+//             partition_stats_[partition2].data_size.load());
+//         partition_stats_[partition2].reset();
+//     }
     
-    // 记录历史
-    std::ostringstream ss;
-    ss << "Merged partitions " << partition1 << " and " << partition2;
-    recordHistory("merge", static_cast<int>(partition1), ss.str());
+//     // 记录历史
+//     std::ostringstream ss;
+//     ss << "Merged partitions " << partition1 << " and " << partition2;
+//     recordHistory("merge", static_cast<int>(partition1), ss.str());
     
-    return true;
-}
+//     return true;
+// }
 
 size_t AdaptivePartitioner::findMaxLoadPartition() const {
     // 注意：调用此函数时应持有 stats_mutex_

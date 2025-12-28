@@ -10,6 +10,7 @@
 #include "execution/vector_space_partitioner.h"
 #include "coordination/boundary_tracker.h"
 
+#include <atomic> // [FIX] 必须添加，用于 std::atomic
 #include <deque>
 #include <memory>
 #include <shared_mutex>
@@ -30,6 +31,38 @@ namespace sageFlow {
  * 3. 边界向量追踪
  * 4. 双层窗口优化
  */
+
+// [TODO-S3J] S3J 核心数据结构 (Paper Definition 7)
+
+/**
+ * @brief S3J Workset 定义
+ * * 一个 Workset W_{j,i} 是 S3J 中最小的迁移和计算单元。
+ * 包含质心、核心集(Inner)、边界集(Outer)和离群点(Outliers)。
+ */
+struct S3JWorkset {
+    uint64_t workset_id;
+    // 质心 (Layer 2 动态质心 c_{j,i})
+    std::unique_ptr<VectorRecord> centroid;
+    
+    // 三个集合隔离 (逻辑上分开，物理上复用 TwoTierWindowState 获得高性能)
+    std::unique_ptr<TwoTierWindowState> inner_set;  // IS: dist <= t/2
+    std::unique_ptr<TwoTierWindowState> outer_set;  // OS: t/2 < dist <= 2t
+    std::unique_ptr<TwoTierWindowState> outliers;   // Outliers: 无法归类
+
+    // 负载统计 (用于 Algorithm 1 迁移决策)
+    std::atomic<size_t> computation_cost{0}; 
+    std::atomic<size_t> migration_cost{0};
+
+    // 构造函数
+    S3JWorkset(uint64_t id, std::unique_ptr<VectorRecord> c, size_t threshold) 
+        : workset_id(id), centroid(std::move(c)) {
+        // 容量参数设为 1 (内部不再细分)，使用传入的压缩阈值
+        inner_set = std::make_unique<TwoTierWindowState>(1, threshold);
+        outer_set = std::make_unique<TwoTierWindowState>(1, threshold);
+        outliers = std::make_unique<TwoTierWindowState>(1, threshold);
+    }
+};
+
 class PartitionedVectorState : public WindowState {
 public:
     /**
@@ -44,28 +77,40 @@ public:
                            size_t compact_threshold = 100,
                            bool enable_boundary_tracking = true);
 
-    // [TODO-S3J] 核心数据结构重构
-    // 目前：partitions_ 是简单的 TwoTierWindowState 列表。
-    // 目标：我们需要一个 Map<WorksetId, S3JWorkset>。
-    // 工作内容：
-    // 1. 定义 struct S3JWorkset { 
-    //      VectorRecord centroid; 
-    //      TwoTierWindowState inner; 
-    //      TwoTierWindowState outer; 
-    //      TwoTierWindowState outliers; 
-    //    };
-    // 2. 将 partitions_ 替换为 std::unordered_map<uint64_t, S3JWorkset> worksets_;
-    
-    // [TODO-S3J] 新增查询接口
-    // 目标：支持按 Workset ID 查询，以及寻找最近 Workset。
-    // S3JWorkset* findNearestWorkset(const VectorRecord& record, double threshold);
-
     /**
      * @brief 析构函数
      */
     ~PartitionedVectorState() override = default;
 
-    // ========== WindowState 接口实现 ==========
+    // [TODO-S3J] S3J 专用接口
+
+    /**
+     * @brief 动态创建 Workset (对应论文 Section 7.3)
+     * 当数据发生概念漂移，现有质心都太远时调用
+     */
+    void createWorkset(uint64_t workset_id, std::unique_ptr<VectorRecord> centroid);
+
+    /**
+     * @brief 获取指定 Workset (用于迁移或查询)
+     */
+    S3JWorkset* getWorkset(uint64_t workset_id);
+
+    /**
+     * @brief 寻找最近的 Workset (Layer 2 核心计算)
+     * 用于决定新数据是进入 Inner Set 还是成为 Outlier
+     * @return {Workset指针, 最小距离}
+     */
+    std::pair<S3JWorkset*, float> findNearestWorkset(const VectorRecord& record);
+    
+    /**
+     * @brief 获取当前所有 Workset 的快照 (用于遍历查询)
+     * @return Workset 指针列表。返回快照是线程安全的，避免遍历时 Map 被修改。
+     */
+    std::vector<S3JWorkset*> getWorksetsSnapshot() const;
+
+    // =========================================================================
+    // WindowState 接口实现
+    // =========================================================================
 
     /**
      * @brief 添加记录到窗口
@@ -252,6 +297,17 @@ private:
     bool enable_boundary_tracking_;
     size_t compact_threshold_;
 
+    // =========================================================================
+    // [TODO-S3J] 新增数据成员
+    // =========================================================================
+    // 动态逻辑工作集 (Layer 2 Workset Formulation)
+    // Key 是 Workset ID (由 Coordinator 或 Algorithm 分配)
+    std::unordered_map<uint64_t, std::unique_ptr<S3JWorkset>> s3j_worksets_;
+    
+    // 保护 s3j_worksets_ 的锁
+    mutable std::shared_mutex workset_map_mutex_;
+
+    // [现有] 固定物理分区 (Layer 1 Space Partitioning)
     /// 每个向量空间分区的状态（使用 TwoTierWindowState）
     std::vector<std::unique_ptr<TwoTierWindowState>> partitions_;
 
@@ -302,8 +358,8 @@ private:
      * @return 被驱逐的 UID 列表
      */
     std::vector<uint64_t> collectEvictedUids(size_t partition_id,
-                                              size_t before_size,
-                                              size_t after_size) const;
+                                             size_t before_size,
+                                             size_t after_size) const;
 };
 
 } // namespace sageFlow

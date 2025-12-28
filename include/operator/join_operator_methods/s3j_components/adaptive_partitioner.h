@@ -202,20 +202,20 @@ private:
     // 当前分区数（可能与初始值不同）
     std::atomic<int> current_num_partitions_;
     
-    /**
-     * @brief 分裂过载分区
-     * @param partition 要分裂的分区
-     * @return 是否成功分裂
-     */
-    bool splitPartition(size_t partition);
+    // /**
+    //  * @brief 分裂过载分区
+    //  * @param partition 要分裂的分区
+    //  * @return 是否成功分裂
+    //  */
+    // bool splitPartition(size_t partition);
     
-    /**
-     * @brief 合并低负载分区
-     * @param partition1 第一个分区
-     * @param partition2 第二个分区
-     * @return 是否成功合并
-     */
-    bool mergePartitions(size_t partition1, size_t partition2);
+    // /**
+    //  * @brief 合并低负载分区
+    //  * @param partition1 第一个分区
+    //  * @param partition2 第二个分区
+    //  * @return 是否成功合并
+    //  */
+    // bool mergePartitions(size_t partition1, size_t partition2);
     
     /**
      * @brief 找到最大负载分区

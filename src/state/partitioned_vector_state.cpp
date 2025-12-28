@@ -5,7 +5,10 @@
 
 #include "state/partitioned_vector_state.h"
 #include "utils/logger.h"
+#include "compute_engine/simd_distance.h" //  使用项目的高性能 SIMD 库
 
+#include <cmath>
+#include <limits>
 #include <algorithm>
 #include <unordered_set>
 
@@ -52,7 +55,7 @@ PartitionedVectorState::PartitionedVectorState(
 }
 
 void PartitionedVectorState::addRecord(std::unique_ptr<VectorRecord> record,
-                                        size_t /*subtask_index*/) {
+                                       size_t /*subtask_index*/) {
     if (!record) {
         return;
     }
@@ -155,8 +158,8 @@ std::unordered_set<uint64_t> PartitionedVectorState::getUidSet(size_t /*subtask_
 }
 
 void PartitionedVectorState::evictExpired(int64_t current_timestamp,
-                                           int64_t window_size,
-                                           size_t /*subtask_index*/) {
+                                          int64_t window_size,
+                                          size_t /*subtask_index*/) {
     std::vector<uint64_t> all_evicted_uids;
 
     // 遍历所有分区进行过期清理
@@ -474,54 +477,81 @@ std::vector<uint64_t> PartitionedVectorState::collectEvictedUids(
     return {};
 }
 
+// =============================================================================
+// S3J Adaptive Components Implementation
+// =============================================================================
+
+void PartitionedVectorState::createWorkset(uint64_t workset_id, std::unique_ptr<VectorRecord> centroid) {
+    std::unique_lock lock(workset_map_mutex_);
+    
+    if (s3j_worksets_.find(workset_id) != s3j_worksets_.end()) {
+        return; 
+    }
+
+    auto workset = std::make_unique<S3JWorkset>(workset_id, std::move(centroid), compact_threshold_);
+    
+    // 存入 Map
+    s3j_worksets_[workset_id] = std::move(workset);
+
+    SAGEFLOW_LOG_DEBUG("S3J", "Created new workset ID={} at centroid", workset_id);
+}
+
+S3JWorkset* PartitionedVectorState::getWorkset(uint64_t workset_id) {
+    std::shared_lock lock(workset_map_mutex_);
+    
+    auto it = s3j_worksets_.find(workset_id);
+    if (it != s3j_worksets_.end()) {
+        return it->second.get();
+    }
+    return nullptr;
+}
+
+std::pair<S3JWorkset*, float> PartitionedVectorState::findNearestWorkset(const VectorRecord& record) {
+    std::shared_lock lock(workset_map_mutex_);
+    
+    S3JWorkset* nearest = nullptr;
+    float min_dist = std::numeric_limits<float>::max();
+    
+    // 准备查询向量的原始指针
+    const float* rec_ptr = reinterpret_cast<const float*>(record.data_.data_.get());
+    size_t dim = record.data_.dim_;
+    
+    if (!rec_ptr || dim == 0) {
+        return {nullptr, min_dist};
+    }
+
+    for (const auto& [id, workset] : s3j_worksets_) {
+        if (!workset || !workset->centroid) continue;
+        
+        //  使用高性能 SIMD 库计算距离
+        const float* cen_ptr = reinterpret_cast<const float*>(workset->centroid->data_.data_.get());
+        if (!cen_ptr) continue;
+        
+        // 调用 SIMDDistance::l2Distance
+        float dist = SIMDDistance::l2Distance(rec_ptr, cen_ptr, dim);
+        
+        if (dist < min_dist) {
+            min_dist = dist;
+            nearest = workset.get();
+        }
+    }
+    
+    return {nearest, min_dist};
+}
+
+std::vector<S3JWorkset*> PartitionedVectorState::getWorksetsSnapshot() const {
+    std::shared_lock lock(workset_map_mutex_);
+    
+    std::vector<S3JWorkset*> snapshot;
+    snapshot.reserve(s3j_worksets_.size());
+    
+    for (const auto& [id, workset_ptr] : s3j_worksets_) {
+        if (workset_ptr) {
+            snapshot.push_back(workset_ptr.get());
+        }
+    }
+    
+    return snapshot;
+}
+
 } // namespace sageFlow
-
-
-
-/*
- * [TODO-S3J] 实现动态 Workset 创建逻辑
- * 对应论文 Section 7.3: Creating New Worksets
- * 当一个数据点离所有现有 Workset 都太远时（> t），它需要“自立门户”成为新的质心。
- */
-// void PartitionedVectorState::createWorkset(uint64_t workset_id, std::unique_ptr<VectorRecord> centroid) {
-//     // 1. 获取写锁 (workset_map_mutex_)
-//     // 2. 创建 S3JWorkset 实例 (初始化 Inner/Outer/Outliers 容器)
-//     // 3. 存入 s3j_worksets_ Map 中
-//     // SAGEFLOW_LOG_DEBUG("S3J", "Created new workset {} at centroid {}", workset_id, centroid->uid_);
-// }
-
-/*
- * [TODO-S3J] 实现 Workset 查找逻辑
- * 用于在负载均衡迁移或具体计算时获取特定 Workset
- */
-// S3JWorkset* PartitionedVectorState::getWorkset(uint64_t workset_id) {
-//     // 1. 获取读锁
-//     // 2. 在 s3j_worksets_ 中查找
-//     // 3. 返回指针或 nullptr
-// }
-
-/*
- * [TODO-S3J] 实现“寻找最近 Workset”逻辑 (Layer 2 核心)
- * 对应论文 Figure 3: Distance Computation logic
- * 用于判断新数据应该归入哪个 Inner Set，或者是否成为 Outlier
- */
-// std::pair<S3JWorkset*, float> PartitionedVectorState::findNearestWorkset(const VectorRecord& record) {
-//     // 1. 获取读锁
-//     // 2. 遍历 s3j_worksets_ 中的所有质心
-//     // 3. 计算 dist(record, workset->centroid)
-//     // 4. 返回距离最近的 {Workset*, distance}
-//     // 
-//     // 提示：如果 Workset 数量很多，这里未来可以用 HNSW/IVF 索引来加速质心搜索
-//     return {nullptr, std::numeric_limits<float>::max()};
-// }
-
-/*
- * [TODO-S3J] 实现 Workset 迁移的序列化/反序列化 (Algorithm 1)
- * 当 Coordinator 决定将 Workset 移动到另一个 Worker 时调用
- */
-// std::unique_ptr<std::vector<uint8_t>> PartitionedVectorState::serializeWorkset(uint64_t workset_id) {
-//     // 导出 Workset 的所有数据 (Centroid + Inner + Outer + Outliers)
-// }
-// void PartitionedVectorState::importWorkset(const std::vector<uint8_t>& data) {
-//     // 重建 Workset
-// }

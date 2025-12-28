@@ -60,6 +60,15 @@ struct JoinExecutionStats {
     int64_t index_rebuilds = 0;
 
     // ==================== 计算指标 ====================
+    // [TODO-S3J] 新增 Workset 粒度指标 (用于负载均衡算法)
+    // 负载均衡器需要知道每个 Workset 的“重量”来计算迁移 Benefit。
+    
+    // Workset ID -> 计算量 (比较次数)
+    std::unordered_map<uint64_t, size_t> workset_computation_cost; 
+    
+    // Workset ID -> 数据量 (用于估算网络迁移开销)
+    std::unordered_map<uint64_t, size_t> workset_data_size;
+
 
     /**
      * @brief 计算召回率
