@@ -55,9 +55,16 @@ PartitionedVectorState::PartitionedVectorState(
 }
 
 void PartitionedVectorState::addRecord(std::unique_ptr<VectorRecord> record,
-                                       size_t /*subtask_index*/) {
+                                       size_t subtask_index) {
     if (!record) {
         return;
+    }
+
+    // [S3J] 检查是否开启了 S3J 动态构建模式
+    // 如果设置了阈值，且 record 有效，则走 S3J 逻辑 (Layer 2)
+    if (s3j_threshold_ > 0.0f) {
+        addRecordS3J(std::move(record));
+        return; 
     }
 
     // 确定向量所属分区
@@ -102,6 +109,129 @@ void PartitionedVectorState::addRecord(std::unique_ptr<VectorRecord> record,
         view_dirty_ = true;
     }
 }
+
+// 2. 新增 addRecordS3J 实现 (Paper Section 7.1 - 7.5)
+void PartitionedVectorState::addRecordS3J(std::unique_ptr<VectorRecord> record) {
+    if (!record) return;
+
+    // 准备参数
+    float t = s3j_threshold_;
+    float t_half = t / 2.0f;
+    float t_double = t * 2.0f;
+    
+    // 我们需要保留 record 的 raw 指针用于多次计算，但所有权要在最后移交
+    // 技巧：先持有 unique_ptr，如果需要存入多个集合（Outer），则深拷贝
+    VectorRecord* raw_rec = record.get();
+    size_t dim = raw_rec->data_.dim_;
+    const float* rec_ptr = reinterpret_cast<const float*>(raw_rec->data_.data_.get());
+
+    // Step 1: 寻找最近的 Workset (Paper Section 7.2)
+    auto [nearest_workset, min_dist] = findNearestWorkset(*raw_rec);
+
+    bool assigned_to_inner = false;
+
+    // Step 2 & 3: 判定归属 (Inner vs New Workset vs Outlier)
+    
+    // Case A: 加入 Inner Set (dist <= t/2) [cite: 62-65, 82]
+    if (nearest_workset && min_dist <= t_half) {
+        nearest_workset->inner_set->addRecord(std::move(record), 0);
+        assigned_to_inner = true;
+        // 增加负载计数 (Approximate)
+        nearest_workset->computation_cost.fetch_add(1, std::memory_order_relaxed);
+    }
+    // Case B: 创建新 Workset (dist > t) [cite: 66, 298-302]
+    // 论文 Criterion 2: 如果距离所有现有质心 > t，则选为新质心
+    else if (!nearest_workset || min_dist > t) {
+        // 生成新 ID
+        uint64_t new_id = next_workset_id_.fetch_add(1);
+        
+        // 当前记录作为质心 (深拷贝)
+        auto centroid_copy = std::make_unique<VectorRecord>(*raw_rec);
+        createWorkset(new_id, std::move(centroid_copy));
+        
+        // 重新获取新创建的 Workset (createWorkset 内部加了锁)
+        S3JWorkset* new_ws = getWorkset(new_id);
+        if (new_ws) {
+            new_ws->inner_set->addRecord(std::move(record), 0);
+            assigned_to_inner = true;
+        }
+    }
+    // Case C: 成为 Outlier (t/2 < dist <= t) [cite: 304-307]
+    else {
+        // 加入到最近 Workset 的 Outliers 集合
+        nearest_workset->outliers->addRecord(std::move(record), 0);
+        // 此处不置 assigned_to_inner，因为 Outlier 需要参与更多比较
+        nearest_workset->computation_cost.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // 论文 Definition 10: dist <= 2t (且 > t/2，因为 <=t/2 是 Inner)
+    
+    auto snapshots = getWorksetsSnapshot();
+    for (auto* ws : snapshots) {
+        // 跳过它刚刚加入 Inner Set 的那个 Workset 
+        if (assigned_to_inner && ws == nearest_workset) continue;
+        
+        // 计算距离
+        const float* cen_ptr = reinterpret_cast<const float*>(ws->centroid->data_.data_.get());
+        float dist = SIMDDistance::l2Distance(rec_ptr, cen_ptr, dim);
+        
+        // 路由准则: t/2 < dist <= 2t
+        if (dist <= t_double && dist > t_half) {
+            // 深拷贝一份放入 Outer Set
+            auto record_copy = std::make_unique<VectorRecord>(
+                raw_rec->uid_, raw_rec->timestamp_, raw_rec->data_ 
+            );
+            // 手动复制数据，如果 VectorData 拷贝不完整
+            if (record_copy->data_.dim_ == 0) {
+   
+            }
+            
+            ws->outer_set->addRecord(std::move(record_copy), 0);
+            ws->migration_cost.fetch_add(1, std::memory_order_relaxed); // 增加存储/迁移成本计数
+        }
+    }
+}
+
+// [S3J] 释放(迁出) Workset
+std::unique_ptr<S3JWorkset> PartitionedVectorState::releaseWorkset(uint64_t workset_id) {
+    // 获取写锁 (Unique Lock)，因为我们要修改 map 结构
+    std::unique_lock lock(workset_map_mutex_);
+
+    auto it = s3j_worksets_.find(workset_id);
+    if (it == s3j_worksets_.end()) {
+        // ID 不存在，返回空指针
+        return nullptr;
+    }
+
+    // 移动语义：将指针的所有权提取出来
+    std::unique_ptr<S3JWorkset> workset_ptr = std::move(it->second);
+
+    // 从 Map 中移除该条目
+    s3j_worksets_.erase(it);
+
+    // 返回提取出的 Workset 对象
+    return workset_ptr;
+}
+
+// [S3J] 注入(迁入) Workset
+void PartitionedVectorState::injectWorkset(std::unique_ptr<S3JWorkset> workset) {
+    if (!workset) return;
+
+    uint64_t id = workset->workset_id;
+
+    // 获取写锁 (Unique Lock)
+    std::unique_lock lock(workset_map_mutex_);
+
+    // 插入 Map
+    // 如果 ID 已存在（极罕见情况），这里会直接覆盖旧的 Workset
+    s3j_worksets_[id] = std::move(workset);
+    
+    // 注意：如果 S3JWorkset 内部维护了更复杂的全局索引引用，
+    // 在这里可能需要额外的 hook（例如更新全局路由表），
+    // 但对于目前基于 "findNearestWorkset" 的动态路由机制，
+    // 只要 Workset 进入了 s3j_worksets_ 容器，它就会立即被查询逻辑发现。
+}
+
 
 const std::deque<std::unique_ptr<VectorRecord>>&
 PartitionedVectorState::getRecords(size_t /*subtask_index*/) const {

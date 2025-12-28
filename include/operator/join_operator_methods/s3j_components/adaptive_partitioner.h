@@ -1,13 +1,35 @@
 #pragma once
 
 #include "execution/vector_space_partitioner.h"
-
+#include <vector>
+#include <string>
 #include <atomic>
 #include <chrono>
 #include <mutex>
 #include <vector>
 
 namespace sageFlow {
+
+
+/**
+ * @brief [S3J] Workset 负载信息 (用于负载均衡算法输入)
+ */
+struct WorksetLoadInfo {
+    uint64_t workset_id;
+    int worker_id;      // 当前所在的 Worker (Subtask ID)
+    double load;        // 计算负载 (computation_cost)
+    size_t size_bytes;  // 状态大小 (migration_cost)
+};
+
+/**
+ * @brief [S3J] 迁移计划 (负载均衡算法输出)
+ */
+struct MigrationPlan {
+    uint64_t workset_id;
+    int source_worker;
+    int target_worker;
+};
+
 
 /**
  * @brief 自适应调整历史记录
@@ -25,7 +47,8 @@ struct AdaptHistory {
 struct AdaptivePartitionerConfig {
     int initial_partitions = 16;        ///< 初始分区数
     int64_t adapt_interval_ms = 1000;   ///< 自适应调整间隔（毫秒）
-    double load_threshold = 0.3;        ///< 负载不均衡阈值
+    double load_threshold = 0.2;        ///< 负载不均衡阈值
+    double migration_factor = 0.0001;   // 迁移成本系数 (alpha)
     double split_threshold = 2.0;       ///< 分裂阈值（相对均值）
     double merge_threshold = 0.3;       ///< 合并阈值（相对均值）
     int min_partitions = 2;             ///< 最小分区数
@@ -128,6 +151,17 @@ public:
     AdaptivePartitioner(const AdaptivePartitioner&) = delete;
     AdaptivePartitioner& operator=(const AdaptivePartitioner&) = delete;
     
+    // [S3J Core] 执行贪心负载均衡算法
+    // @param all_worksets: 全局所有 Workset 的负载快照
+    // @param num_workers: Worker 总数
+    // @return: 需要执行的迁移计划列表
+    std::vector<MigrationPlan> runGreedyBalancing(
+        const std::vector<WorksetLoadInfo>& all_worksets,
+        int num_workers);
+    
+    // [S3J] 计算当前的不平衡度 (DI)
+    double computeImbalance(const std::vector<double>& worker_loads, double avg_load) const;
+
     /**
      * @brief 更新分区统计
      * @param partition 分区 ID
@@ -189,7 +223,14 @@ public:
 private:
     AdaptivePartitionerConfig adapt_config_;
     std::atomic<int64_t> last_adapt_time_ms_;
+
+    // [Helper] 计算移除收益 (Delta DI - Cost)
+    double calculateRemovalBenefit(const WorksetLoadInfo& w, double src_load, double avg_load) const;
     
+    // [Helper] 计算添加收益 (Delta DI)
+    double calculateAdditionBenefit(const WorksetLoadInfo& w, double target_load, double avg_load) const;
+
+
     // 每分区统计
     mutable std::mutex stats_mutex_;
     std::vector<PartitionStats> partition_stats_;

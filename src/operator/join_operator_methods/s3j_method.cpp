@@ -58,6 +58,21 @@ void S3JMethod::open(const RuntimeContext& context,
     left_state_ = left_state;
     right_state_ = right_state;
     
+    left_state_ = left_state;
+    right_state_ = right_state;
+    
+    // [S3J] 开启状态的 S3J 模式
+    // 计算距离阈值 t
+    // 沿用 ExecuteEager 中的逻辑 t = 1.0 - threshold
+    float t = 1.0f - static_cast<float>(config_.similarity_threshold);
+    
+    if (auto* p_state = dynamic_cast<PartitionedVectorState*>(left_state_)) {
+        p_state->setS3JThreshold(t);
+    }
+    if (auto* p_state = dynamic_cast<PartitionedVectorState*>(right_state_)) {
+        p_state->setS3JThreshold(t);
+    }
+
     // 重置指标
     metrics_collector_.reset();
     
@@ -85,7 +100,6 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     auto* target_state = dynamic_cast<PartitionedVectorState*>(raw_target_state);
 
     // 计算距离阈值 t
-    // 注意：假设 similarity_threshold 是相似度 (0~1)，转为距离阈值
     float t = 1.0f - static_cast<float>(config_.similarity_threshold);
     float t_half = t / 2.0f;
     int dim = config_.dimension;

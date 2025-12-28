@@ -219,6 +219,23 @@ public:
         }
     }
 
+    /**
+     * @brief [S3J Migration] 释放(迁出)指定 Workset 所有权
+     * 用于负载均衡时的状态迁移。将 Workset 从当前状态中移除并返回。
+     * 线程安全：会获取写锁。
+     * @param workset_id 要迁移的 Workset ID
+     * @return 也就是该 Workset 的唯一指针，如果 ID 不存在则返回 nullptr
+     */
+    std::unique_ptr<S3JWorkset> releaseWorkset(uint64_t workset_id);
+
+    /**
+     * @brief [S3J Migration] 注入(迁入)外部 Workset
+     * 用于接收来自其他 Worker 的 Workset。
+     * 线程安全：会获取写锁。
+     * @param workset 接收到的 Workset 指针 (所有权转移)
+     */
+    void injectWorkset(std::unique_ptr<S3JWorkset> workset);
+    
     // ========== 分区特定操作 ==========
 
     /**
@@ -291,6 +308,14 @@ public:
      */
     const VectorRecord* findRecordByUid(uint64_t uid) const;
 
+    /**
+     * @brief 启用 S3J 模式并设置距离阈值
+     * @param threshold 距离阈值 t (Paper 中的 t)
+     */
+    void setS3JThreshold(float threshold) {
+        s3j_threshold_ = threshold;
+    }
+
 private:
     size_t num_partitions_;
     std::shared_ptr<VectorSpacePartitioner> partitioner_;
@@ -303,6 +328,9 @@ private:
     // 动态逻辑工作集 (Layer 2 Workset Formulation)
     // Key 是 Workset ID (由 Coordinator 或 Algorithm 分配)
     std::unordered_map<uint64_t, std::unique_ptr<S3JWorkset>> s3j_worksets_;
+
+    float s3j_threshold_ = -1.0f; // 默认为负，表示不启用 S3J 动态构建
+    std::atomic<uint64_t> next_workset_id_{1}; // 用于生成新 Workset ID
     
     // 保护 s3j_worksets_ 的锁
     mutable std::shared_mutex workset_map_mutex_;
@@ -330,6 +358,12 @@ private:
     /// uid -> VectorRecord* 映射，用于快速查找（mutable 以支持 const 方法中的缓存更新）
     mutable std::unordered_map<uint64_t, const VectorRecord*> uid_record_map_;
     mutable std::shared_mutex record_map_mutex_;
+
+    /**
+     * @brief S3J 专用插入逻辑 (Paper Section 7)
+     * 实现动态质心选择、Inner Set 分配、Outlier 处理和 Outer Set 复制
+     */
+    void addRecordS3J(std::unique_ptr<VectorRecord> record);
 
     /**
      * @brief 确定向量所属分区
