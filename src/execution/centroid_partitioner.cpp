@@ -134,6 +134,7 @@ size_t CentroidPartitioner::partition(const Response& data, size_t num_channels)
     // 未训练时：所有数据路由到 subtask 0
     // 这确保了 ClusteredJoin 的正确性，但会退化为单线程模式
     // TODO: 实现在线训练或使用 LSH 分区来支持并行
+    // Issue URL: https://github.com/intellistream/sageFlow/issues/95
     return 0;
   }
   
