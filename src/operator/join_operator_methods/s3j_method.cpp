@@ -66,7 +66,8 @@ void S3JMethod::open(const RuntimeContext& context,
 
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t /*subtask_index*/) {
     
     auto start = std::chrono::steady_clock::now();
     std::vector<std::unique_ptr<VectorRecord>> results;

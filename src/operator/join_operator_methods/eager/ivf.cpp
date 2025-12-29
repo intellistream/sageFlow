@@ -89,7 +89,8 @@ void IvfEager::Excute(
 
 std::vector<std::unique_ptr<VectorRecord>> IvfEager::ExecuteEager(
     const VectorRecord& query_record,
-    int slot) {
+    int slot,
+    size_t /*subtask_index*/) {
     if (!concurrency_manager_) {
         return std::vector<std::unique_ptr<VectorRecord>>();
     }

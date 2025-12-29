@@ -6,7 +6,8 @@
 
 namespace sageFlow {
 
-std::vector<std::unique_ptr<VectorRecord>> BruteForceJoinMethod::ExecuteEager(const VectorRecord &query_record, int query_slot) {
+std::vector<std::unique_ptr<VectorRecord>> BruteForceJoinMethod::ExecuteEager(
+    const VectorRecord &query_record, int query_slot, size_t /*subtask_index*/) {
   std::vector<std::unique_ptr<VectorRecord>> results;
   if (!concurrency_manager_) return results;
   int idx = otherIndexId(query_slot);

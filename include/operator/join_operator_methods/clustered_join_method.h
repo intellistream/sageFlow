@@ -1,10 +1,8 @@
 #pragma once
 
-#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
-#include <unordered_set>
 #include <atomic>
 
 #include "concurrency/concurrency_manager.h"
@@ -12,22 +10,30 @@
 #include "function/join_function.h"
 #include "operator/join_operator_methods/base_method.h"
 #include "operator/utils/join_strategy_config.h"
+#include "state/window_state.h"
 
 namespace sageFlow {
 
 /**
- * @brief ClusteredJoin 方法实现（方案 A：独立索引）
+ * @brief ClusteredJoin 方法实现（重构版：统一架构）
  *
- * 每个 subtask 拥有独立的 left/right 索引，数据通过
- * CentroidPartitioner 分发到对应的 subtask。
- *
- * 边界向量通过多播复制到相邻分区，使用 Owner-Computes
- * 规则去重避免重复输出。
+ * 采用与共享索引方法统一的架构：
+ * - 共享索引模式: RoundRobin + SharedWindowState + 全局索引
+ * - 分区索引模式: CentroidPartitioner + PartitionedWindowState + 分区索引
  *
  * 核心特性：
- * 1. 每个 subtask 在 initialize() 中创建独立的 left/right 索引
- * 2. ExecuteEager() 只查询本地索引
- * 3. 使用 Owner-Computes 去重：min(left_uid, right_uid) % parallelism == subtask_index
+ * 1. 不再维护内部窗口状态，使用外部传入的 WindowState
+ * 2. 不再创建索引，使用外部传入的索引 ID
+ * 3. ExecuteEager 仅负责索引查询和 Owner-Computes 去重
+ * 4. 与其他 Join 方法共享统一的 apply() 流程：
+ *    - updateSideWithState(): 更新 WindowState + 插入索引
+ *    - getCandidatesFromState() → ExecuteEager(): 获取候选
+ *    - executeJoinWithState(): 执行 Join 函数
+ *
+ * Owner-Computes 规则（分区模式下去重）：
+ * - 对于匹配对 (left_uid, right_uid)，owner = min(left_uid, right_uid) % parallelism
+ * - 只有 owner subtask 输出该匹配对
+ * - 共享模式下 effective_parallelism_=1，规则始终满足
  *
  * 推荐配置：
  * - partition_strategy: centroid
@@ -83,16 +89,38 @@ class ClusteredJoinMethod final : public BaseMethod {
   // ==================== 生命周期 ====================
 
   /**
-   * @brief 初始化：创建独立索引
+   * @brief 初始化
    *
-   * 在 JoinOperator::open(RuntimeContext) 中调用。
-   * 每个 subtask 创建自己的 left_index 和 right_index。
+   * 记录 subtask_index 和 parallelism 用于 Owner-Computes 去重。
+   * 不再创建索引，索引由 JoinOperator 管理。
    *
-   * @param context 运行时上下文，包含 subtask_index 和 parallelism
-   * @param concurrency_manager 用于创建索引
+   * @param context 运行时上下文
+   * @param concurrency_manager 并发管理器（用于索引查询，BruteForce 模式可为 nullptr）
    */
   void initialize(const RuntimeContext& context,
                   std::shared_ptr<ConcurrencyManager> concurrency_manager);
+
+  /**
+   * @brief 设置 WindowState（BruteForce 模式必需）
+   * 
+   * 在 BruteForce 模式下，直接从 WindowState 获取数据，
+   * 而不是通过 ConcurrencyManager 的 StorageManager。
+   * 
+   * @param left_state 左侧窗口状态
+   * @param right_state 右侧窗口状态
+   */
+  void setWindowStates(WindowState* left_state, WindowState* right_state);
+
+  /**
+   * @brief 设置索引 ID
+   *
+   * 由 JoinOperator 在创建索引后调用。
+   * BruteForce 模式下可以跳过（索引 ID 保持 -1）。
+   *
+   * @param left_index_id 左侧索引 ID
+   * @param right_index_id 右侧索引 ID
+   */
+  void setIndexIds(int left_index_id, int right_index_id);
 
   /**
    * @brief 关闭：清理索引和状态
@@ -105,34 +133,24 @@ class ClusteredJoinMethod final : public BaseMethod {
    * @brief 执行 Eager 模式 Join
    *
    * 流程：
-   * 1. 在本地对侧索引中查询候选项
-   * 2. 应用 Owner-Computes 去重
-   * 3. 返回属于当前 subtask 的匹配结果
+   * 1. 在对侧索引中查询候选项
+   * 2. 应用 Owner-Computes 去重（分区模式）
+   * 3. 返回属于当前 subtask 的候选向量
+   *
+   * 注意：此方法不再处理窗口状态，调用方需要先通过
+   * updateSideWithState() 更新窗口和索引。
    *
    * @param query_record 查询记录
    * @param query_slot 来源 slot (0=左流, 1=右流)
-   * @return 满足阈值的候选向量列表（已去重）
+   * @param subtask_index 当前执行的 subtask 索引（用于 PartitionedWindowState 分区访问）
+   * @return 满足阈值的候选向量列表
    */
   std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
       const VectorRecord& query_record,
-      int query_slot) override;
+      int query_slot,
+      size_t subtask_index = 0) override;
 
-  // ==================== 状态管理 ====================
-
-  /**
-   * @brief 添加记录到本地状态和索引
-   *
-   * @param record 记录
-   * @param slot 来源 slot (0=左流, 1=右流)
-   */
-  void addRecord(std::unique_ptr<VectorRecord> record, int slot);
-
-  /**
-   * @brief 驱逐过期记录
-   *
-   * @param current_timestamp 当前时间戳
-   */
-  void evictExpired(int64_t current_timestamp);
+  // ==================== 配置与状态查询 ====================
 
   /**
    * @brief 检查是否已初始化
@@ -171,16 +189,6 @@ class ClusteredJoinMethod final : public BaseMethod {
   size_t getParallelism() const { return parallelism_; }
 
   /**
-   * @brief 获取左侧窗口记录数
-   */
-  size_t getLeftWindowSize() const { return left_window_.size(); }
-
-  /**
-   * @brief 获取右侧窗口记录数
-   */
-  size_t getRightWindowSize() const { return right_window_.size(); }
-
-  /**
    * @brief 设置有效并行度
    * 
    * 当 CentroidPartitioner 未训练时，所有数据都路由到 subtask 0，
@@ -192,6 +200,32 @@ class ClusteredJoinMethod final : public BaseMethod {
     effective_parallelism_ = effective_p;
   }
 
+  /**
+   * @brief 获取有效并行度
+   */
+  size_t getEffectiveParallelism() const { return effective_parallelism_; }
+
+  /**
+   * @brief 检查是否使用分区模式
+   * 
+   * 分区模式下使用 Owner-Computes 去重，共享模式下不需要。
+   * 
+   * @return true 表示分区模式
+   */
+  bool isPartitionedMode() const { return effective_parallelism_ > 1; }
+
+  /**
+   * @brief 获取推荐的索引类型
+   * @return IndexType 枚举值
+   */
+  IndexType getPreferredIndexType() const;
+
+  /**
+   * @brief 获取推荐的索引参数
+   * @return IndexParameters variant
+   */
+  IndexParameters getPreferredIndexParams() const;
+
  private:
   Config config_;
 
@@ -201,53 +235,20 @@ class ClusteredJoinMethod final : public BaseMethod {
   size_t effective_parallelism_ = 1;  ///< 有效并行度（用于 Owner-Computes）
   bool initialized_ = false;
 
-  // 索引管理
+  // ConcurrencyManager（用于索引查询，仅 IVF/HNSW 模式使用）
   std::shared_ptr<ConcurrencyManager> concurrency_manager_;
+  
+  // WindowState（用于 BruteForce 模式直接访问窗口数据）
+  // BruteForce 模式下绕过 ConcurrencyManager，直接从 WindowState 获取快照
+  // 这样更 cache 友好，且与 BruteForceBaseline 架构一致
+  WindowState* left_state_ = nullptr;
+  WindowState* right_state_ = nullptr;
+  
+  // 索引 ID（由 JoinOperator 创建并传入）
   int left_index_id_ = -1;
   int right_index_id_ = -1;
 
-  // 本地窗口状态（每个 subtask 独立维护）
-  std::deque<std::unique_ptr<VectorRecord>> left_window_;
-  std::deque<std::unique_ptr<VectorRecord>> right_window_;
-  std::unordered_set<uint64_t> left_uids_;   ///< 左侧窗口中的 UID 集合（用于快速验证）
-  std::unordered_set<uint64_t> right_uids_;  ///< 右侧窗口中的 UID 集合（用于快速验证）
-
   // ==================== 内部方法 ====================
-
-  /**
-   * @brief 创建指定类型的索引
-   * @param name 索引名称
-   * @return 索引 ID
-   */
-  int createIndex(const std::string& name);
-
-  /**
-   * @brief BruteForce 模式的 Eager 查询
-   * 
-   * 直接遍历本地窗口计算相似度，不使用索引。
-   * 因为 BruteForce 索引会查询整个 StorageManager，无法区分左右流。
-   * 
-   * @param query_record 查询记录
-   * @param query_slot 查询来源 slot
-   * @return 满足阈值且属于当前 subtask 的候选列表
-   */
-  std::vector<std::unique_ptr<VectorRecord>> executeEagerBruteForce(
-      const VectorRecord& query_record,
-      int query_slot);
-
-  /**
-   * @brief 使用索引的 Eager 查询（IVF/HNSW）
-   * 
-   * 通过 ConcurrencyManager 查询索引。IVF 和 HNSW 维护自己的 UID 列表，
-   * 可以正确区分属于该索引的记录。
-   * 
-   * @param query_record 查询记录
-   * @param query_slot 查询来源 slot
-   * @return 满足阈值且属于当前 subtask 的候选列表
-   */
-  std::vector<std::unique_ptr<VectorRecord>> executeEagerWithIndex(
-      const VectorRecord& query_record,
-      int query_slot);
 
   /**
    * @brief Owner-Computes 去重判断
@@ -256,14 +257,15 @@ class ClusteredJoinMethod final : public BaseMethod {
    * owner_subtask = min(left_uid, right_uid) % effective_parallelism
    *
    * 注意：使用 effective_parallelism_ 而不是 parallelism_。
-   * 当 CentroidPartitioner 未训练时，effective_parallelism_ = 1，
-   * 这使得所有匹配都由 subtask 0 输出（因为所有数据都路由到 subtask 0）。
+   * - 共享模式：effective_parallelism_ = 1，所有匹配都输出
+   * - 分区模式：effective_parallelism_ = parallelism_，执行去重
    *
    * @param left_uid 左侧记录 UID
    * @param right_uid 右侧记录 UID
    * @return true 如果当前 subtask 是 owner
    */
   bool isOwner(uint64_t left_uid, uint64_t right_uid) const {
+    if (effective_parallelism_ <= 1) return true;  // 共享模式不去重
     return (std::min(left_uid, right_uid) % effective_parallelism_) == subtask_index_;
   }
 
@@ -276,58 +278,50 @@ class ClusteredJoinMethod final : public BaseMethod {
     return (slot == 0) ? right_index_id_ : left_index_id_;
   }
 
-  /**
-   * @brief 获取对侧窗口引用
-   * @param slot 当前 slot (0=左流查右窗口, 1=右流查左窗口)
-   * @return 对侧窗口的引用
-   */
-  std::deque<std::unique_ptr<VectorRecord>>& getOppositeWindow(int slot) {
-    return (slot == 0) ? right_window_ : left_window_;
-  }
-
-  const std::deque<std::unique_ptr<VectorRecord>>& getOppositeWindow(int slot) const {
-    return (slot == 0) ? right_window_ : left_window_;
-  }
+  // ==================== 双模式执行 ====================
 
   /**
-   * @brief 获取对侧 UID 集合引用
-   * @param slot 当前 slot (0=左流查右 UIDs, 1=右流查左 UIDs)
-   * @return 对侧 UID 集合的引用
+   * @brief BruteForce 模式：直接从 WindowState 获取快照进行暴力搜索
+   * 
+   * 与 BruteForceBaseline 架构一致，绕过 ConcurrencyManager，
+   * 直接从本地 WindowState 获取数据，更 cache 友好。
+   * 
+   * @param query_record 查询记录
+   * @param query_slot 查询来源 slot
+   * @param subtask_index 当前执行的 subtask 索引
+   * @return 满足阈值的候选记录列表
    */
-  std::unordered_set<uint64_t>& getOppositeUids(int slot) {
-    return (slot == 0) ? right_uids_ : left_uids_;
-  }
-
-  const std::unordered_set<uint64_t>& getOppositeUids(int slot) const {
-    return (slot == 0) ? right_uids_ : left_uids_;
-  }
-
-  /**
-   * @brief 获取当前侧窗口引用
-   * @param slot 当前 slot
-   * @return 当前侧窗口的引用
-   */
-  std::deque<std::unique_ptr<VectorRecord>>& getCurrentWindow(int slot) {
-    return (slot == 0) ? left_window_ : right_window_;
-  }
+  std::vector<std::unique_ptr<VectorRecord>> executeEagerBruteForce(
+      const VectorRecord& query_record,
+      int query_slot,
+      size_t subtask_index);
 
   /**
-   * @brief 获取当前侧 UID 集合引用
-   * @param slot 当前 slot
-   * @return 当前侧 UID 集合的引用
+   * @brief IVF/HNSW 模式：通过 ConcurrencyManager 查询索引
+   * 
+   * 使用近似索引加速查询，适用于大规模数据。
+   * 
+   * @param query_record 查询记录
+   * @param query_slot 查询来源 slot
+   * @param subtask_index 当前执行的 subtask 索引
+   * @return 满足阈值的候选记录列表
    */
-  std::unordered_set<uint64_t>& getCurrentUids(int slot) {
-    return (slot == 0) ? left_uids_ : right_uids_;
-  }
+  std::vector<std::unique_ptr<VectorRecord>> executeEagerIndexed(
+      const VectorRecord& query_record,
+      int query_slot,
+      size_t subtask_index);
 
   /**
-   * @brief 获取当前侧索引 ID
-   * @param slot 当前 slot
-   * @return 当前侧索引 ID
+   * @brief 计算两个向量的相似度
+   * 
+   * 使用 L2 距离 + 指数衰减转换，与 ComputeEngine::Similarity 一致。
+   * 
+   * @param a 第一个向量
+   * @param b 第二个向量
+   * @return 相似度值，范围 [0.0, 1.0]
    */
-  int getCurrentIndexId(int slot) const {
-    return (slot == 0) ? left_index_id_ : right_index_id_;
-  }
+  double computeSimilarity(const std::vector<float>& a, 
+                          const std::vector<float>& b) const;
 };
 
 }  // namespace sageFlow

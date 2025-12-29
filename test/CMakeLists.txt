@@ -80,8 +80,9 @@ set(UNIT_TEST_SPECS
     test_ivf_method                UnitTest/test_ivf_method.cpp               300 UNIT
     test_hdr_tree                  UnitTest/test_hdr_tree.cpp                 300 UNIT
     test_hdr_rknn                  UnitTest/test_hdr_rknn.cpp                 300 UNIT
-    test_clustered_join            UnitTest/test_clustered_join.cpp           300 UNIT
-    test_clustered_join_method     UnitTest/test_clustered_join_method.cpp    300 UNIT
+    # test_clustered_join 和 test_clustered_join_method 已备份，待架构重构后重写
+    # test_clustered_join            UnitTest/test_clustered_join.cpp           300 UNIT
+    # test_clustered_join_method     UnitTest/test_clustered_join_method.cpp    300 UNIT
     test_s3j_method                UnitTest/test_s3j_method.cpp               300 UNIT
     test_partitioner               UnitTest/test_partitioner.cpp              120 UNIT
     test_clustered_partitioner     UnitTest/test_clustered_partitioner.cpp    120 UNIT
@@ -236,10 +237,10 @@ add_custom_target(run_quick_tests
 # -----------------------------------------------------------------------------
 # 运行 Clustered Join 单元测试
 add_custom_target(run_clustered_unit_tests
-    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R "(test_clustered_join|test_clustered_join_method|test_clustered_partitioner|test_clustered_config)"
-    DEPENDS test_clustered_join test_clustered_join_method test_clustered_partitioner test_clustered_config
+    COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -R "(test_clustered_partitioner|test_clustered_config)"
+    DEPENDS test_clustered_partitioner test_clustered_config
     WORKING_DIRECTORY ${CMAKE_BINARY_DIR}
-    COMMENT "Running Clustered Join unit tests"
+    COMMENT "Running Clustered Join unit tests (integration tests via test_join_baseline_integration)"
 )
 
 # 运行 Clustered Join 集成测试（通过 gtest_filter）

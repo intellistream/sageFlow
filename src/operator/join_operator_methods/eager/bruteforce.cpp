@@ -62,7 +62,8 @@ void BruteForceEager::Excute(
   }
 }
 
-auto BruteForceEager::ExecuteEager(const VectorRecord& query_record, int slot)
+auto BruteForceEager::ExecuteEager(
+    const VectorRecord& query_record, int slot, size_t /*subtask_index*/)
   -> std::vector<std::unique_ptr<VectorRecord>> {
   if (!using_knn_ || !concurrency_manager_) {
     return std::vector<std::unique_ptr<VectorRecord>>();

@@ -7,6 +7,29 @@
 
 #include "utils/logger.h"
 
+namespace {
+
+/**
+ * @brief 从 VectorRecord 提取 float 向量
+ * @param record 向量记录
+ * @return float 向量
+ */
+std::vector<float> extractVector(const sageFlow::VectorRecord& record) {
+    const auto& vector_data = record.data_;
+    int32_t dim = vector_data.dim_;
+    
+    if (dim <= 0) {
+        return {};
+    }
+    
+    const float* float_ptr = reinterpret_cast<const float*>(vector_data.data_.get());
+    std::vector<float> result(static_cast<size_t>(dim));
+    std::memcpy(result.data(), float_ptr, static_cast<size_t>(dim) * sizeof(float));
+    return result;
+}
+
+} // anonymous namespace
+
 namespace sageFlow {
 
 // ==================== 构造函数 ====================
@@ -46,81 +69,51 @@ void ClusteredJoinMethod::initialize(
   parallelism_ = context.getParallelism();
   concurrency_manager_ = std::move(concurrency_manager);
   
+  // 默认 effective_parallelism_ = parallelism_
+  // 如果 CentroidPartitioner 未训练，由 JoinOperator 调用 setEffectiveParallelism(1)
+  effective_parallelism_ = parallelism_;
+  
   if (!concurrency_manager_) {
     SAGEFLOW_LOG_ERROR("ClusteredJoin", "ConcurrencyManager is null");
     return;
   }
   
-  // 每个 subtask 创建独立的索引
-  std::string prefix = "clustered_p" + std::to_string(subtask_index_);
-  left_index_id_ = createIndex(prefix + "_left");
-  right_index_id_ = createIndex(prefix + "_right");
-  
-  if (left_index_id_ < 0 || right_index_id_ < 0) {
-    SAGEFLOW_LOG_ERROR("ClusteredJoin", 
-        "Failed to create indexes: left={}, right={}", 
-        left_index_id_, right_index_id_);
-    return;
-  }
+  // 注意：不再在此处创建索引
+  // 索引由 JoinOperator 创建，通过 setIndexIds() 传入
   
   initialized_ = true;
   
   SAGEFLOW_LOG_INFO("ClusteredJoin",
-      "Initialized subtask {} of {}, left_idx={}, right_idx={}, index_type={}",
-      subtask_index_, parallelism_, left_index_id_, right_index_id_,
-      static_cast<int>(config_.index_type));
+      "Initialized subtask {} of {}, effective_parallelism={}",
+      subtask_index_, parallelism_, effective_parallelism_);
 }
 
-int ClusteredJoinMethod::createIndex(const std::string& name) {
-  IndexType type;
-  IndexParameters params;
+void ClusteredJoinMethod::setIndexIds(int left_index_id, int right_index_id) {
+  left_index_id_ = left_index_id;
+  right_index_id_ = right_index_id;
   
-  switch (config_.index_type) {
-    case ClusteredIndexType::BRUTEFORCE:
-      type = IndexType::BruteForce;
-      params = NoParameters{};
-      break;
+  SAGEFLOW_LOG_INFO("ClusteredJoin",
+      "Index IDs set: left={}, right={}", left_index_id_, right_index_id_);
+}
+
+void ClusteredJoinMethod::setWindowStates(WindowState* left_state, 
+                                           WindowState* right_state) {
+  left_state_ = left_state;
+  right_state_ = right_state;
+  
+  SAGEFLOW_LOG_INFO("ClusteredJoin",
+      "WindowStates set: left={}, right={}, index_type={}",
+      (left_state != nullptr), (right_state != nullptr),
+      static_cast<int>(config_.index_type));
       
-    case ClusteredIndexType::IVF: {
-      type = IndexType::IVF;
-      IVFParameters ivf_params;
-      ivf_params.nlist = config_.ivf_nlist;
-      ivf_params.nprobes = config_.ivf_nprobes;
-      ivf_params.rebuild_threshold = 1.5;  // 默认值
-      params = ivf_params;
-      break;
-    }
-      
-    case ClusteredIndexType::HNSW: {
-      type = IndexType::HNSW;
-      HNSWParameters hnsw_params;
-      hnsw_params.m = config_.hnsw_m;
-      hnsw_params.ef_construction = config_.hnsw_ef_construction;
-      hnsw_params.ef_search = config_.hnsw_ef_search;
-      params = hnsw_params;
-      break;
-    }
-      
-    default:
-      SAGEFLOW_LOG_WARN("ClusteredJoin", 
-          "Unknown index type {}, using BruteForce", 
-          static_cast<int>(config_.index_type));
-      type = IndexType::BruteForce;
-      params = NoParameters{};
+  if (config_.index_type == ClusteredIndexType::BRUTEFORCE) {
+    SAGEFLOW_LOG_INFO("ClusteredJoin",
+        "BruteForce mode: will use WindowState directly instead of ConcurrencyManager");
   }
-  
-  return concurrency_manager_->create_index(name, type, config_.dimension, params);
 }
 
 void ClusteredJoinMethod::close() {
-  // 清理窗口状态
-  left_window_.clear();
-  right_window_.clear();
-  left_uids_.clear();
-  right_uids_.clear();
-  
-  // 注意：索引由 ConcurrencyManager 管理生命周期
-  // 这里只重置 ID
+  // 重置索引 ID（索引由 ConcurrencyManager 管理生命周期）
   left_index_id_ = -1;
   right_index_id_ = -1;
   
@@ -130,72 +123,44 @@ void ClusteredJoinMethod::close() {
       "Closed subtask {} of {}", subtask_index_, parallelism_);
 }
 
-// ==================== 状态管理 ====================
+// ==================== 索引配置 ====================
 
-void ClusteredJoinMethod::addRecord(std::unique_ptr<VectorRecord> record, int slot) {
-  if (!initialized_) {
-    SAGEFLOW_LOG_WARN("ClusteredJoin", "Not initialized, ignoring addRecord");
-    return;
+IndexType ClusteredJoinMethod::getPreferredIndexType() const {
+  switch (config_.index_type) {
+    case ClusteredIndexType::BRUTEFORCE:
+      return IndexType::BruteForce;
+    case ClusteredIndexType::IVF:
+      return IndexType::IVF;
+    case ClusteredIndexType::HNSW:
+      return IndexType::HNSW;
+    default:
+      return IndexType::BruteForce;
   }
-  
-  if (!record) {
-    return;
-  }
-  
-  uint64_t uid = record->uid_;
-  int index_id = getCurrentIndexId(slot);
-  auto& window = getCurrentWindow(slot);
-  auto& uids = getCurrentUids(slot);
-  
-  // 检查是否已存在（避免重复）
-  if (uids.find(uid) != uids.end()) {
-    SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-        "Record {} already exists in window, skipping", uid);
-    return;
-  }
-  
-  // 插入到索引
-  auto record_copy = std::make_unique<VectorRecord>(*record);
-  bool inserted = concurrency_manager_->insert(index_id, std::move(record_copy));
-  
-  if (!inserted) {
-    SAGEFLOW_LOG_WARN("ClusteredJoin", 
-        "Failed to insert record {} to index {}", uid, index_id);
-    return;
-  }
-  
-  // 添加到窗口和 UID 集合
-  uids.insert(uid);
-  window.push_back(std::move(record));
-  
-  SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-      "Added record {} to slot {} (window size: {})", 
-      uid, slot, window.size());
 }
 
-void ClusteredJoinMethod::evictExpired(int64_t current_timestamp) {
-  if (!initialized_) {
-    return;
-  }
-  
-  int64_t threshold = current_timestamp - config_.window_size_ms;
-  
-  // 清理左窗口
-  while (!left_window_.empty() && 
-         left_window_.front()->timestamp_ < threshold) {
-    uint64_t uid = left_window_.front()->uid_;
-    concurrency_manager_->erase(left_index_id_, uid);
-    left_uids_.erase(uid);
-    left_window_.pop_front();
-  }
-  
-  // 清理右窗口
-  while (!right_window_.empty() && 
-         right_window_.front()->timestamp_ < threshold) {
-    uint64_t uid = right_window_.front()->uid_;
-    concurrency_manager_->erase(right_index_id_, uid);
-    right_uids_.erase(uid);
-    right_window_.pop_front();
+IndexParameters ClusteredJoinMethod::getPreferredIndexParams() const {
+  switch (config_.index_type) {
+    case ClusteredIndexType::BRUTEFORCE:
+      return NoParameters{};
+      
+    case ClusteredIndexType::IVF: {
+      IVFParameters params;
+      params.nlist = config_.ivf_nlist;
+      params.nprobes = config_.ivf_nprobes;
+      params.rebuild_threshold = 1.5;
+      return params;
+    }
+    
+    case ClusteredIndexType::HNSW: {
+      HNSWParameters params;
+      params.m = config_.hnsw_m;
+      params.ef_construction = config_.hnsw_ef_construction;
+      params.ef_search = config_.hnsw_ef_search;
+      return params;
+    }
+    
+    default:
+      return NoParameters{};
   }
 }
 
@@ -203,7 +168,8 @@ void ClusteredJoinMethod::evictExpired(int64_t current_timestamp) {
 
 std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t subtask_index) {
   
   std::vector<std::unique_ptr<VectorRecord>> results;
   
@@ -213,119 +179,118 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::ExecuteEager(
     return results;
   }
   
-  uint64_t query_uid = query_record.uid_;
+  // 根据索引类型选择数据源
+  // BruteForce 模式: 直接从 WindowState 获取快照（与 BruteForceBaseline 一致）
+  // IVF/HNSW 模式: 通过 ConcurrencyManager 查询索引
   
-  // 根据索引类型选择查询策略
   if (config_.index_type == ClusteredIndexType::BRUTEFORCE) {
-    // BruteForce 模式：直接遍历本地窗口（不使用索引）
-    // 因为 BruteForce 索引会查询整个 StorageManager，无法区分左右流
-    results = executeEagerBruteForce(query_record, query_slot);
+    // ========== BruteForce 模式：使用 WindowState ==========
+    return executeEagerBruteForce(query_record, query_slot, subtask_index);
   } else {
-    // IVF/HNSW 模式：使用索引查询（IVF 维护自己的 inverted_lists_）
-    results = executeEagerWithIndex(query_record, query_slot);
+    // ========== IVF/HNSW 模式：使用 ConcurrencyManager ==========
+    return executeEagerIndexed(query_record, query_slot, subtask_index);
   }
-  
-  SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-      "ExecuteEager: query_uid={}, slot={}, results={}", 
-      query_uid, query_slot, results.size());
-  
-  return results;
 }
 
 std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerBruteForce(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t subtask_index) {
   
   std::vector<std::unique_ptr<VectorRecord>> results;
-  uint64_t query_uid = query_record.uid_;
   
-  // 获取对侧窗口
-  const auto& opposite_window = getOppositeWindow(query_slot);
+  // 获取对侧窗口状态
+  WindowState* target_state = (query_slot == 0) ? right_state_ : left_state_;
   
-  // 提取查询向量
-  const auto& query_data = query_record.data_;
-  if (query_data.dim_ <= 0 || !query_data.data_) {
+  if (!target_state) {
+    SAGEFLOW_LOG_WARN("ClusteredJoin", 
+        "No target WindowState for slot {}", query_slot);
     return results;
   }
-  const float* query_vec = reinterpret_cast<const float*>(query_data.data_.get());
-  int dim = query_data.dim_;
   
-  // 遍历对侧窗口中的所有记录
-  for (const auto& record_ptr : opposite_window) {
+  // 获取窗口快照（线程安全）
+  // 使用传入的 subtask_index 而不是内部存储的 subtask_index_
+  auto records_snapshot = target_state->getRecordsSnapshot(subtask_index);
+  
+  uint64_t query_uid = query_record.uid_;
+  std::vector<float> query_vec = extractVector(query_record);
+  
+  if (query_vec.empty()) {
+    SAGEFLOW_LOG_WARN("ClusteredJoin", "Query vector is empty for uid={}", query_uid);
+    return results;
+  }
+  
+  // 暴力搜索满足相似度阈值的记录
+  for (const auto& record_ptr : records_snapshot) {
     if (!record_ptr) continue;
     
     uint64_t candidate_uid = record_ptr->uid_;
     
+    // 跳过自身
+    if (candidate_uid == query_uid) continue;
+    
     // 提取候选向量
-    const auto& cand_data = record_ptr->data_;
-    if (cand_data.dim_ != dim || !cand_data.data_) continue;
-    const float* cand_vec = reinterpret_cast<const float*>(cand_data.data_.get());
+    std::vector<float> candidate_vec = extractVector(*record_ptr);
+    if (candidate_vec.empty()) continue;
     
-    // 计算 L2 距离并转换为相似度
-    double dist_sq = 0.0;
-    for (int i = 0; i < dim; ++i) {
-      double diff = static_cast<double>(query_vec[i]) - static_cast<double>(cand_vec[i]);
-      dist_sq += diff * diff;
-    }
-    double distance = std::sqrt(dist_sq);
-    constexpr double kAlpha = 0.1;
-    double similarity = std::exp(-kAlpha * distance);
+    // 计算相似度
+    double similarity = computeSimilarity(query_vec, candidate_vec);
     
-    // 检查相似度阈值
-    if (similarity < config_.similarity_threshold) {
-      continue;
-    }
-    
-    // Owner-Computes 去重
-    uint64_t left_uid = (query_slot == 0) ? query_uid : candidate_uid;
-    uint64_t right_uid = (query_slot == 0) ? candidate_uid : query_uid;
-    
-    if (isOwner(left_uid, right_uid)) {
-      results.push_back(std::make_unique<VectorRecord>(*record_ptr));
+    if (similarity >= config_.similarity_threshold) {
+      // Owner-Computes: 只有 owner subtask 输出该匹配对
+      uint64_t left_uid = (query_slot == 0) ? query_uid : candidate_uid;
+      uint64_t right_uid = (query_slot == 0) ? candidate_uid : query_uid;
       
-      SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-          "BF Owner match: subtask {} owns ({}, {}) sim={:.4f}", 
-          subtask_index_, left_uid, right_uid, similarity);
+      // 使用传入的 subtask_index 进行 owner 判断
+      bool is_owner = (effective_parallelism_ <= 1) || 
+                      ((std::min(left_uid, right_uid) % effective_parallelism_) == subtask_index);
+      
+      if (is_owner) {
+        results.push_back(std::make_unique<VectorRecord>(*record_ptr));
+        
+        SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+            "BruteForce match: subtask {} owns ({}, {}), sim={:.4f}", 
+            subtask_index, left_uid, right_uid, similarity);
+      }
     }
   }
+  
+  SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+      "executeEagerBruteForce: query_uid={}, slot={}, subtask={}, window_size={}, results={}", 
+      query_uid, query_slot, subtask_index, records_snapshot.size(), results.size());
   
   return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerWithIndex(
+std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerIndexed(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t subtask_index) {
   
   std::vector<std::unique_ptr<VectorRecord>> results;
   
-  // 在对侧索引中查询候选项
+  // 查询对侧索引
   int target_index = getOppositeIndexId(query_slot);
+  
   if (target_index < 0) {
+    SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+        "No opposite index available for slot {}", query_slot);
     return results;
   }
   
+  // 通过 ConcurrencyManager 查询候选项
   auto candidates = concurrency_manager_->query_for_join(
       target_index, query_record, config_.similarity_threshold);
   
-  // 应用 Owner-Computes 去重
+  // 应用 Owner-Computes 去重（仅在分区模式下）
   uint64_t query_uid = query_record.uid_;
-  const auto& opposite_uids = getOppositeUids(query_slot);
   
   for (const auto& candidate : candidates) {
-    if (!candidate) {
-      continue;
-    }
+    if (!candidate) continue;
     
     uint64_t candidate_uid = candidate->uid_;
     
-    // 检查候选项是否仍在窗口中（可能已被驱逐）
-    if (opposite_uids.find(candidate_uid) == opposite_uids.end()) {
-      SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-          "Candidate {} not in window, skipping", candidate_uid);
-      continue;
-    }
-    
-    // Owner-Computes 去重
+    // Owner-Computes: 只有 owner subtask 输出该匹配对
     uint64_t left_uid = (query_slot == 0) ? query_uid : candidate_uid;
     uint64_t right_uid = (query_slot == 0) ? candidate_uid : query_uid;
     
@@ -333,12 +298,45 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerWith
       results.push_back(std::make_unique<VectorRecord>(*candidate));
       
       SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-          "Index Owner match: subtask {} owns ({}, {})", 
+          "Indexed match: subtask {} owns ({}, {})", 
           subtask_index_, left_uid, right_uid);
     }
   }
   
+  SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+      "executeEagerIndexed: query_uid={}, slot={}, candidates={}, results={}", 
+      query_uid, query_slot, candidates.size(), results.size());
+  
   return results;
+}
+
+double ClusteredJoinMethod::computeSimilarity(
+    const std::vector<float>& a, 
+    const std::vector<float>& b) const {
+  
+  if (a.empty() || b.empty()) {
+    SAGEFLOW_LOG_WARN("ClusteredJoin", "Empty vector in similarity computation");
+    return 0.0;
+  }
+  
+  if (a.size() != b.size()) {
+    SAGEFLOW_LOG_WARN("ClusteredJoin",
+        "Vector dimension mismatch: {} vs {}", a.size(), b.size());
+    return 0.0;
+  }
+  
+  // 使用 L2 距离 + 指数衰减转换为相似度
+  // 与 ComputeEngine::Similarity 和 BruteForceBaseline 保持一致
+  double distance_sq = 0.0;
+  for (size_t i = 0; i < a.size(); ++i) {
+    double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
+    distance_sq += diff * diff;
+  }
+  double distance = std::sqrt(distance_sq);
+  
+  // alpha = 0.1 是默认值，与 ComputeEngine 一致
+  constexpr double kAlpha = 0.1;
+  return std::exp(-kAlpha * distance);
 }
 
 }  // namespace sageFlow
@@ -348,9 +346,9 @@ REGISTER_JOIN_METHOD(
     sageFlow::JoinAlgorithm::CLUSTERED_JOIN,
     (sageFlow::JoinMethodRegistry::MethodInfo{
         "ClusteredJoin",
-        "ClusteredJoin with independent indexes per subtask. "
-        "Uses Owner-Computes rule for deduplication. "
-        "Data distributed via CentroidPartitioner with multicast for boundary vectors.",
+        "ClusteredJoin with unified architecture (CentroidPartitioner + PartitionedWindowState + partitioned index). "
+        "Uses Owner-Computes rule for deduplication in partitioned mode. "
+        "Shares the same apply() flow as other Join methods.",
         sageFlow::JoinAlgorithm::CLUSTERED_JOIN,
         true,   // supports_eager
         false,  // supports_lazy (deprecated)
@@ -359,12 +357,12 @@ REGISTER_JOIN_METHOD(
         ""      // paper_reference
     }),
     [](const sageFlow::JoinStrategyConfig& config,
-       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       std::shared_ptr<sageFlow::ConcurrencyManager> /*cm*/,
        int /*dim*/,
        int /*left_idx*/,
        int /*right_idx*/) {
-        // 注意：新设计中不使用外部传入的 index_id
-        // 每个 subtask 在 initialize() 时创建自己的索引
+        // 配置 ClusteredJoinMethod
+        // 注意：索引由 JoinOperator 创建，通过 setIndexIds() 传入
         sageFlow::ClusteredJoinMethod::Config cj_config;
         cj_config.similarity_threshold = config.similarity_threshold;
         cj_config.dimension = config.dimension;
@@ -375,14 +373,8 @@ REGISTER_JOIN_METHOD(
         cj_config.hnsw_m = config.hnsw_m;
         cj_config.hnsw_ef_construction = config.hnsw_ef_construction;
         cj_config.hnsw_ef_search = config.hnsw_ef_search;
-        // 旧参数（兼容性）
-        cj_config.num_partitions = config.num_partitions;
-        cj_config.overlap_ratio = config.clustered_overlap_ratio;
-        cj_config.rebalance_threshold = config.clustered_rebalance_threshold;
-        cj_config.use_border_replication = config.clustered_border_replication;
-        cj_config.training_samples = config.clustered_training_samples;
         
         auto method = std::make_unique<sageFlow::ClusteredJoinMethod>(cj_config);
-        // 注意：initialize() 将在 JoinOperator::open(context) 中调用
+        // 注意：initialize() 和 setIndexIds() 将在 JoinOperator::open(context) 中调用
         return method;
     });

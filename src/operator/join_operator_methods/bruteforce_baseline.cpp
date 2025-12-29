@@ -62,7 +62,8 @@ void BruteForceBaseline::open(
 
 std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t subtask_index) {
     
     std::vector<std::unique_ptr<VectorRecord>> results;
     
@@ -78,9 +79,10 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteEager(
     }
     
     // 获取目标窗口的快照（线程安全）
+    // 使用传入的 subtask_index 而不是内部存储的 subtask_index_
     // 使用 getRecordsSnapshot 而不是 getRecords，因为 SharedWindowState::getRecords 
     // 返回的引用在锁释放后可能被其他线程修改
-    auto records_snapshot = target_state->getRecordsSnapshot(subtask_index_);
+    auto records_snapshot = target_state->getRecordsSnapshot(subtask_index);
     
     // 调试：记录窗口大小
     static std::atomic<uint64_t> query_count{0};

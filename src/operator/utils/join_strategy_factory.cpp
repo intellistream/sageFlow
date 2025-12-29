@@ -59,11 +59,23 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
     
     StrategyComponents components;
     
-    // 2. 创建索引对（如果使用共享索引）
-    if (config.index_strategy == IndexStrategy::SHARED) {
+    // 2. 创建索引对
+    // 统一架构：所有使用索引的 Join 方法都通过 ConcurrencyManager 管理共享索引
+    // - 共享索引策略：BRUTEFORCE, IVF, HNSW, HDR_TREE
+    // - 分区索引策略（但仍使用共享索引管理）：CLUSTERED_JOIN, S3J
+    // 
+    // 注意：即使是 PARTITIONED 索引策略，我们仍然创建共享索引，
+    // 因为 ConcurrencyManager 内部已经有线程安全机制。
+    // ClusteredJoin 通过 CentroidPartitioner 确保数据被路由到正确的分区，
+    // 然后通过 Owner-Computes 规则去重。
+    bool need_index = config.index_strategy == IndexStrategy::SHARED ||
+                      config.algorithm == JoinAlgorithm::CLUSTERED_JOIN ||
+                      config.algorithm == JoinAlgorithm::S3J;
+    
+    if (need_index) {
         if (!createIndexPair(config, concurrency_manager, 
                             components.left_index_id, components.right_index_id)) {
-            SAGEFLOW_LOG_WARN("JOIN_FACTORY", "Failed to create shared index pair, "
+            SAGEFLOW_LOG_WARN("JOIN_FACTORY", "Failed to create index pair, "
                              "will proceed without index");
         }
     }
@@ -448,10 +460,22 @@ IndexType JoinStrategyFactory::getIndexType(const JoinStrategyConfig& config) {
             return IndexType::HNSW;
         case JoinAlgorithm::HDR_TREE:
             return IndexType::HDRForest;
+        case JoinAlgorithm::CLUSTERED_JOIN: {
+            // ClusteredJoin 根据配置选择索引类型
+            switch (config.clustered_index_type) {
+                case ClusteredIndexType::BRUTEFORCE:
+                    return IndexType::BruteForce;
+                case ClusteredIndexType::IVF:
+                    return IndexType::IVF;
+                case ClusteredIndexType::HNSW:
+                    return IndexType::HNSW;
+                default:
+                    return IndexType::BruteForce;
+            }
+        }
         case JoinAlgorithm::VSJOIN:
         case JoinAlgorithm::S3J:
-        case JoinAlgorithm::CLUSTERED_JOIN:
-            // 这些算法使用分区索引，内部可能是 IVF
+            // 这些算法使用 IVF 索引
             return IndexType::IVF;
         default:
             return IndexType::BruteForce;
@@ -462,13 +486,33 @@ IndexParameters JoinStrategyFactory::getIndexParameters(const JoinStrategyConfig
     switch (config.algorithm) {
         case JoinAlgorithm::IVF:
         case JoinAlgorithm::S3J:
-        case JoinAlgorithm::CLUSTERED_JOIN:
         case JoinAlgorithm::VSJOIN: {
             IVFParameters params;
             params.nlist = config.ivf_nlist;
             params.nprobes = config.ivf_nprobes;
             params.rebuild_threshold = config.ivf_rebuild_threshold;
             return params;
+        }
+        case JoinAlgorithm::CLUSTERED_JOIN: {
+            // ClusteredJoin 根据索引类型选择参数
+            switch (config.clustered_index_type) {
+                case ClusteredIndexType::IVF: {
+                    IVFParameters params;
+                    params.nlist = config.ivf_nlist;
+                    params.nprobes = config.ivf_nprobes;
+                    params.rebuild_threshold = config.ivf_rebuild_threshold;
+                    return params;
+                }
+                case ClusteredIndexType::HNSW: {
+                    HNSWParameters params;
+                    params.m = config.hnsw_m;
+                    params.ef_construction = config.hnsw_ef_construction;
+                    params.ef_search = config.hnsw_ef_search;
+                    return params;
+                }
+                default:
+                    return NoParameters{};
+            }
         }
         case JoinAlgorithm::HNSW: {
             HNSWParameters params;

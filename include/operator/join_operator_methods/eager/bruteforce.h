@@ -34,7 +34,8 @@ class BruteForceEager : public BaseMethod {
   // 新的优化接口
   std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
       const VectorRecord& query_record,
-      int slot) override;
+      int slot,
+      size_t subtask_index = 0) override;
 
   // 辅助方法
   auto getOtherStreamKnnIndexId(int data_arrival_slot) const -> int;

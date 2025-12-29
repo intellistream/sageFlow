@@ -32,7 +32,8 @@ class BruteForceLazy final : public BaseMethod {
     // 新的优化接口
     std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
         const VectorRecord& query_record,
-        int slot) override;
+        int slot,
+        size_t subtask_index = 0) override;
 
  private:
     // KNN索引相关成员

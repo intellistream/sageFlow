@@ -47,7 +47,8 @@ std::vector<std::shared_ptr<const VectorRecord>> HNSWJoinMethod::rangeSearchViaK
 }
 
 std::vector<std::unique_ptr<VectorRecord>> HNSWJoinMethod::ExecuteEager(
-    const VectorRecord& query_record, int query_slot) {
+    const VectorRecord& query_record, int query_slot,
+    size_t subtask_index) {
   std::vector<std::unique_ptr<VectorRecord>> results;
   
   if (!concurrency_manager_) {

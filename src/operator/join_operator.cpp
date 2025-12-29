@@ -733,7 +733,8 @@ std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidatesFromState(
     // 当 state == left_state_ 时，说明记录来自右流（slot=1），需要查询左索引
     // ExecuteEager 内部使用 otherIndexId(slot) 来选择正确的索引
     int query_slot = (state == right_state_.get()) ? left_slot_id_ : right_slot_id_;
-    return join_method_->ExecuteEager(*data_ptr, query_slot);
+    // 传递 subtask_index 以确保 PartitionedWindowState 访问正确的分区
+    return join_method_->ExecuteEager(*data_ptr, query_slot, subtask_index);
 }
 
 auto JoinOperator::updateSideWithState(
@@ -951,101 +952,29 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     // 保存数据指针副本用于后续 join
     auto data_for_join = std::make_unique<VectorRecord>(*data_ptr);
     
-    // ====== ClusteredJoin 专用处理路径 ======
-    // ClusteredJoinMethod 维护自己的窗口状态和索引
-    // 不使用 JoinOperator 的 left_state_/right_state_ 和 left_index_id_/right_index_id_
-    if (auto* clustered = dynamic_cast<ClusteredJoinMethod*>(join_method_.get())) {
-        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
-        
-        // 更新 JoinMetrics（与 updateSideWithState 一致）
-        if (slot == left_slot_id_) {
-            JoinMetrics::instance().total_records_left.fetch_add(1, std::memory_order_relaxed);
-        } else {
-            JoinMetrics::instance().total_records_right.fetch_add(1, std::memory_order_relaxed);
-        }
-        
-        // 1. 添加记录到 ClusteredJoinMethod 自己的窗口和索引
-        auto record_copy = std::make_unique<VectorRecord>(*data_for_join);
-        clustered->addRecord(std::move(record_copy), slot);
-        
-        // 2. 清理过期记录
-        clustered->evictExpired(now_time_stamp);
-        
-        // 3. 执行 Eager Join 查询
-        auto candidates = clustered->ExecuteEager(*data_for_join, slot);
-        
-        // 4. 执行 Join 函数并收集结果
-        for (auto& cand : candidates) {
-            if (!cand) continue;
-            
-            std::unique_ptr<VectorRecord> left_copy;
-            std::unique_ptr<VectorRecord> right_copy;
-            
-            if (slot == left_slot_id_) {
-                left_copy = std::make_unique<VectorRecord>(*data_for_join);
-                right_copy = std::make_unique<VectorRecord>(*cand);
-            } else {
-                left_copy = std::make_unique<VectorRecord>(*cand);
-                right_copy = std::make_unique<VectorRecord>(*data_for_join);
-            }
-            
-            Response lhs{ResponseType::Record, std::move(left_copy)};
-            Response rhs{ResponseType::Record, std::move(right_copy)};
-            
-            try {
-                MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
-                auto res = join_func_->Execute(lhs, rhs);
-                if (res.record_) {
-                    local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
-                }
-            } catch (const std::exception& e) {
-                SAGEFLOW_LOG_ERROR("CLUSTERED_JOIN", "Exception in Execute: {}", e.what());
-            }
-        }
-        
-        // 5. 发送结果
-        {
-            MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
-            for (auto& p : local_return_pool) {
-                auto out = std::make_unique<Response>(ResponseType::Record, std::move(p.second));
-                collector.collect(std::move(out), p.first);
-            }
-        }
-        
-        // 调试：记录匹配数量
-        static std::atomic<uint64_t> clustered_total_matches{0};
-        static std::atomic<uint64_t> clustered_debug_count{0};
-        clustered_total_matches.fetch_add(local_return_pool.size(), std::memory_order_relaxed);
-        uint64_t dc = clustered_debug_count.fetch_add(1, std::memory_order_relaxed);
-        if (dc % 500 == 0) {
-            SAGEFLOW_LOG_INFO("CLUSTERED_JOIN_DEBUG", 
-                "subtask={}/{} slot={} uid={} candidates={} matches={} total={}",
-                subtask_index, context.getParallelism(), slot, 
-                data_for_join->uid_, candidates.size(), local_return_pool.size(),
-                clustered_total_matches.load());
-        }
-        
-        return;  // ClusteredJoin 处理完成，直接返回
-    }
-    
     // ====== 自适应并发策略 ======
-    // 根据并行度选择不同的策略
+    // 根据策略类型和并行度选择不同的并发控制：
+    // 1. 分区策略（Centroid/LSH）：分区内无锁竞争，直接使用 IQ
+    // 2. 共享策略 + 单线程：无竞争，直接使用 IQ
+    // 3. 共享策略 + 多线程：需要 QIQ 保证召回率
     
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
     
-    if (context.getParallelism() <= 1) {
-        // ====== 单线程：IQ 策略（无锁，无需第二次查询） ======
+    // 判断是否使用 IQ（Insert-Query）策略
+    // 分区策略或单线程时，分区内无锁竞争，可以直接使用 IQ
+    bool use_iq_strategy = isPartitionedStrategy() || (context.getParallelism() <= 1);
+    
+    if (use_iq_strategy) {
+        // ====== IQ 策略（无锁，适用于分区模式或单线程） ======
         // 
-        // 在单线程模式下，所有记录是串行处理的：
-        // 1. 当 L1 查询时，对侧窗口包含所有已处理的右流记录
-        // 2. Query2 查到的结果和 Query1 完全相同（因为中间没有其他记录被处理）
-        // 3. 匹配的完整性由"先 Insert 后 Query"保证：
-        //    - L1 的 Query 会搜索右窗口，找到所有已插入的 R*
-        //    - R1 的 Query 会搜索左窗口，找到 L1（因为 L1 已经 Insert 了）
+        // 在分区模式下，每个分区有独立的 WindowState 和索引：
+        // 1. 数据通过 CentroidPartitioner 路由到对应的 subtask
+        // 2. 同一分区内的数据由同一个 subtask 串行处理
+        // 3. 因此分区内无并发竞争，只需 Insert -> Query
         // 
-        // 因此单线程下只需 Insert -> Query，无需 QIQ
+        // Owner-Computes 去重由 JoinMethod::ExecuteEager 内部处理
         
-        // 阶段1：Insert 当前记录到对应窗口
+        // 阶段1：Insert 当前记录到对应窗口和索引
         updateSideWithState(
             current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
         
@@ -1207,18 +1136,47 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
         // VSJoin 将通过 VSJoinMethod 处理，不再需要特殊初始化
         // 参考: include/operator/join_operator_methods/vsjoin_method.h
         
-        // ClusteredJoinMethod 初始化：每个 subtask 创建独立索引
-        // ClusteredJoinMethod 维护自己的窗口状态，不使用 JoinOperator 的 left_state_/right_state_
+        // ClusteredJoinMethod 初始化（重构版：统一架构）
+        // ClusteredJoin 现在使用与其他 Join 方法相同的流程：
+        // - 使用 JoinOperator 的 left_state_/right_state_
+        // - 使用 JoinOperator 的 left_index_id_/right_index_id_
+        // - 通过 setIndexIds() 传递索引 ID
         else if (auto* clustered = dynamic_cast<ClusteredJoinMethod*>(join_method_.get())) {
-            // ClusteredJoin 使用分区状态 + 每个 subtask 独立索引
-            // 初始化时创建独立索引，不依赖工厂创建的共享索引
+            // 初始化 ClusteredJoinMethod
             clustered->initialize(context, concurrency_manager_);
             
+            // 传递 WindowState（用于 BruteForce 模式直接访问窗口数据）
+            // BruteForce 模式绕过 ConcurrencyManager，与 BruteForceBaseline 架构一致
+            clustered->setWindowStates(left_state_.get(), right_state_.get());
+            
+            // 传递索引 ID（用于 IVF/HNSW 模式，索引由 JoinStrategyFactory 创建）
+            clustered->setIndexIds(left_index_id_, right_index_id_);
+            
+            // ====== Owner-Computes 去重策略 ======
+            // 
+            // 在 PartitionedWindowState 模式下：
+            //   - 每个 subtask 只能看到路由到自己分区的数据
+            //   - 如果 CentroidPartitioner 正确训练，数据按分区隔离
+            //   - 如果 CentroidPartitioner 未训练（所有数据到 subtask 0），只有 subtask 0 能看到数据
+            //   - 两种情况下都不需要 Owner-Computes 去重，因为没有跨分区的重复
+            //
+            // 因此，设置 effective_parallelism = 1 来禁用 Owner-Computes 去重
+            // 
+            // 注意：这与共享索引模式（SharedWindowState + RoundRobin）不同：
+            //   - 共享模式下所有 subtask 都能看到所有数据
+            //   - 需要 Owner-Computes 来避免同一匹配对被多个 subtask 输出
+            //
+            clustered->setEffectiveParallelism(1);  // 禁用 Owner-Computes 去重
+            
+            use_index_ = true;
+            
             SAGEFLOW_LOG_INFO("JOIN", "ClusteredJoinMethod initialized via strategy config, "
-                             "subtask={}/{} partitions={} multicast={}",
+                             "subtask={}/{} left_idx={} right_idx={} effective_p={} "
+                             "index_type={}",
                              context.getSubtaskIndex(), context.getParallelism(),
-                             strategy_config_.num_partitions,
-                             strategy_config_.clustered_multicast_enabled);
+                             left_index_id_, right_index_id_,
+                             clustered->getEffectiveParallelism(),
+                             static_cast<int>(strategy_config_.clustered_index_type));
         }
     }
 

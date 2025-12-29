@@ -119,7 +119,8 @@ void IVFMethod::open(
 
 std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t subtask_index) {
     
     std::vector<std::unique_ptr<VectorRecord>> results;
     

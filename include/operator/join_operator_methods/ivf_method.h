@@ -114,11 +114,13 @@ public:
      * @brief Eager 模式：对单个查询向量执行匹配
      * @param query_record 查询向量记录
      * @param query_slot 查询来源槽位 (0=左流, 1=右流)
+     * @param subtask_index 当前执行的 subtask 索引
      * @return 匹配结果列表
      */
     std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
         const VectorRecord& query_record,
-        int query_slot) override;
+        int query_slot,
+        size_t subtask_index = 0) override;
     
     /**
      * @brief 关闭方法，释放资源

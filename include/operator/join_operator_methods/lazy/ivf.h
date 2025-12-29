@@ -33,7 +33,8 @@ public:
   // 新的优化接口
   std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
       const VectorRecord& query_record,
-      int slot) override;
+      int slot,
+      size_t subtask_index = 0) override;
 
 private:
   int left_ivf_index_id_;

@@ -17,7 +17,8 @@ HDRTreeMethod::HDRTreeMethod(int left_index_id, int right_index_id,
 
 std::vector<std::unique_ptr<VectorRecord>> HDRTreeMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t /*subtask_index*/) {
     
     std::vector<std::unique_ptr<VectorRecord>> results;
     

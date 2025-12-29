@@ -98,7 +98,8 @@ void BruteForceLazy::Excute(
 
 std::vector<std::unique_ptr<VectorRecord>> BruteForceLazy::ExecuteEager(
     const VectorRecord& query_record,
-    int slot) {
+    int slot,
+    size_t /*subtask_index*/) {
 
   if (using_knn_ && concurrency_manager_) {
     int query_index_id = (slot == 0) ? right_knn_index_id_ : left_knn_index_id_;
