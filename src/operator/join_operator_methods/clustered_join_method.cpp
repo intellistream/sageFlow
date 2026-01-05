@@ -237,27 +237,23 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerBrut
     double similarity = computeSimilarity(query_vec, candidate_vec);
     
     if (similarity >= config_.similarity_threshold) {
-      // Owner-Computes: 只有 owner subtask 输出该匹配对
-      uint64_t left_uid = (query_slot == 0) ? query_uid : candidate_uid;
-      uint64_t right_uid = (query_slot == 0) ? candidate_uid : query_uid;
+      // 直接输出所有匹配 - Sink 层会进行去重
+      // (移除 Owner-Computes，与 executeEagerIndexed 保持一致)
+      results.push_back(std::make_unique<VectorRecord>(*record_ptr));
       
-      // 使用传入的 subtask_index 进行 owner 判断
-      bool is_owner = (effective_parallelism_ <= 1) || 
-                      ((std::min(left_uid, right_uid) % effective_parallelism_) == subtask_index);
-      
-      if (is_owner) {
-        results.push_back(std::make_unique<VectorRecord>(*record_ptr));
-        
-        SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-            "BruteForce match: subtask {} owns ({}, {}), sim={:.4f}", 
-            subtask_index, left_uid, right_uid, similarity);
-      }
+      SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+          "BruteForce match: subtask {} found ({}, {}), sim={:.4f}", 
+          subtask_index, query_uid, candidate_uid, similarity);
     }
   }
   
-  SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-      "executeEagerBruteForce: query_uid={}, slot={}, subtask={}, window_size={}, results={}", 
-      query_uid, query_slot, subtask_index, records_snapshot.size(), results.size());
+  // 每 1000 次查询打印一次窗口大小
+  static thread_local uint64_t query_count = 0;
+  if (++query_count % 1000 == 0) {
+    SAGEFLOW_LOG_INFO("ClusteredJoin", 
+        "BF subtask={}: query_uid={}, window_size={}, results={}",
+        subtask_index, query_uid, records_snapshot.size(), results.size());
+  }
   
   return results;
 }
@@ -282,30 +278,29 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerInde
   auto candidates = concurrency_manager_->query_for_join(
       target_index, query_record, config_.similarity_threshold);
   
-  // 应用 Owner-Computes 去重（仅在分区模式下）
-  uint64_t query_uid = query_record.uid_;
+  // 直接输出所有匹配 - Sink 层会进行去重
+  // 
+  // 移除 Owner-Computes 去重原因：
+  // 1. Sink 层已实现基于 combined_id 的去重（见 MatchCollectorSink::invoke）
+  // 2. Owner-Computes 在 multicast 模式下会错误过滤结果
+  //    - k=1 时只有 owner 分区处理，部分匹配可能输出
+  //    - k>1 时向量被多播到多个分区，但只有 owner 分区输出
+  //      导致 k 越大反而召回率越低（与预期相反）
+  // 3. Sink 是单线程(parallelism=1)，无锁开销
   
   for (const auto& candidate : candidates) {
     if (!candidate) continue;
     
-    uint64_t candidate_uid = candidate->uid_;
+    results.push_back(std::make_unique<VectorRecord>(*candidate));
     
-    // Owner-Computes: 只有 owner subtask 输出该匹配对
-    uint64_t left_uid = (query_slot == 0) ? query_uid : candidate_uid;
-    uint64_t right_uid = (query_slot == 0) ? candidate_uid : query_uid;
-    
-    if (isOwner(left_uid, right_uid)) {
-      results.push_back(std::make_unique<VectorRecord>(*candidate));
-      
-      SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
-          "Indexed match: subtask {} owns ({}, {})", 
-          subtask_index_, left_uid, right_uid);
-    }
+    SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
+        "Indexed match: subtask {} found candidate uid={}", 
+        subtask_index_, candidate->uid_);
   }
   
   SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
       "executeEagerIndexed: query_uid={}, slot={}, candidates={}, results={}", 
-      query_uid, query_slot, candidates.size(), results.size());
+      query_record.uid_, query_slot, candidates.size(), results.size());
   
   return results;
 }

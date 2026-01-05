@@ -15,6 +15,7 @@
 #include <memory>
 #include <vector>
 #include <set>
+#include <unordered_set>
 #include <mutex>
 #include <functional>
 #include <chrono>
@@ -82,6 +83,9 @@ struct PipelineExecutionResult {
     
     /// 错误信息（如果 success=false）
     std::string error_message;
+    
+    /// Sink 去重拦截的记录数（用于诊断 multicast 问题）
+    int64_t dedup_count = 0;
     
     /**
      * @brief 获取匹配数量
@@ -160,10 +164,21 @@ public:
      * @brief 重置收集器状态
      */
     void reset();
+    
+    /**
+     * @brief 获取去重拦截的记录数
+     * @return 被去重拦截的记录数
+     */
+    [[nodiscard]] int64_t getDedupCount() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return dedup_count_;
+    }
 
 private:
     std::vector<MatchPair> matches_;
+    std::unordered_set<uint64_t> seen_ids_;  ///< 已见过的 combined_id（用于 Sink 去重）
     int64_t processed_count_ = 0;
+    int64_t dedup_count_ = 0;  ///< 被去重拦截的记录数
     mutable std::mutex mutex_;
 };
 

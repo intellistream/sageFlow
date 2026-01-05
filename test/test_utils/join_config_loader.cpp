@@ -264,10 +264,13 @@ JoinStrategyConfig JoinConfigLoader::merge(const JoinStrategyConfig& base,
         override_config.clustered_rebalance_threshold > 0) {
         result.clustered_rebalance_threshold = override_config.clustered_rebalance_threshold;
     }
-    result.clustered_border_replication = override_config.clustered_border_replication;
+    // clustered_border_replication 已废弃
     if (override_config.clustered_training_samples != 1000 &&
         override_config.clustered_training_samples > 0) {
         result.clustered_training_samples = override_config.clustered_training_samples;
+    }
+    if (override_config.clustered_multicast_k != 0) {
+        result.clustered_multicast_k = override_config.clustered_multicast_k;
     }
 
     // HDR-Tree 参数
@@ -365,11 +368,10 @@ void JoinConfigLoader::saveToFile(const JoinStrategyConfig& config,
 
     // ClusteredJoin 参数
     ofs << "# ClusteredJoin Parameters\n";
+    ofs << "clustered_multicast_k = " << config.clustered_multicast_k << "\n";
     ofs << "clustered_overlap_ratio = " << config.clustered_overlap_ratio << "\n";
     ofs << "clustered_rebalance_threshold = " << config.clustered_rebalance_threshold
         << "\n";
-    ofs << "clustered_border_replication = "
-        << (config.clustered_border_replication ? "true" : "false") << "\n";
     ofs << "clustered_training_samples = " << config.clustered_training_samples << "\n\n";
 
     // HDR-Tree 参数

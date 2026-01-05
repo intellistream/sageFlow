@@ -6,6 +6,9 @@
 
 #include <chrono>
 #include <thread>
+#include <fstream>
+#include <mutex>
+#include <sstream>
 
 namespace sageFlow {
 void ResultPartition::setup(std::unique_ptr<IPartitioner> p, std::vector<QueuePtr> channels, int slot) {
@@ -19,11 +22,6 @@ void ResultPartition::emit(Response&& data, int slot) const {
   }
   const auto& output_channels_ = channel_slot_map_.at(slot);
   if (output_channels_.empty()) return;
-  
-  // 检查分区器是否已初始化
-  if (!partitioner_) {
-    throw std::runtime_error("ResultPartition::emit: Partitioner not initialized.");
-  }
   
   // 带重试的 push 操作，避免队列满时静默丢弃数据
   auto pushWithRetry = [](const QueuePtr& queue, TaggedResponse&& tagged) {
@@ -40,32 +38,15 @@ void ResultPartition::emit(Response&& data, int slot) const {
     return false;
   };
 
-  // 检查是否为多播模式（Clustered Join 边界向量复制）
-  if (partitioner_->supportsMulticast()) {
-    // 获取所有目标分区
-    auto targets = partitioner_->partitionMulti(data, output_channels_.size());
-    
-    if (targets.size() == 1) {
-      // 单播：直接发送到唯一的目标分区
-      size_t idx = targets[0] % output_channels_.size();
-      pushWithRetry(output_channels_[idx], {std::move(data), slot});
-    } else {
-      // 多播：复制数据到所有目标分区
-      for (size_t i = 0; i < targets.size(); ++i) {
-        size_t idx = targets[i] % output_channels_.size();
-        if (i == targets.size() - 1) {
-          // 最后一个目标使用 move
-          pushWithRetry(output_channels_[idx], {std::move(data), slot});
-        } else {
-          // 其他目标使用拷贝
-          Response data_copy{data.type_, 
-                            data.record_ ? std::make_unique<VectorRecord>(*data.record_) : nullptr};
-          pushWithRetry(output_channels_[idx], {std::move(data_copy), slot});
-        }
-      }
-    }
-  } else if (partitioner_->isBroadcast()) {
-    // 广播模式：将数据发送到所有通道（保持原有逻辑）
+  // 首先调用 partition() 来触发训练样本收集（如果是冷启动阶段）
+  // 这一步是必须的，因为 addTrainingSample() 在 partition() 内部被调用
+  // 即使在广播模式下也需要调用以累积训练样本并触发训练
+  partitioner_->partition(data, output_channels_.size());
+  
+  // 检查是否为广播模式（冷启动阶段）
+  // 注意：isBroadcast() 可能在 partition() 调用后改变状态（训练完成后变为 false）
+  if (partitioner_->isBroadcast()) {
+    // 广播模式：将数据发送到所有通道
     for (size_t i = 0; i < output_channels_.size(); ++i) {
       if (i == output_channels_.size() - 1) {
         // 最后一个通道，移动数据
@@ -76,10 +57,29 @@ void ResultPartition::emit(Response&& data, int slot) const {
         pushWithRetry(output_channels_[i], {std::move(data_copy), slot});
       }
     }
+  } else if (partitioner_->supportsMulticast()) {
+    // 多播模式：获取所有目标分区并发送
+    // 这用于边界向量复制（如 ClusteredJoin 的 multicast_k > 1）
+    auto target_channels = partitioner_->partitionMulti(data, output_channels_.size());
+    
+    if (target_channels.size() == 1) {
+      // 只有一个目标，直接移动
+      pushWithRetry(output_channels_[target_channels[0]], {std::move(data), slot});
+    } else {
+      // 多个目标，复制数据到前 n-1 个，移动到最后一个
+      for (size_t i = 0; i < target_channels.size(); ++i) {
+        if (i == target_channels.size() - 1) {
+          pushWithRetry(output_channels_[target_channels[i]], {std::move(data), slot});
+        } else {
+          Response data_copy{data.type_, data.record_ ? std::make_unique<VectorRecord>(*data.record_) : nullptr};
+          pushWithRetry(output_channels_[target_channels[i]], {std::move(data_copy), slot});
+        }
+      }
+    }
   } else {
-    // 普通分区模式：根据分区器选择一个通道
+    // 单播模式：发送到单个目标分区
     size_t channel_index = partitioner_->partition(data, output_channels_.size());
     pushWithRetry(output_channels_[channel_index], {std::move(data), slot});
   }
 }
-}
+}  // namespace sageFlow

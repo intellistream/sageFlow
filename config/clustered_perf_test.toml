@@ -1,0 +1,136 @@
+# config/clustered_perf_test.toml
+# ClusteredJoin 不同并行度性能测试专用配置
+# 数据大小: 1000, 窗口大小: 1000ms (数据大小的1/10)
+
+[common]
+vector_dim = 128
+window_size_ms = 1000
+step_size_ms = 10
+similarity_threshold = 0.8
+seed = 42
+time_interval_ms = 10
+base_timestamp = 1000000
+result_output_dir = "test/result/clustered_perf"
+compare_with_ground_truth = true
+positive_ratio = 0.10
+negative_ratio = 0.60
+positive_pairs = 500
+near_threshold_pairs = 50
+negative_pairs = 500
+random_tail = 2000
+alpha = 0.1
+save_results = true
+generate_report = true
+
+# ==================== ClusteredJoin 并行度性能测试 ====================
+# 注意：num_partitions 必须等于 parallelism
+
+[[test_case]]
+name = "clustered_perf_p1"
+description = "ClusteredJoin performance test with parallelism=1"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 1
+clustered_multicast_k = 1
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [1]
+expected_min_recall = 0.90
+enabled = true
+
+[[test_case]]
+name = "clustered_perf_p2"
+description = "ClusteredJoin performance test with parallelism=2"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 2
+clustered_multicast_k = 2
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [2]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "clustered_perf_p4"
+description = "ClusteredJoin performance test with parallelism=4"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 4
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [4]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "clustered_perf_p8"
+description = "ClusteredJoin performance test with parallelism=8"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.15
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.80
+enabled = true
+
+[[test_case]]
+name = "clustered_perf_p16"
+description = "ClusteredJoin performance test with parallelism=16"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.15
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.75
+enabled = true

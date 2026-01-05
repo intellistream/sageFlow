@@ -174,6 +174,19 @@ private:
     static void checkPerformanceHints(
         const JoinStrategyConfig& config,
         ValidationResult& result);
+
+    /**
+     * @brief 检查冷启动训练配置
+     * 
+     * 验证冷启动相关参数的合法性和一致性。
+     * 仅在 enable_cold_start = true 时执行验证。
+     * 
+     * @param config 策略配置
+     * @param result 验证结果（会被修改）
+     */
+    static void checkColdStartConfig(
+        const JoinStrategyConfig& config,
+        ValidationResult& result);
 };
 
 }  // namespace sageFlow

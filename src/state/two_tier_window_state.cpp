@@ -14,7 +14,12 @@ TwoTierWindowState::TwoTierWindowState(size_t parallelism,
                                        size_t merge_batch_size)
     : partitions_(parallelism),
       compact_threshold_(compact_threshold),
-      merge_batch_size_(merge_batch_size) {
+      merge_batch_size_(merge_batch_size),
+      max_seen_timestamps_(parallelism) {
+    // 初始化每个分区的时间戳为最小值
+    for (size_t i = 0; i < parallelism; ++i) {
+        max_seen_timestamps_[i].store(std::numeric_limits<int64_t>::min(), std::memory_order_relaxed);
+    }
     SAGEFLOW_LOG_DEBUG("TwoTierState", 
         "Created TwoTierWindowState with parallelism={}, compact_threshold={}, merge_batch_size={}",
         parallelism, compact_threshold, merge_batch_size);
@@ -307,6 +312,30 @@ void TwoTierWindowState::updateMergedView(size_t subtask_index) const {
     }
     
     tier_pair.view_dirty_ = false;
+}
+
+// ==================== 时间戳追踪接口实现 ====================
+
+void TwoTierWindowState::updateMaxSeenTimestamp(int64_t timestamp, size_t subtask_index) {
+    // 使用 compare_exchange 确保只更新为更大的值
+    int64_t current_max = max_seen_timestamps_[subtask_index].load(std::memory_order_relaxed);
+    while (timestamp > current_max && 
+           !max_seen_timestamps_[subtask_index].compare_exchange_weak(
+               current_max, timestamp,
+               std::memory_order_release,
+               std::memory_order_relaxed)) {
+        // 重试直到成功或发现更大的值
+    }
+}
+
+int64_t TwoTierWindowState::getMaxSeenTimestamp(size_t subtask_index) const {
+    return max_seen_timestamps_[subtask_index].load(std::memory_order_acquire);
+}
+
+int64_t TwoTierWindowState::getSafeEvictTimestamp(size_t subtask_index, 
+                                                   const WindowState* /*other_state*/) const {
+    // TwoTierWindowState 作为分区状态，直接返回该分区的 max_seen_ts
+    return max_seen_timestamps_[subtask_index].load(std::memory_order_acquire);
 }
 
 } // namespace sageFlow

@@ -50,6 +50,13 @@ struct IntegrationTestCase {
     int negative_pairs = 500;          ///< 负样本对数量
     int random_tail = 2000;            ///< 随机尾部数据量
     double alpha = 0.1;                ///< 相似度计算的 alpha 参数
+    
+    // ==================== 数据源模式配置 ====================
+    /// 数据源模式：
+    /// - "duplicate": 复制所有向量到两个流（自连接，左右向量相同）
+    /// - "paired": 分割配对数据（左流=base向量，右流=perturbed向量，向量不同但相似）
+    /// paired 模式更适合测试 multicast_k 等分区策略的效果
+    std::string data_mode = "duplicate";
 
     // ==================== 验证配置 ====================
     double expected_min_recall = 0.0;      ///< 期望最小召回率

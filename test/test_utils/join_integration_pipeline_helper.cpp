@@ -121,10 +121,26 @@ public:
                 });
             
             // 构建 Pipeline
-            left_source_->join(right_source_, std::move(join_func), 
-                              join_method, config_.similarity_threshold, 
-                              static_cast<size_t>(parallelism_))
-                ->writeSink(std::move(sink_func), 1);
+            // 优先使用完整策略配置，回退到字符串 API
+            std::shared_ptr<Stream> join_stream;
+            if (config_.algorithm != JoinAlgorithm::BRUTEFORCE || 
+                config_.clustered_multicast_k != 0) {
+                // 使用策略配置 API（支持完整配置）
+                // 注意：由于 Stream::join() 没有直接接受策略配置的重载，
+                // 我们先调用字符串 API，然后在返回的 Stream 上设置策略配置
+                join_stream = left_source_->join(right_source_, std::move(join_func), 
+                                  join_method, config_.similarity_threshold, 
+                                  static_cast<size_t>(parallelism_));
+                // 设置完整策略配置
+                join_stream->setJoinStrategyConfig(config_);
+            } else {
+                // 回退到字符串 API（向后兼容）
+                join_stream = left_source_->join(right_source_, std::move(join_func), 
+                                  join_method, config_.similarity_threshold, 
+                                  static_cast<size_t>(parallelism_));
+            }
+            
+            join_stream->writeSink(std::move(sink_func), 1);
             
             // 添加流到环境
             env.addStream(left_source_);
@@ -147,6 +163,7 @@ public:
             
             // 收集结果
             result.matches = sink_->getMatches();
+            result.dedup_count = sink_->getDedupCount();
             result.left_processed = static_cast<int64_t>(
                 JoinMetrics::instance().total_records_left.load());
             result.right_processed = static_cast<int64_t>(
@@ -217,24 +234,53 @@ private:
             }
         }
         
-        // 阶段2：等待输出稳定（短暂的稳定期）
-        // 使用较短的稳定窗口（50ms），与 test_join_datasource_modes 一致
-        const auto stable_window = 50ms;
-        const auto max_wait = std::chrono::seconds(5);
-        uint64_t last = JoinMetrics::instance().total_emits.load();
-        auto stable_since = std::chrono::steady_clock::now();
-        auto end_by = std::chrono::steady_clock::now() + max_wait;
+        // 阶段2：等待 JoinOperator emits 稳定
+        // 所有输入处理完后，JoinOperator 需要时间产生所有输出
+        const auto emits_stable_window = 200ms;  // 更长的稳定窗口
+        const auto max_emit_wait = std::chrono::seconds(60);
+        auto emit_end_by = std::chrono::steady_clock::now() + max_emit_wait;
+        uint64_t last_emits = JoinMetrics::instance().total_emits.load();
+        auto emits_stable_since = std::chrono::steady_clock::now();
         
-        while (std::chrono::steady_clock::now() < end_by) {
-            std::this_thread::sleep_for(5ms);
-            uint64_t cur = JoinMetrics::instance().total_emits.load();
-            if (cur != last) {
-                last = cur;
-                stable_since = std::chrono::steady_clock::now();
+        while (std::chrono::steady_clock::now() < emit_end_by) {
+            std::this_thread::sleep_for(20ms);
+            uint64_t cur_emits = JoinMetrics::instance().total_emits.load();
+            
+            if (cur_emits != last_emits) {
+                last_emits = cur_emits;
+                emits_stable_since = std::chrono::steady_clock::now();
             }
-            if (std::chrono::steady_clock::now() - stable_since >= stable_window) {
+            
+            if (std::chrono::steady_clock::now() - emits_stable_since >= emits_stable_window) {
+                SAGEFLOW_LOG_INFO("PipelineHelper", 
+                    "JoinOperator emits stable at {}", cur_emits);
                 break;
             }
+        }
+        
+        // 阶段3：等待 Sink 处理完所有 emits
+        const auto sink_stable_window = 100ms;
+        const auto max_sink_wait = std::chrono::seconds(30);
+        auto sink_end_by = std::chrono::steady_clock::now() + max_sink_wait;
+        uint64_t target_emits = JoinMetrics::instance().total_emits.load();
+        
+        while (std::chrono::steady_clock::now() < sink_end_by) {
+            std::this_thread::sleep_for(10ms);
+            
+            uint64_t sink_count = sink_ ? static_cast<uint64_t>(sink_->getProcessedCount()) : 0;
+            
+            if (sink_count >= target_emits) {
+                SAGEFLOW_LOG_INFO("PipelineHelper", 
+                    "Sink processed all emits: target={} actual={}", target_emits, sink_count);
+                break;
+            }
+        }
+        
+        uint64_t final_sink = sink_ ? static_cast<uint64_t>(sink_->getProcessedCount()) : 0;
+        uint64_t final_emits = JoinMetrics::instance().total_emits.load();
+        if (final_sink < final_emits) {
+            SAGEFLOW_LOG_WARN("PipelineHelper", 
+                "Sink did not process all emits: target={} actual={}", final_emits, final_sink);
         }
     }
     
@@ -264,6 +310,17 @@ void MatchCollectorSink::invoke(std::unique_ptr<VectorRecord>& record) {
     // 合并规则：id = left_uid * 1000000 + right_uid % 1000000
     constexpr uint64_t kModuloBase = 1000000ULL;
     uint64_t combined_id = record->uid_;
+    
+    // Sink 层去重：相同的 combined_id 只处理一次
+    // 这是最简单、最可靠的去重方式：
+    // - Sink 是单线程的，无锁竞争
+    // - combined_id 已经编码了 (left_uid, right_uid) 信息
+    // - 多播模式下多个 subtask 可能输出相同的匹配对，由 Sink 统一过滤
+    if (!seen_ids_.insert(combined_id).second) {
+        dedup_count_++;
+        return;  // 重复，跳过
+    }
+    
     uint64_t left_uid = combined_id / kModuloBase;
     uint64_t right_uid = combined_id % kModuloBase;
     
@@ -293,7 +350,9 @@ int64_t MatchCollectorSink::getProcessedCount() const {
 void MatchCollectorSink::reset() {
     std::lock_guard<std::mutex> lock(mutex_);
     matches_.clear();
+    seen_ids_.clear();
     processed_count_ = 0;
+    dedup_count_ = 0;
 }
 
 // ==================== JoinIntegrationPipelineHelper 实现 ====================

@@ -106,9 +106,16 @@ struct JoinStrategyConfig {
     bool s3j_enable_adaptive = true;      ///< 是否启用自适应调整
     
     // ==================== ClusteredJoin 参数 ====================
-    double clustered_overlap_ratio = 0.1;     ///< 边界重叠比例
-    double clustered_rebalance_threshold = 0.3;  ///< 触发重平衡的阈值
-    bool clustered_border_replication = true;    ///< 是否复制边界向量
+    /**
+     * @brief 多播到最近的 k 个分区
+     * 
+     * - k = 0: 使用 overlap_ratio 阈值判定（当前行为）
+     * - k = 1: 仅主分区（等同于单播）
+     * - k >= 2: 固定多播到最近的 k 个分区
+     */
+    int clustered_multicast_k = 0;               ///< 多播到最近的 k 个分区 (0=使用overlap_ratio)
+    double clustered_overlap_ratio = 0.1;        ///< 边界重叠比例（当 multicast_k=0 时使用）
+    double clustered_rebalance_threshold = 0.3;  ///< 触发重平衡的阈值（未使用，保留供未来扩展）
     int clustered_training_samples = 1000;       ///< 训练样本数
     
     /**
@@ -127,6 +134,33 @@ struct JoinStrategyConfig {
      * 需要配合 CentroidPartitioner::setMulticastEnabled() 使用。
      */
     bool clustered_multicast_enabled = true;
+    
+    // ==================== 冷启动训练参数 ====================
+    /**
+     * @brief 是否启用冷启动模式
+     * 
+     * 当为 true 时，在 CentroidPartitioner 训练完成前，使用广播模式。
+     * 训练完成后自动切换到多播模式。
+     */
+    bool enable_cold_start = true;
+    
+    /**
+     * @brief 训练样本数阈值
+     * 
+     * 当收集的样本数达到此阈值时，触发 CentroidPartitioner 训练。
+     * 注意：此参数主要用于配置默认值，实际使用时会同步到 CentroidPartitioner::Config。
+     */
+    size_t training_samples = 1000;
+    
+    /**
+     * @brief 广播阶段是否去重
+     * 
+     * 当为 true 时，在广播阶段使用 Owner-Computes 策略：
+     * - 所有 subtask 都收到相同数据并更新状态
+     * - 只有 (uid % parallelism == subtask_index) 的 subtask 产生输出
+     * 这避免了重复的 Join 结果输出。
+     */
+    bool deduplicate_during_broadcast = true;
     
     // ==================== HDR-Tree 参数 ====================
     int hdr_projected_dim = 8;           ///< PCA 降维目标维度

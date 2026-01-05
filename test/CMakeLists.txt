@@ -86,6 +86,7 @@ set(UNIT_TEST_SPECS
     test_s3j_method                UnitTest/test_s3j_method.cpp               300 UNIT
     test_partitioner               UnitTest/test_partitioner.cpp              120 UNIT
     test_clustered_partitioner     UnitTest/test_clustered_partitioner.cpp    120 UNIT
+    test_centroid_cold_start       UnitTest/test_centroid_cold_start.cpp      180 UNIT
     test_compute_engine            UnitTest/test_compute_engine.cpp           180 UNIT
     test_file_stream_source        UnitTest/test_file_stream_source.cpp       120 UNIT
     test_data_source               UnitTest/test_data_source.cpp              120 UNIT
@@ -118,6 +119,7 @@ set(UNIT_TEST_SPECS
     test_report_generator          UnitTest/test_report_generator.cpp         180 UNIT
     test_multicast_partitioner     UnitTest/test_multicast_partitioner.cpp    120 UNIT
     test_clustered_config          UnitTest/test_clustered_config.cpp         120 UNIT
+    test_result_partition_switch   UnitTest/test_result_partition_switch.cpp  180 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)
@@ -170,6 +172,7 @@ set(INTEG_TEST_SPECS
     test_pipeline_execution        IntegrationTest/test_pipeline_execution.cpp 600 INTEGRATION
     test_vsjoin_integration        IntegrationTest/test_vsjoin_integration.cpp 600 INTEGRATION
     test_join_baseline_integration IntegrationTest/join_baseline_integration_test.cpp 600 INTEGRATION
+    test_clustered_join_cold_start IntegrationTest/test_clustered_join_cold_start.cpp 600 INTEGRATION
 )
 
 list(LENGTH INTEG_TEST_SPECS _ilen)

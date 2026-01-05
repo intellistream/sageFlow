@@ -2,7 +2,7 @@
 # Test Mode 1: Generate-Save-Load (generate data, save to file, then load from file)
 name = "perf_join_gen_save_load_random"
 mode = "generate_save_load"
-methods = ["bruteforce", "ivf", "hdr_tree"]
+methods = ["bruteforce", "ivf", "hdr_tree", "clustered_join"]
 sizes = [2000]
 records_count = 10
 vector_dim = 64
@@ -19,6 +19,16 @@ projected_dim = 8
 max_node_size = 100
 delta_buffer_size = 1000
 pca_sample_size = 5000
+
+# ClusteredJoin specific parameters
+[performance_test.clustered_params]
+num_partitions = 8
+overlap_ratio = 0.1
+training_samples = 500
+index_type = "bruteforce"
+multicast_enabled = true
+cold_start_enabled = true
+broadcast_dedup = true
 
 [performance_test.data_source]
 type = "random"
@@ -87,7 +97,7 @@ index_type = "bruteforce"
 num_partitions = 8
 multicast_enabled = true
 overlap_ratio = 0.1
-training_samples = 500
+training_samples = 100
 
 [performance_test.data_source]
 type = "random"
@@ -161,3 +171,150 @@ format = "json"
 file_path = "test/data/clustered_no_multicast_test_data.json"
 
 log.level = "debug"
+
+# ==================== Overlap Ratio Sweep (k 值影响测试) ====================
+
+[[performance_test]]
+name = "perf_overlap_0.0"
+mode = "generate_save_load"
+methods = ["clustered_join"]
+sizes = [1000]
+records_count = 10
+vector_dim = 128
+parallelism = [4, 8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 0.0
+training_samples = 500
+
+[performance_test.data_source]
+type = "random"
+
+[performance_test.storage]
+format = "json"
+file_path = "test/data/overlap_0.0_test_data.json"
+
+
+[[performance_test]]
+name = "perf_overlap_0.05"
+mode = "generate_save_load"
+methods = ["clustered_join"]
+sizes = [1000]
+records_count = 10
+vector_dim = 128
+parallelism = [4, 8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 0.05
+training_samples = 500
+
+[performance_test.data_source]
+type = "random"
+
+[performance_test.storage]
+format = "json"
+file_path = "test/data/overlap_0.05_test_data.json"
+
+
+[[performance_test]]
+name = "perf_overlap_0.2"
+mode = "generate_save_load"
+methods = ["clustered_join"]
+sizes = [1000]
+records_count = 10
+vector_dim = 128
+parallelism = [4, 8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 0.2
+training_samples = 500
+
+[performance_test.data_source]
+type = "random"
+
+[performance_test.storage]
+format = "json"
+file_path = "test/data/overlap_0.2_test_data.json"
+
+
+[[performance_test]]
+name = "perf_overlap_0.5"
+mode = "generate_save_load"
+methods = ["clustered_join"]
+sizes = [1000]
+records_count = 10
+vector_dim = 128
+parallelism = [4, 8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 0.5
+training_samples = 500
+
+[performance_test.data_source]
+type = "random"
+
+[performance_test.storage]
+format = "json"
+file_path = "test/data/overlap_0.5_test_data.json"
+
+
+[[performance_test]]
+name = "perf_overlap_1.0"
+mode = "generate_save_load"
+methods = ["clustered_join"]
+sizes = [1000]
+records_count = 10
+vector_dim = 128
+parallelism = [4, 8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 1.0
+training_samples = 500
+
+[performance_test.data_source]
+type = "random"
+
+[performance_test.storage]
+format = "json"
+file_path = "test/data/overlap_1.0_test_data.json"
+

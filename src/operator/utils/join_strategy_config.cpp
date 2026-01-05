@@ -286,9 +286,8 @@ std::string JoinStrategyConfig::summary() const {
     if (algorithm == JoinAlgorithm::CLUSTERED_JOIN) {
         oss << "  -- ClusteredJoin --\n"
             << "  clustered_index_type: " << toString(clustered_index_type) << "\n"
+            << "  clustered_multicast_k: " << clustered_multicast_k << "\n"
             << "  clustered_overlap_ratio: " << clustered_overlap_ratio << "\n"
-            << "  clustered_border_replication: " << std::boolalpha 
-            << clustered_border_replication << "\n"
             << "  clustered_multicast_enabled: " << clustered_multicast_enabled << "\n"
             << "  clustered_training_samples: " << clustered_training_samples << "\n";
     }
@@ -389,17 +388,19 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     
     // ClusteredJoin 参数
+    if (auto mk = node["clustered_multicast_k"].value<int64_t>()) {
+        config.clustered_multicast_k = static_cast<int>(*mk);
+    }
     if (auto or_ = node["clustered_overlap_ratio"].value<double>()) {
         config.clustered_overlap_ratio = *or_;
     }
     if (auto rt = node["clustered_rebalance_threshold"].value<double>()) {
         config.clustered_rebalance_threshold = *rt;
     }
-    if (auto br = node["clustered_border_replication"].value<bool>()) {
-        config.clustered_border_replication = *br;
-    }
     if (auto ts = node["clustered_training_samples"].value<int64_t>()) {
         config.clustered_training_samples = static_cast<int>(*ts);
+        // 同步到通用 training_samples 字段
+        config.training_samples = static_cast<size_t>(*ts);
     }
     // 新增：分区内索引类型
     if (auto cit = node["clustered_index_type"].value<std::string>()) {

@@ -32,12 +32,54 @@ class CentroidPartitioner : public IPartitioner {
    */
   struct Config {
     int num_partitions = 16;          ///< 分区（聚类）数量
-    double overlap_ratio = 0.1;       ///< 边界重叠比例，用于判定边界向量
+    
+    /**
+     * @brief 边界重叠比例阈值，用于判定边界向量（仅当 multicast_k=0 时生效）
+     * 
+     * 定义：若向量到某分区质心的距离与到最近质心距离的相对差异小于此阈值，
+     *       则认为该向量是边界向量，需要复制到该分区。
+     * 
+     * 计算公式：ratio = (dist_to_partition_i - dist_to_nearest) / dist_to_nearest
+     *           若 ratio < overlap_ratio，则复制到分区 i
+     * 
+     * 取值范围：[0.0, 1.0]，实际推荐范围 [0.01, 0.2]
+     *   - 0.01: 非常严格，仅复制距离差异 <1% 的边界向量
+     *   - 0.02: 较严格
+     *   - 0.05: 适中
+     *   - 0.10: 默认值，距离差异 <10% 的向量会被复制
+     *   - 0.20: 宽松，更多向量被复制，召回更高但开销增加
+     * 
+     * 注意：
+     *   1. 高维归一化向量空间中，向量到各质心的距离差异通常很小，
+     *      即使较小的 overlap_ratio 也可能导致大量向量被复制。
+     *   2. 推荐使用 multicast_k >= 2 代替 overlap_ratio 模式，
+     *      因为固定 k 值的行为更可预测。
+     */
+    double overlap_ratio = 0.1;
+    
     int max_iterations = 100;         ///< k-means 最大迭代次数
     std::string init_method = "kmeans++";  ///< 初始化方法：kmeans++ 或 random
     double rebalance_threshold = 0.3; ///< 触发重平衡的不均衡阈值
     int seed = 42;                    ///< 随机种子
     int dimension = 128;              ///< 向量维度
+    
+    // ==================== 冷启动训练参数 ====================
+    size_t training_samples = 1000;   ///< 触发训练的样本数阈值（已弃用，使用 training_window_ms）
+    int64_t training_window_ms = -1;  ///< 训练窗口时间跨度（毫秒），-1=自动使用 window_size * 0.10
+    bool enable_cold_start = true;    ///< 是否启用冷启动模式
+    
+    // ==================== 多播参数 ====================
+    /**
+     * @brief 多播到最近的 k 个分区
+     * 
+     * - k = 0: 使用 overlap_ratio 阈值判定边界向量（动态多播数量）
+     * - k = 1: 仅主分区（等同于单播，最低召回，最低开销）
+     * - k >= 2: 固定多播到最近的 k 个分区（推荐，召回率可预测）
+     * 
+     * 推荐：使用 k >= 2 而非 k=0，因为 overlap_ratio 阈值模式在高维空间
+     *       中行为难以预测，可能导致大量向量被复制。
+     */
+    int multicast_k = 0;
   };
 
   /**
@@ -63,6 +105,31 @@ class CentroidPartitioner : public IPartitioner {
    * @param samples 训练样本向量
    */
   void train(const std::vector<std::vector<float>>& samples);
+
+  /**
+   * @brief 添加训练样本（线程安全）
+   * 
+   * 在冷启动阶段收集样本，达到阈值后自动触发训练。
+   * 
+   * @param record 向量记录
+   * @return true 表示已收集（训练前），false 表示已训练（不再收集）
+   */
+  bool addTrainingSample(const VectorRecord& record);
+
+  /**
+   * @brief 强制触发训练（即使样本不足）
+   * 
+   * 用于超时强制训练或手动触发。
+   * 
+   * @return true 表示成功触发，false 表示已训练或样本不足
+   */
+  bool forceTraining();
+
+  /**
+   * @brief 获取当前样本收集进度
+   * @return (已收集数, 阈值)
+   */
+  std::pair<size_t, size_t> getTrainingProgress() const;
 
   /**
    * @brief 使用 VectorRecord 样本训练质心
@@ -99,6 +166,15 @@ class CentroidPartitioner : public IPartitioner {
    * @return 分区索引
    */
   size_t partition(const Response& data, size_t num_channels) override;
+
+  /**
+   * @brief 检查是否处于广播模式
+   * 
+   * 未训练时返回 true，数据应广播到所有下游。
+   * 
+   * @return true 表示应广播
+   */
+  bool isBroadcast() const override;
 
   // ==================== 多播支持（Clustered Join） ====================
 
@@ -234,6 +310,12 @@ class CentroidPartitioner : public IPartitioner {
   // 多播模式开关（默认禁用）
   bool multicast_enabled_ = false;
 
+  // ==================== 冷启动训练相关 ====================
+  std::vector<std::vector<float>> training_buffer_;  ///< 训练样本缓冲
+  std::atomic<size_t> sample_count_{0};              ///< 已收集样本数
+  std::atomic<bool> training_triggered_{false};      ///< 训练是否已触发
+  size_t training_samples_threshold_ = 1000;         ///< 训练样本阈值
+
   // ==================== 内部方法 ====================
 
   /**
@@ -298,6 +380,13 @@ class CentroidPartitioner : public IPartitioner {
    * @return 均衡得分 [0, 1]
    */
   double computeBalanceScore(const std::vector<size_t>& sizes) const;
+
+  /**
+   * @brief 内部训练触发方法（线程安全）
+   * 
+   * 使用原子操作确保训练只执行一次。
+   */
+  void triggerTrainingInternal();
 };
 
 }  // namespace sageFlow

@@ -774,42 +774,57 @@ auto JoinOperator::updateSideWithState(
     auto& window = (slot == left_slot_id_) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
     int64_t timelimit = window.windowTimeLimit(now_time_stamp);
     
-    // 更新全局最大已见时间戳（原子操作，支持乱序）
-    // 使用 compare_exchange 确保只更新为更大的值
-    std::atomic<int64_t>& max_seen_ts = (slot == left_slot_id_) 
-        ? max_seen_left_ts_ : max_seen_right_ts_;
-    int64_t current_max = max_seen_ts.load(std::memory_order_relaxed);
-    while (now_time_stamp > current_max && 
-           !max_seen_ts.compare_exchange_weak(current_max, now_time_stamp,
-                                               std::memory_order_release,
-                                               std::memory_order_relaxed)) {
-        // 重试直到成功或发现更大的值
+    // 更新时间戳追踪
+    // - 分区策略：使用 WindowState 的分区级别时间戳追踪
+    // - 共享策略：使用全局时间戳追踪
+    if (isPartitionedStrategy()) {
+        // 分区策略：更新分区级别的 max_seen_timestamp
+        state->updateMaxSeenTimestamp(now_time_stamp, subtask_index);
+    } else {
+        // 共享策略：更新全局时间戳（原子操作，支持乱序）
+        std::atomic<int64_t>& max_seen_ts = (slot == left_slot_id_) 
+            ? max_seen_left_ts_ : max_seen_right_ts_;
+        int64_t current_max = max_seen_ts.load(std::memory_order_relaxed);
+        while (now_time_stamp > current_max && 
+               !max_seen_ts.compare_exchange_weak(current_max, now_time_stamp,
+                                                   std::memory_order_release,
+                                                   std::memory_order_relaxed)) {
+            // 重试直到成功或发现更大的值
+        }
     }
     
     // 安全 evict 策略：
-    // - 多线程模式：使用双侧的 max_seen_ts 的最小值，确保乱序安全
-    // - 单线程模式：直接使用当前侧的时间戳，因为没有并发问题
-    // - 如果某一侧还没有记录（INT64_MIN），则使用另一侧的时间戳
-    int64_t left_max = max_seen_left_ts_.load(std::memory_order_acquire);
-    int64_t right_max = max_seen_right_ts_.load(std::memory_order_acquire);
-    
-    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    // - 分区策略：使用 WindowState 的分区级别 getSafeEvictTimestamp
+    // - 共享策略：使用全局双侧 max_seen_ts 的最小值
     int64_t safe_evict_ts;
     
-    // 处理初始状态：如果某侧还没有记录，使用另一侧的时间戳
-    if (left_max == kMinTimestamp && right_max == kMinTimestamp) {
-        // 两侧都没有记录，不需要 evict
-        safe_evict_ts = kMinTimestamp;
-    } else if (left_max == kMinTimestamp) {
-        // 左侧没有记录，使用右侧时间戳
-        safe_evict_ts = right_max;
-    } else if (right_max == kMinTimestamp) {
-        // 右侧没有记录，使用左侧时间戳
-        safe_evict_ts = left_max;
+    if (isPartitionedStrategy()) {
+        // 分区策略：直接使用当前分区的 max_seen_ts
+        // 因为分区是隔离的，不需要考虑其他分区的状态
+        safe_evict_ts = state->getSafeEvictTimestamp(subtask_index, nullptr);
     } else {
-        // 两侧都有记录，使用最小值确保安全
-        safe_evict_ts = std::min(left_max, right_max);
+        // 共享策略：需要等待双侧都推进，取最小值确保安全
+        int64_t left_max = max_seen_left_ts_.load(std::memory_order_acquire);
+        int64_t right_max = max_seen_right_ts_.load(std::memory_order_acquire);
+        
+        constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+        
+        // 处理初始状态：如果某侧还没有记录，使用另一侧的时间戳
+        if (left_max == kMinTimestamp && right_max == kMinTimestamp) {
+            // 两侧都没有记录，不需要 evict
+            safe_evict_ts = kMinTimestamp;
+        } else if (left_max == kMinTimestamp) {
+            // 左侧没有记录，使用右侧时间戳
+            safe_evict_ts = right_max;
+        } else if (right_max == kMinTimestamp) {
+            // 右侧没有记录，使用左侧时间戳
+            safe_evict_ts = left_max;
+        } else {
+            // 两侧都有记录，使用最小值确保安全
+            safe_evict_ts = std::min(left_max, right_max);
+        }
     }
+    
     {
         MetricsTimer t_window_evict(JoinMetrics::instance().expire_ns);
         state->evictExpired(safe_evict_ts, join_func_->getWindowSize(), subtask_index);
@@ -1201,6 +1216,11 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
                     ? dimension : strategy_config_.dimension;
                 cp_config.seed = 42;
                 cp_config.rebalance_threshold = strategy_config_.clustered_rebalance_threshold;
+                // 关键：设置 multicast_k 用于控制向量分发到多少个分区
+                cp_config.multicast_k = strategy_config_.clustered_multicast_k;
+                // 关键修复：设置冷启动训练参数
+                cp_config.training_samples = static_cast<size_t>(strategy_config_.clustered_training_samples);
+                cp_config.enable_cold_start = strategy_config_.enable_cold_start;
                 
                 auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
                 
@@ -1208,9 +1228,12 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
                 partitioner->setMulticastEnabled(strategy_config_.clustered_multicast_enabled);
                 
                 SAGEFLOW_LOG_INFO("JOIN", "Created CentroidPartitioner for ClusteredJoin: "
-                                 "partitions={} overlap={:.2f} multicast={}",
+                                 "partitions={} overlap={:.2f} multicast={} multicast_k={} "
+                                 "training_samples={} cold_start={}",
                                  cp_config.num_partitions, cp_config.overlap_ratio,
-                                 strategy_config_.clustered_multicast_enabled);
+                                 strategy_config_.clustered_multicast_enabled,
+                                 cp_config.multicast_k,
+                                 cp_config.training_samples, cp_config.enable_cold_start);
                 
                 return partitioner;
             }

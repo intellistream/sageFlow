@@ -8,12 +8,20 @@ namespace sageFlow {
 std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteEager(
     const VectorRecord &query_record, int query_slot, size_t /*subtask_index*/) {
   std::vector<std::unique_ptr<VectorRecord>> results;
-  if (!concurrency_manager_) return results;
-  int idx = otherIndexId(query_slot);
-  if (idx == -1) [[unlikely]] {
+  if (!concurrency_manager_) {
+    SAGEFLOW_LOG_ERROR("JOIN_IVF", "ExecuteEager: concurrency_manager_ is NULL!");
     return results;
   }
+  int idx = otherIndexId(query_slot);
+  if (idx == -1) [[unlikely]] {
+    SAGEFLOW_LOG_ERROR("JOIN_IVF", "ExecuteEager: invalid index id (slot={} left={} right={})",
+                       query_slot, left_index_id_, right_index_id_);
+    return results;
+  }
+  SAGEFLOW_LOG_INFO("JOIN_IVF", "ExecuteEager: querying index={} for uid={} threshold={:.4f}",
+                    idx, query_record.uid_, join_similarity_threshold_);
   auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_);
+  SAGEFLOW_LOG_INFO("JOIN_IVF", "ExecuteEager: index={} returned {} candidates", idx, candidates.size());
   SAGEFLOW_LOG_DEBUG("JOIN_IVF", "eager_query slot={} candidates={} ", query_slot, candidates.size());
   // LOG输出匹配上的向量和到达向量具体是什么
   SAGEFLOW_LOG_DEBUG("JOIN_IVF", "eager_query input uid={} ", query_record.uid_);

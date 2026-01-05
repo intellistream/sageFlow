@@ -1,7 +1,7 @@
 #include "operator/utils/join_strategy_factory.h"
 
 #include "operator/join_operator_methods/bruteforce.h"
-#include "operator/join_operator_methods/ivf.h"
+#include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_operator_methods/hnsw.h"
 #include "operator/join_operator_methods/hdr_tree_method.h"
 #include "operator/join_operator_methods/clustered_join_method.h"
@@ -170,10 +170,21 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createIvfMethod(
     std::shared_ptr<ConcurrencyManager> cm,
     int left_idx, int right_idx) {
     
-    return std::make_unique<IvfJoinMethod>(
-        left_idx, right_idx,
-        config.similarity_threshold,
-        cm);
+    // 使用新的 IVFMethod 类（而非旧的 IvfJoinMethod）
+    IVFMethod::Config ivf_config;
+    ivf_config.similarity_threshold = config.similarity_threshold;
+    ivf_config.nlist = config.ivf_nlist;
+    ivf_config.nprobes = config.ivf_nprobes;
+    ivf_config.rebuild_threshold = config.ivf_rebuild_threshold;
+    ivf_config.use_existing_index = true;
+    
+    SAGEFLOW_LOG_INFO("JoinStrategyFactory", "Creating IVFMethod with nlist={} nprobes={} threshold={}",
+                      ivf_config.nlist, ivf_config.nprobes, ivf_config.similarity_threshold);
+    
+    auto method = std::make_unique<IVFMethod>(ivf_config);
+    method->setIndexIds(left_idx, right_idx);
+    method->setConcurrencyManager(cm);
+    return method;
 }
 
 std::unique_ptr<BaseMethod> JoinStrategyFactory::createHnswMethod(
@@ -226,7 +237,6 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createClusteredJoinMethod(
     cj_config.num_partitions = config.num_partitions;
     cj_config.overlap_ratio = config.clustered_overlap_ratio;
     cj_config.rebalance_threshold = config.clustered_rebalance_threshold;
-    cj_config.use_border_replication = config.clustered_border_replication;
     cj_config.training_samples = config.clustered_training_samples;
     cj_config.index_type = config.clustered_index_type;
     
@@ -338,16 +348,20 @@ std::unique_ptr<IPartitioner> JoinStrategyFactory::createPartitioner(
             
         case PartitionStrategy::CENTROID: {
             // Centroid 分区需要创建 CentroidPartitioner
-            auto cp = createCentroidPartitioner(config);
-            // CentroidPartitioner 实现了 IPartitioner 接口
-            // 但这里需要返回 unique_ptr，所以创建一个包装器
-            // 或者直接返回新创建的实例
+            // 使用完整的配置参数，包括冷启动训练参数
             CentroidPartitioner::Config cp_config;
             cp_config.num_partitions = config.num_partitions;
             cp_config.overlap_ratio = config.clustered_overlap_ratio;
             cp_config.dimension = config.dimension;
             cp_config.seed = 42;
-            return std::make_unique<CentroidPartitioner>(cp_config);
+            // 关键修复：设置冷启动训练参数
+            cp_config.training_samples = static_cast<size_t>(config.clustered_training_samples);
+            cp_config.enable_cold_start = config.enable_cold_start;
+            cp_config.multicast_k = config.clustered_multicast_k;
+            
+            auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
+            partitioner->setMulticastEnabled(config.clustered_multicast_enabled);
+            return partitioner;
         }
             
         default:
@@ -400,6 +414,16 @@ std::shared_ptr<CentroidPartitioner> JoinStrategyFactory::createCentroidPartitio
     cp_config.rebalance_threshold = config.clustered_rebalance_threshold;
     cp_config.seed = 42;
     cp_config.dimension = config.dimension;
+    
+    // 添加冷启动配置（修复：之前缺少这些设置）
+    cp_config.training_samples = static_cast<size_t>(config.clustered_training_samples);
+    cp_config.enable_cold_start = config.enable_cold_start;
+    cp_config.multicast_k = config.clustered_multicast_k;
+    
+    SAGEFLOW_LOG_INFO("JOIN_FACTORY", 
+        "Creating CentroidPartitioner: partitions={} cold_start={} training_samples={} multicast_k={}",
+        cp_config.num_partitions, cp_config.enable_cold_start, 
+        cp_config.training_samples, cp_config.multicast_k);
     
     return std::make_shared<CentroidPartitioner>(cp_config);
 }

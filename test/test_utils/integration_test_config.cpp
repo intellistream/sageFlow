@@ -212,17 +212,44 @@ JoinStrategyConfig IntegrationTestConfigLoader::parseStrategyConfig(
     }
 
     // ClusteredJoin 参数
+    if (auto v = table["clustered_multicast_k"].value<int64_t>()) {
+        config.clustered_multicast_k = static_cast<int>(*v);
+    }
     if (auto v = table["clustered_overlap_ratio"].value<double>()) {
         config.clustered_overlap_ratio = *v;
     }
     if (auto v = table["clustered_rebalance_threshold"].value<double>()) {
         config.clustered_rebalance_threshold = *v;
     }
-    if (auto v = table["clustered_border_replication"].value<bool>()) {
-        config.clustered_border_replication = *v;
-    }
+    // clustered_border_replication 已废弃，multicast 功能由 multicast_k 控制
     if (auto v = table["clustered_training_samples"].value<int64_t>()) {
         config.clustered_training_samples = static_cast<int>(*v);
+        // 同步到 training_samples 字段（用于 CentroidPartitioner）
+        config.training_samples = static_cast<size_t>(*v);
+    }
+    // ClusteredJoin 索引类型
+    if (auto v = table["clustered_index_type"].value<std::string>()) {
+        std::string type_str = *v;
+        std::transform(type_str.begin(), type_str.end(), type_str.begin(), ::tolower);
+        if (type_str == "bruteforce" || type_str == "brute_force") {
+            config.clustered_index_type = ClusteredIndexType::BRUTEFORCE;
+        } else if (type_str == "hnsw") {
+            config.clustered_index_type = ClusteredIndexType::HNSW;
+        } else {
+            config.clustered_index_type = ClusteredIndexType::IVF;  // 默认 IVF
+        }
+    }
+    // ClusteredJoin 多播开关
+    if (auto v = table["clustered_multicast_enabled"].value<bool>()) {
+        config.clustered_multicast_enabled = *v;
+    }
+    // ClusteredJoin 冷启动配置
+    if (auto v = table["clustered_cold_start_enabled"].value<bool>()) {
+        config.enable_cold_start = *v;
+    }
+    // ClusteredJoin 广播去重配置
+    if (auto v = table["clustered_broadcast_dedup"].value<bool>()) {
+        config.deduplicate_during_broadcast = *v;
     }
 
     // VSJoin 参数
@@ -343,6 +370,9 @@ IntegrationTestCase IntegrationTestConfigLoader::parseTestCase(
     }
     if (auto v = table["alpha"].value<double>()) {
         tc.alpha = *v;
+    }
+    if (auto v = table["data_mode"].value<std::string>()) {
+        tc.data_mode = *v;
     }
 
     // 验证配置

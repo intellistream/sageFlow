@@ -91,6 +91,7 @@ struct IntegrationTestResult {
     int64_t true_positives = 0;
     int64_t false_positives = 0;
     int64_t false_negatives = 0;
+    int64_t dedup_count = 0;  // Sink 去重拦截的数量
     
     // 时间
     double execution_time_ms = 0.0;
@@ -106,9 +107,9 @@ struct IntegrationTestResult {
     void print() const {
         SAGEFLOW_LOG_INFO("IntegrationTest",
             "[{}] Algorithm={}, Size={}, Para={}, Recall={:.4f}, Precision={:.4f}, "
-            "Expected={}, Actual={}, TP={}, Time={:.2f}ms, {}",
+            "Expected={}, Actual={}, TP={}, Dedup={}, Time={:.2f}ms, {}",
             test_name, toString(algorithm), data_size, parallelism,
-            recall, precision, expected_count, actual_count, true_positives,
+            recall, precision, expected_count, actual_count, true_positives, dedup_count,
             execution_time_ms, passed ? "PASSED" : ("FAILED: " + failure_reason));
         
         if (breakdown.hasData()) {
@@ -311,9 +312,29 @@ protected:
             generator.generateData();  // 初始化生成器内部状态
             
             // 3. 使用 JoinTestHelper 分割数据并计算真正的预期匹配
-            // generateJoinStreamsFromGenerator 会复制向量到左右流
-            auto [left_stream, right_stream] = JoinTestHelper::generateJoinStreamsFromGenerator(
-                generator, true /* apply_uid_offset */);
+            // 根据 data_mode 选择数据分割方式：
+            // - "duplicate": 复制向量到两个流（自连接，左右向量相同）
+            // - "paired": 分割配对数据（左流=base，右流=perturbed，向量不同）
+            std::vector<std::unique_ptr<VectorRecord>> left_stream;
+            std::vector<std::unique_ptr<VectorRecord>> right_stream;
+            
+            if (test_case_.data_mode == "paired") {
+                auto streams = JoinTestHelper::generatePairedJoinStreams(
+                    generator, true /* apply_uid_offset */);
+                left_stream = std::move(streams.first);
+                right_stream = std::move(streams.second);
+                SAGEFLOW_LOG_INFO("IntegrationTest",
+                    "[{}] Using PAIRED mode - left=base vectors, right=perturbed vectors",
+                    test_case_.name);
+            } else {
+                auto streams = JoinTestHelper::generateJoinStreamsFromGenerator(
+                    generator, true /* apply_uid_offset */);
+                left_stream = std::move(streams.first);
+                right_stream = std::move(streams.second);
+                SAGEFLOW_LOG_INFO("IntegrationTest",
+                    "[{}] Using DUPLICATE mode - same vectors in both streams",
+                    test_case_.name);
+            }
             
             SAGEFLOW_LOG_INFO("IntegrationTest",
                 "[{}] Split into left={} records, right={} records",
@@ -411,6 +432,7 @@ protected:
             }
             
             result.actual_count = static_cast<int64_t>(exec_result.matches.size());
+            result.dedup_count = exec_result.dedup_count;
             
             // 7. 计算召回率/精确率
             computeMetrics(expected_matches, exec_result.matches, result);

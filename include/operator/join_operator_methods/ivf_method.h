@@ -167,6 +167,18 @@ public:
         right_index_id_ = right_index_id;
     }
 
+    /**
+     * @brief 设置 ConcurrencyManager
+     * @param cm ConcurrencyManager 指针
+     */
+    void setConcurrencyManager(ConcurrencyManager* cm) {
+        concurrency_manager_ = cm;
+    }
+    
+    void setConcurrencyManager(std::shared_ptr<ConcurrencyManager> cm) {
+        concurrency_manager_ = cm.get();
+    }
+
 private:
     Config config_;
     

@@ -66,6 +66,7 @@ JoinConfigValidator::ValidationResult JoinConfigValidator::validate(
     checkParameterRanges(config, result);
     checkDependencies(config, result);
     checkPerformanceHints(config, result);
+    checkColdStartConfig(config, result);  // 添加冷启动配置检查
 
     return result;
 }
@@ -294,12 +295,32 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
             }
         }
         
-        // 警告：多播与边界复制应一致
-        if (config.clustered_border_replication && !config.clustered_multicast_enabled) {
+        // 检查 multicast_k 范围
+        if (config.clustered_multicast_k < 0) {
+            result.addError(
+                "clustered_multicast_k must be >= 0 (0=use overlap_ratio, >=1=fixed k). "
+                "Current: " + std::to_string(config.clustered_multicast_k) + ".");
+        }
+        
+        // **关键约束**：num_partitions 必须等于 parallelism
+        // 原因：CentroidPartitioner 使用 `partition_idx % num_channels` 映射
+        // 如果 num_partitions > parallelism，会导致多个逻辑分区映射到同一物理线程
+        // 这会破坏 k 值多播的语义，导致召回率下降
+        // 例如：8 个分区 → 4 个线程时，k=1 会丢失同线程内其他分区的匹配
+        // 注意：此处只能添加警告，运行时会在 JoinOperator::open() 中强制检查
+        if (config.num_partitions > 0) {
             result.addWarning(
-                "clustered_border_replication is true but clustered_multicast_enabled is false. "
-                "This may cause missed matches at partition boundaries. "
-                "Consider enabling clustered_multicast_enabled for better recall.");
+                "ClusteredJoin: num_partitions=" + std::to_string(config.num_partitions) + 
+                " should equal parallelism to avoid recall loss. "
+                "Runtime check will enforce this constraint.");
+        }
+        
+        // 警告：multicast_k 和 overlap_ratio 的关系
+        if (config.clustered_multicast_k > 0 && config.clustered_overlap_ratio != 0.1) {
+            result.addWarning(
+                "clustered_multicast_k is set to " + std::to_string(config.clustered_multicast_k) + 
+                ", overlap_ratio will be ignored. "
+                "Remove overlap_ratio from config to avoid confusion.");
         }
     }
 }
@@ -498,12 +519,12 @@ void JoinConfigValidator::checkDependencies(
             "Ensure sufficient training samples for stable clustering.");
     }
 
-    // ClusteredJoin 边界复制
+    // ClusteredJoin multicast 性能提示
     if (config.algorithm == JoinAlgorithm::CLUSTERED_JOIN &&
-        config.clustered_border_replication) {
+        config.clustered_multicast_k > 1) {
         result.addWarning(
-            "ClusteredJoin with border replication enabled may increase memory usage. "
-            "Overlap ratio: " + std::to_string(config.clustered_overlap_ratio) + ".");
+            "ClusteredJoin with multicast_k=" + std::to_string(config.clustered_multicast_k) + 
+            " may increase memory usage and computation due to vector replication.");
     }
 }
 
@@ -592,6 +613,92 @@ void JoinConfigValidator::checkPerformanceHints(
             std::to_string(config.window_size_ms) + "ms) may cause "
             "high processing latency per record. Consider Lazy mode for "
             "batch processing efficiency.");
+    }
+}
+
+void JoinConfigValidator::checkColdStartConfig(
+    const JoinStrategyConfig& config,
+    ValidationResult& result) {
+
+    // 仅在启用冷启动时验证
+    if (!config.enable_cold_start) {
+        return;
+    }
+
+    // 冷启动仅支持 ClusteredJoin
+    if (config.algorithm != JoinAlgorithm::CLUSTERED_JOIN) {
+        // 对于非 ClusteredJoin 算法，仅给出警告，不报错
+        // 这样可以保持向后兼容性
+        result.addWarning(
+            "enable_cold_start is true but algorithm is not CLUSTERED_JOIN (current: " +
+            sageFlow::toString(config.algorithm) + "). "
+            "Cold-start training is only effective for ClusteredJoin. "
+            "Consider setting enable_cold_start=false for other algorithms.");
+        return;  // 不继续检查其他冷启动参数
+    }
+
+    // 以下验证仅针对 ClusteredJoin 算法
+
+    // 验证 training_samples
+    if (config.clustered_training_samples < 10) {
+        result.addError(
+            "clustered_training_samples must be >= 10 for meaningful training. "
+            "Current: " + std::to_string(config.clustered_training_samples) + ". "
+            "Increase training_samples to at least 10.");
+    }
+
+    if (config.clustered_training_samples > 100000) {
+        result.addWarning(
+            "clustered_training_samples is very large (" +
+            std::to_string(config.clustered_training_samples) + "). "
+            "This may cause high memory usage during training. "
+            "Consider limiting to <= 100000 unless necessary.");
+    }
+
+    // 验证与分区策略的兼容性
+    if (config.partition_strategy != PartitionStrategy::CENTROID) {
+        result.addError(
+            "Cold-start training requires CENTROID partition strategy. "
+            "Current: " + sageFlow::toString(config.partition_strategy) + ". "
+            "Change partition_strategy to CENTROID for cold-start support.");
+    }
+
+    // 验证 training_samples 与 num_partitions 的关系
+    if (config.clustered_training_samples < static_cast<size_t>(config.num_partitions * 5)) {
+        result.addWarning(
+            "clustered_training_samples (" +
+            std::to_string(config.clustered_training_samples) +
+            ") is less than 5 * num_partitions (" +
+            std::to_string(config.num_partitions * 5) + "). "
+            "This may result in poor clustering quality. "
+            "Increase training_samples to at least 5 * num_partitions for better results.");
+    }
+
+    // 验证 deduplicate_during_broadcast 配置
+    // 在高并行度下建议启用去重
+    if (!config.deduplicate_during_broadcast && config.num_partitions > 4) {
+        result.addWarning(
+            "deduplicate_during_broadcast is disabled with high parallelism (" +
+            std::to_string(config.num_partitions) + " partitions). "
+            "This may cause duplicate outputs during broadcast phase. "
+            "Consider enabling deduplicate_during_broadcast for correctness.");
+    }
+
+    // 如果 training_samples = 0，警告冷启动未启用
+    if (config.clustered_training_samples == 0) {
+        result.addWarning(
+            "clustered_training_samples is 0, but enable_cold_start is true. "
+            "Cold-start will not be effective without training samples. "
+            "Either set training_samples > 0 or disable cold-start.");
+    }
+
+    // 验证与 multicast 的兼容性
+    if (!config.clustered_multicast_enabled) {
+        result.addWarning(
+            "clustered_multicast_enabled is false. "
+            "During cold-start broadcast phase, all subtasks will receive data, "
+            "but after training, single-partition routing may cause low recall. "
+            "Consider enabling multicast for consistent behavior.");
     }
 }
 

@@ -84,7 +84,7 @@ TEST_F(ClusteredConfigTest, LoadClusteredBruteforce) {
     EXPECT_EQ(config.algorithm, JoinAlgorithm::CLUSTERED_JOIN);
     EXPECT_EQ(config.clustered_index_type, ClusteredIndexType::BRUTEFORCE);
     EXPECT_TRUE(config.clustered_multicast_enabled);
-    EXPECT_TRUE(config.clustered_border_replication);
+    // clustered_border_replication 已废弃
 }
 
 TEST_F(ClusteredConfigTest, LoadClusteredIvf) {
@@ -157,7 +157,7 @@ TEST_F(ClusteredConfigTest, ValidateClusteredHnsw_MissingParams) {
 TEST_F(ClusteredConfigTest, ValidateMulticastWarning) {
     // 边界复制开启但多播关闭 - 应该产生警告
     config_.clustered_index_type = ClusteredIndexType::IVF;
-    config_.clustered_border_replication = true;
+    // config_.clustered_border_replication 已废弃
     config_.clustered_multicast_enabled = false;
     
     auto result = JoinConfigValidator::validate(config_);
