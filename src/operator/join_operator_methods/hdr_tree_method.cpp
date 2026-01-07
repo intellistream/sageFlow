@@ -35,7 +35,7 @@ std::vector<std::unique_ptr<VectorRecord>> HDRTreeMethod::ExecuteEager(
     // 使用 ConcurrencyManager 查询 HDR Forest 索引
     // 索引实现处理剪枝和 PCA 逻辑
     auto shared_results = concurrency_manager_->query_for_join(
-        target_index_id, query_record, join_similarity_threshold_);
+        target_index_id, query_record, join_similarity_threshold_, similarity_alpha_);
         
     // 将 shared_ptr 转换为 unique_ptr（复制）
     results.reserve(shared_results.size());

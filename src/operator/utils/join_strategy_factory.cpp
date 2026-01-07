@@ -1,6 +1,7 @@
 #include "operator/utils/join_strategy_factory.h"
 
 #include "operator/join_operator_methods/bruteforce.h"
+#include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_operator_methods/hnsw.h"
 #include "operator/join_operator_methods/hdr_tree_method.h"
@@ -56,21 +57,19 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
         }
         throw std::runtime_error(oss.str());
     }
-    
+
     StrategyComponents components;
     
     // 2. 创建索引对
     // 统一架构：所有使用索引的 Join 方法都通过 ConcurrencyManager 管理共享索引
     // - 共享索引策略：BRUTEFORCE, IVF, HNSW, HDR_TREE
-    // - 分区索引策略（但仍使用共享索引管理）：CLUSTERED_JOIN, S3J
-    // 
-    // 注意：即使是 PARTITIONED 索引策略，我们仍然创建共享索引，
-    // 因为 ConcurrencyManager 内部已经有线程安全机制。
-    // ClusteredJoin 通过 CentroidPartitioner 确保数据被路由到正确的分区，
-    // 然后通过 Owner-Computes 规则去重。
-    bool need_index = config.index_strategy == IndexStrategy::SHARED ||
+    // - 分区索引策略（分区内部使用索引管理）：CLUSTERED_JOIN, S3J
+
+    // 大多数方法都通过 ConcurrencyManager 管理的索引进行查询（包括 BRUTEFORCE 的“策略配置路径”，
+    // 该路径会创建 BruteForceJoinMethod，并依赖 BruteForce/KNN 索引完成 query_for_join 过滤）。
+    bool need_index = (config.index_strategy == IndexStrategy::SHARED ||
                       config.algorithm == JoinAlgorithm::CLUSTERED_JOIN ||
-                      config.algorithm == JoinAlgorithm::S3J;
+                      config.algorithm == JoinAlgorithm::S3J);
     
     if (need_index) {
         if (!createIndexPair(config, concurrency_manager, 
@@ -84,6 +83,10 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
     components.join_method = createJoinMethod(config, concurrency_manager,
                                              components.left_index_id,
                                              components.right_index_id);
+    // 绑定 alpha 到该 pipeline 的 JoinMethod（方案 A：ComputeEngine 纯计算，alpha 由上层传入）
+    if (components.join_method) {
+        components.join_method->setSimilarityAlpha(config.similarity_alpha);
+    }
     
     // 4. 创建 WindowState
     components.left_state = createWindowState(config, parallelism);
@@ -159,10 +162,16 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createBruteForceMethod(
     std::shared_ptr<ConcurrencyManager> cm,
     int left_idx, int right_idx) {
     
-    return std::make_unique<BruteForceJoinMethod>(
-        left_idx, right_idx,
+    (void)cm;
+    (void)left_idx;
+    (void)right_idx;
+    // 对 BRUTEFORCE，我们继续使用基于 WindowState 的 BruteForceBaseline：
+    // - 这样左右流的数据完全隔离，不会因为共享 StorageManager 的全局扫描而“混流”；
+    // - 同时 alpha/similarity_mode 仍由 JoinStrategyConfig 提供（不依赖索引层）。
+    return std::make_unique<BruteForceBaseline>(
         config.similarity_threshold,
-        cm);
+        config.similarity_mode,
+        config.similarity_alpha);
 }
 
 std::unique_ptr<BaseMethod> JoinStrategyFactory::createIvfMethod(

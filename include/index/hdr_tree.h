@@ -80,8 +80,8 @@ class HDRTree final : public Index {
   auto erase(uint64_t uid) -> bool override;
   auto query(const VectorRecord& record, int k) -> std::vector<uint64_t> override;
   auto query(const VectorRecord& record, const std::vector<float>& projected, int k) -> std::vector<uint64_t>;
-  auto query_for_join(const VectorRecord& record, double threshold) -> std::vector<uint64_t> override;
-  auto query_for_join(const VectorRecord& record, const std::vector<float>& projected, double threshold) -> std::vector<uint64_t>;
+  auto query_for_join(const VectorRecord& record, double threshold, double similarity_alpha) -> std::vector<uint64_t> override;
+  auto query_for_join(const VectorRecord& record, const std::vector<float>& projected, double threshold, double similarity_alpha) -> std::vector<uint64_t>;
 
   [[nodiscard]] auto size() const -> size_t { return uid_to_projected_.size(); }
   [[nodiscard]] auto getConfig() const -> const Config& { return config_; }
@@ -114,7 +114,10 @@ class HDRTree final : public Index {
   // 辅助函数
   [[nodiscard]] auto searchRTree(const std::vector<float>& projected_query, float threshold) const -> std::vector<uint64_t>;
   void searchRTreeNode(const RTreeNode* node, const std::vector<float>& query, float threshold, std::vector<uint64_t>& candidates) const;
-  [[nodiscard]] auto verifyCandidates(const VectorRecord& query, const std::vector<uint64_t>& candidates, double threshold) const -> std::vector<uint64_t>;
+  [[nodiscard]] auto verifyCandidates(const VectorRecord& query,
+                                      const std::vector<uint64_t>& candidates,
+                                      double threshold,
+                                      double similarity_alpha) const -> std::vector<uint64_t>;
   [[nodiscard]] static auto euclideanDistance(const std::vector<float>& v1, const std::vector<float>& v2) -> float;
   [[nodiscard]] auto estimateDistanceUpperBound(float projected_dist) const -> float;
   [[nodiscard]] static auto extractFloatVector(const VectorData& data) -> std::vector<float>;

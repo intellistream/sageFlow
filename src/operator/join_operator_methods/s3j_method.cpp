@@ -77,7 +77,7 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
         int idx = otherIndexId(query_slot);
         if (idx != -1) {
             auto candidates = concurrency_manager_->query_for_join(
-                idx, query_record, join_similarity_threshold_);
+                idx, query_record, join_similarity_threshold_, similarity_alpha_);
             
             results.reserve(candidates.size());
             for (const auto& c : candidates) {
@@ -248,7 +248,7 @@ std::vector<std::shared_ptr<const VectorRecord>> S3JMethod::searchInPartition(
         return results;
     }
     
-    return concurrency_manager_->query_for_join(idx, query, threshold);
+    return concurrency_manager_->query_for_join(idx, query, threshold, similarity_alpha_);
 }
 
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(

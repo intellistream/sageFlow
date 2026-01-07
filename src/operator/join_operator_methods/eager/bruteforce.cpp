@@ -43,7 +43,7 @@ void BruteForceEager::Excute(
     }
 
     // Calculate similarity using ComputeEngine
-    double similarity = engine.Similarity(data->data_, rec->data_);
+    double similarity = engine.Similarity(data->data_, rec->data_, similarity_alpha_);
 
     // 修复：只有相似度大于等于阈值才进行join
     if (similarity >= join_similarity_threshold_) {
@@ -76,7 +76,7 @@ auto BruteForceEager::ExecuteEager(
 
   // 使用KNN索引查询匹配的候选项
   std::vector<std::shared_ptr<const VectorRecord>> candidates =
-      concurrency_manager_->query_for_join(query_index_id, query_record, join_similarity_threshold_);
+      concurrency_manager_->query_for_join(query_index_id, query_record, join_similarity_threshold_, similarity_alpha_);
 
   // 将候选项转换为独立的VectorRecord指针
   std::vector<std::unique_ptr<VectorRecord>> results;

@@ -423,6 +423,7 @@ protected:
             // 5. 配置 Pipeline
             JoinStrategyConfig strategy = test_case_.strategy;
             strategy.dimension = test_case_.vector_dim;
+            strategy.similarity_alpha = test_case_.alpha;  // 同步 alpha 参数
             
             // 6. 创建并执行 Pipeline
             auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
@@ -825,6 +826,7 @@ TEST_F(BruteForceGroundTruthTest, MustHavePerfectRecall) {
     
     JoinStrategyConfig strategy = tc.strategy;
     strategy.dimension = tc.vector_dim;
+    strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
     
     auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
         std::move(left_stream),
@@ -908,6 +910,7 @@ TEST_F(CrossAlgorithmComparisonTest, ApproximateAlgorithmsMeetRecallRequirements
         
         JoinStrategyConfig strategy = tc.strategy;
         strategy.dimension = tc.vector_dim;
+        strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
         
         auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
             std::move(left_stream),
@@ -994,6 +997,7 @@ TEST_F(LargeScaleIntegrationTest, LargeDatasetExecution) {
         gen_config.negative_pairs = kNegativePairs;
         gen_config.random_tail = kRandomTail;
         gen_config.similarity_threshold = tc.strategy.similarity_threshold;
+        gen_config.alpha = tc.alpha;  // 同步 alpha 参数
         gen_config.seed = tc.seed;
         gen_config.base_timestamp = tc.base_timestamp;
         gen_config.time_interval = tc.time_interval_ms;
@@ -1008,6 +1012,7 @@ TEST_F(LargeScaleIntegrationTest, LargeDatasetExecution) {
         
         JoinStrategyConfig strategy = tc.strategy;
         strategy.dimension = tc.vector_dim;
+        strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
         
         // 使用最大并行度
         int max_para = *std::max_element(tc.parallelism.begin(), tc.parallelism.end());

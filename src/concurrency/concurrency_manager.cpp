@@ -52,7 +52,9 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
   // - BruteForce: 直接从 WindowState 获取数据（避免数据混合）
   // - IVF/HNSW 等: 通过 ConcurrencyManager 查询索引
   index->storage_manager_ = storage_;
-  storage_->engine_ = std::make_shared<ComputeEngine>();
+  if (storage_ && !storage_->engine_) {
+    storage_->engine_ = std::make_shared<ComputeEngine>();
+  }
 
   const auto blank_controller = std::make_shared<BlankController>(index);
 
@@ -110,7 +112,9 @@ auto sageFlow::ConcurrencyManager::create_index(const std::string& name, const I
   // - BruteForce: 直接从 WindowState 获取数据（避免数据混合）
   // - IVF/HNSW 等: 通过 ConcurrencyManager 查询索引
   index->storage_manager_ = storage_;
-  storage_->engine_ = std::make_shared<ComputeEngine>();
+  if (storage_ && !storage_->engine_) {
+    storage_->engine_ = std::make_shared<ComputeEngine>();
+  }
 
   const auto blank_controller = std::make_shared<BlankController>(index);
 
@@ -186,13 +190,14 @@ auto sageFlow::ConcurrencyManager::query(int index_id, const VectorRecord& recor
 }
 
 auto sageFlow::ConcurrencyManager::query_for_join(int index_id, const VectorRecord& record,
-                      double join_similarity_threshold) -> std::vector<std::shared_ptr<const VectorRecord>> {
+                      double join_similarity_threshold,
+                      double similarity_alpha) -> std::vector<std::shared_ptr<const VectorRecord>> {
   const auto it = controller_map_.find(index_id);
   if (it == controller_map_.end()) {
     return {};
   }
   const auto& controller = it->second;
-  return controller->query_for_join(record, join_similarity_threshold);
+  return controller->query_for_join(record, join_similarity_threshold, similarity_alpha);
 }
 
 // ==================== 分区索引访问实现 ====================

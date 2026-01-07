@@ -31,7 +31,7 @@ void BruteForceLazy::Excute(
 
       // 使用KNN索引查询相似向量
       std::vector<std::shared_ptr<const VectorRecord>> candidates =
-          concurrency_manager_->query_for_join(query_index_id, *left_record, join_similarity_threshold_);
+          concurrency_manager_->query_for_join(query_index_id, *left_record, join_similarity_threshold_, similarity_alpha_);
 
       // 对每个候选项执行join操作
       for (const auto &candidate : candidates) {
@@ -69,7 +69,7 @@ void BruteForceLazy::Excute(
           continue;
         }
 
-        double similarity = engine.Similarity(left->data_, right->data_);
+        double similarity = engine.Similarity(left->data_, right->data_, similarity_alpha_);
         if (similarity >= join_similarity_threshold_) {
           auto left_copy = std::make_unique<VectorRecord>(*left);
           auto right_copy = std::make_unique<VectorRecord>(*right);
@@ -109,7 +109,7 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceLazy::ExecuteEager(
 
     // 使用KNN索引查询匹配的候选项
     std::vector<std::shared_ptr<const VectorRecord>> candidates =
-        concurrency_manager_->query_for_join(query_index_id, query_record, join_similarity_threshold_);
+        concurrency_manager_->query_for_join(query_index_id, query_record, join_similarity_threshold_, similarity_alpha_);
 
     // 将候选项转换为独立的VectorRecord指针
     std::vector<std::unique_ptr<VectorRecord>> results;

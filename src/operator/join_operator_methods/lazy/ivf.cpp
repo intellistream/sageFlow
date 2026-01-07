@@ -39,7 +39,7 @@ void IvfLazy::Excute(
 
         // 从右流索引中查询匹配的候选项
         auto candidates =
-          concurrency_manager_->query_for_join(query_index_id, *query_record_copy, join_similarity_threshold_);
+          concurrency_manager_->query_for_join(query_index_id, *query_record_copy, join_similarity_threshold_, similarity_alpha_);
 
         // 对每个候选项执行join操作
         for (const auto &candidate : candidates) {
@@ -100,7 +100,7 @@ std::vector<std::unique_ptr<VectorRecord>> IvfLazy::ExecuteEager(
 
     // 从对方流的索引中查询匹配的候选项
     std::vector<std::shared_ptr<const VectorRecord>> candidates =
-        concurrency_manager_->query_for_join(query_index_id, query_record, join_similarity_threshold_);
+        concurrency_manager_->query_for_join(query_index_id, query_record, join_similarity_threshold_, similarity_alpha_);
 
     // 将候选项转换为独立的VectorRecord指针
     std::vector<std::unique_ptr<VectorRecord>> results;

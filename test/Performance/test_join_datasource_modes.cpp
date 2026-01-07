@@ -24,6 +24,7 @@
 #include "test_utils/data_source/dataset_data_source.h"
 #include "test_utils/data_writer/fvecs_writer.h"
 #include "test_utils/data_writer/json_writer.h"
+#include "operator/utils/join_strategy_config.h"
 #include <fstream>
 #include <set>
 #include <sstream>
@@ -35,6 +36,20 @@
 
 namespace sageFlow {
 namespace test {
+
+// 前向声明：buildJoinStrategyConfigForTest 需要使用 DataSourceModeConfig，但其定义在后面
+struct DataSourceModeConfig;
+
+static JoinStrategyConfig buildJoinStrategyConfigForTest(
+    const std::string& method,
+    double similarity_threshold,
+    double similarity_alpha,
+    const std::string& similarity_mode,
+    const DataSourceModeConfig& mode_config,
+    int dimension,
+    uint64_t window_ms,
+    uint64_t window_trigger_ms,
+    int parallelism);
 
 // TestVectorStreamSource for feeding records into the pipeline
 // -----------------------------------------------------------------------------
@@ -70,6 +85,16 @@ class TestVectorStreamSource : public DataStreamSource {
  * 1. generate_save_load: 生成数据 -> 保存到文件 -> 从文件加载 (测试持久化和加载)
  * 2. direct_load: 直接从现有文件加载 (测试真实数据集)
  * 3. generate_direct_use: 生成数据 -> 直接在内存中使用 (纯粹测试计算逻辑，不涉及IO)
+ * 
+ * 支持三种数据分割模式 (split_mode):
+ * 1. duplicate: 左右流完全相同（复制）- 默认行为
+ * 2. half_split: 前一半 -> 左流，后一半 -> 右流
+ * 3. interleaved: 偶数索引 -> 左流，奇数索引 -> 右流
+ * 
+ * 支持三种相似度计算模式 (similarity_mode):
+ * 1. fixed_alpha: 使用固定的 alpha 值 (默认)
+ * 2. adaptive_alpha: 根据数据分布自动调整 alpha
+ * 3. normalized: 先归一化向量，再使用固定 alpha
  */
 struct DataSourceModeConfig {
   std::string name;
@@ -93,7 +118,67 @@ struct DataSourceModeConfig {
   // Storage config (for generate_save_load mode)
   std::string storage_format;  // "fvecs", "json"
   std::string storage_file_path;
+
+  // Split mode for stream partitioning (new feature)
+  std::string split_mode{"duplicate"};  // "duplicate", "half_split", "interleaved"
+
+  // Similarity calculation configuration
+  // similarity_mode: "fixed_alpha", "adaptive_alpha", "normalized"
+  std::string similarity_mode{"fixed_alpha"};
+  
+  // Alpha parameter for similarity calculation: sim = exp(-alpha * L2_distance)
+  // Default 0.1 works for normalized vectors or small L2 distances
+  // For SIFT-like datasets with large norms (~500), use alpha = 0.001
+  double alpha{0.1};
+
+  // ==================== ClusteredJoin 参数（仅 clustered_join 方法使用） ====================
+  // 来自 TOML 的 clustered_join_params.*，用于确保 direct_load(siftsmall) 等场景下
+  // ClusteredJoin 的分区内索引类型/多播策略与配置一致。
+  std::string clustered_index_type{"ivf"};  // "bruteforce" / "ivf" / "hnsw"
+  bool clustered_multicast_enabled{true};
+  double clustered_overlap_ratio{0.1};
+  int clustered_training_samples{500};
 };
+
+static JoinStrategyConfig buildJoinStrategyConfigForTest(
+    const std::string& method,
+    double similarity_threshold,
+    double similarity_alpha,
+    const std::string& similarity_mode,
+    const DataSourceModeConfig& mode_config,
+    int dimension,
+    uint64_t window_ms,
+    uint64_t window_trigger_ms,
+    int parallelism) {
+  JoinStrategyConfig cfg;
+  cfg.algorithm = parseJoinAlgorithm(method);
+  cfg.similarity_threshold = similarity_threshold;
+  cfg.similarity_alpha = similarity_alpha;
+  cfg.similarity_mode = parseSimilarityMode(similarity_mode);
+  cfg.dimension = dimension;
+  cfg.window_size_ms = static_cast<int64_t>(window_ms);
+  cfg.step_size_ms = static_cast<int64_t>(window_trigger_ms);
+
+  // Ensure algorithm-specific invariants for strategy-config path.
+  cfg.inferDefaults();
+
+  if (cfg.algorithm == JoinAlgorithm::CLUSTERED_JOIN) {
+    // Runtime constraint: num_partitions must equal parallelism.
+    cfg.num_partitions = parallelism;
+    cfg.partition_strategy = PartitionStrategy::CENTROID;
+    cfg.window_state_type = WindowStateType::PARTITIONED;
+    cfg.index_strategy = IndexStrategy::SHARED;  // new architecture uses shared indices managed by ConcurrencyManager
+
+    // 关键：把 clustered_join_params.* 的配置透传到 JoinStrategyConfig，
+    // 否则 ClusteredJoin 可能会回退到默认的分区内 IVF 索引（近似）导致召回偏低。
+    cfg.clustered_index_type = parseClusteredIndexType(mode_config.clustered_index_type);
+    cfg.clustered_overlap_ratio = mode_config.clustered_overlap_ratio;
+    cfg.clustered_training_samples = mode_config.clustered_training_samples;
+    cfg.clustered_multicast_enabled = mode_config.clustered_multicast_enabled;
+  }
+
+  return cfg;
+}
 
 // Load configuration from TOML file
 // -----------------------------------------------------------------------------
@@ -173,10 +258,32 @@ static std::vector<DataSourceModeConfig> loadDataSourceModeConfigs() {
           config.get<std::string>("storage.file_path", "test/data/temp_generated.fvecs"));
     }
 
+    // Split mode configuration (for stream partitioning)
+    mode_config.split_mode = config.get<std::string>("split_mode", "duplicate");
+
+    // Similarity calculation configuration
+    mode_config.similarity_mode = config.get<std::string>("similarity_mode", "fixed_alpha");
+    mode_config.alpha = config.get<double>("similarity_alpha", 
+                                            config.get<double>("alpha", 0.1));
+
+    // ClusteredJoin-specific configuration (optional for non-clustered methods)
+    mode_config.clustered_index_type =
+        config.get<std::string>("clustered_join_params.index_type", "ivf");
+    mode_config.clustered_overlap_ratio =
+        config.get<double>("clustered_join_params.overlap_ratio", 0.1);
+    mode_config.clustered_training_samples =
+        config.get<int>("clustered_join_params.training_samples", 500);
+    mode_config.clustered_multicast_enabled =
+        (config.get<int>("clustered_join_params.multicast_enabled", 1) != 0);
+
+    SAGEFLOW_LOG_INFO("TEST", "[CONFIG] Split mode: {}, similarity_mode: {}, alpha: {}", 
+                      mode_config.split_mode, mode_config.similarity_mode, mode_config.alpha);
+
     configs.push_back(mode_config);
 
-    SAGEFLOW_LOG_INFO("TEST", "[CONFIG] Loaded test: name={} mode={} methods={} sizes={} vector_dim={}",
-                      mode_config.name, mode_config.mode, mode_config.methods.size(), mode_config.sizes.size(), mode_config.vector_dim);
+    SAGEFLOW_LOG_INFO("TEST", "[CONFIG] Loaded test: name={} mode={} split_mode={} methods={} sizes={} vector_dim={}",
+                      mode_config.name, mode_config.mode, mode_config.split_mode,
+                      mode_config.methods.size(), mode_config.sizes.size(), mode_config.vector_dim);
   }
 
   return configs;
@@ -197,6 +304,52 @@ static inline double l2_distance(const std::vector<float>& a, const std::vector<
 }
 
 /**
+ * @brief 计算向量的模长 (L2 范数)
+ */
+static inline double vector_norm(const std::vector<float>& v) {
+  double sum = 0.0;
+  for (float f : v) sum += static_cast<double>(f) * static_cast<double>(f);
+  return std::sqrt(sum);
+}
+
+/**
+ * @brief 计算相似度（支持多种模式）
+ * 
+ * @param lv 左向量
+ * @param rv 右向量
+ * @param similarity_mode "fixed_alpha", "adaptive_alpha", "normalized"
+ * @param alpha alpha 参数
+ * @return 相似度值 [0, 1]
+ */
+static inline double compute_similarity(
+    const std::vector<float>& lv,
+    const std::vector<float>& rv,
+    const std::string& similarity_mode,
+    double alpha) {
+  
+  if (similarity_mode == "normalized") {
+    // 归一化模式：先归一化向量，再计算 L2 距离
+    double norm_l = vector_norm(lv);
+    double norm_r = vector_norm(rv);
+    if (norm_l < 1e-10 || norm_r < 1e-10) return 0.0;
+    
+    double dist_sq = 0.0;
+    for (size_t i = 0; i < lv.size(); ++i) {
+      double diff = static_cast<double>(lv[i]) / norm_l - 
+                   static_cast<double>(rv[i]) / norm_r;
+      dist_sq += diff * diff;
+    }
+    double dist = std::sqrt(dist_sq);
+    // 归一化后同样使用 sim = exp(-alpha * L2_distance)，alpha 由配置传入
+    return std::exp(-alpha * dist);
+  }
+  
+  // fixed_alpha 或 adaptive_alpha 模式
+  double dist = l2_distance(lv, rv);
+  return std::exp(-alpha * dist);
+}
+
+/**
  * @brief 通过暴力遍历计算预期的 Join 结果 (Ground Truth)。
  * 
  * 这是一个 O(N*M) 的算法，用于验证流式 Join 算法的准确性 (Recall/Precision)。
@@ -206,6 +359,9 @@ static inline double l2_distance(const std::vector<float>& a, const std::vector<
  * @param right_records 右流数据
  * @param similarity_threshold 相似度阈值
  * @param window_ms 窗口大小（毫秒）
+ * @param similarity_mode 相似度计算模式: "fixed_alpha", "adaptive_alpha", "normalized"
+ * @param alpha alpha 参数
+ * @param modulo_base UID 取模基数
  * @return std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash> 匹配的 ID 对集合
  */
 static std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash>
@@ -214,6 +370,7 @@ computeExpectedPairsByTraversal(
     const std::vector<std::unique_ptr<VectorRecord>>& right_records,
     double similarity_threshold,
     uint64_t window_ms,
+    const std::string& similarity_mode = "fixed_alpha",
     double alpha = 0.1,
     uint64_t modulo_base = 1000000ULL) {
   std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash> expected;
@@ -249,8 +406,7 @@ computeExpectedPairsByTraversal(
       const auto& r = right_records[j];
       if (!r) continue;
       const auto rv = extractFloatVector(*r);
-      const double dist = l2_distance(lv, rv);
-      const double sim = std::exp(-alpha * dist);
+      const double sim = compute_similarity(lv, rv, similarity_mode, alpha);
       if (sim >= similarity_threshold) {
         expected.insert({l->uid_, r->uid_ % modulo_base});
       }
@@ -572,26 +728,77 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
     SAGEFLOW_LOG_INFO("TEST", "[MODE3] Generated {} records directly", base_records.size());
   }
 
-  // Split into left and right streams using JoinTestHelper (already refactored pattern)
+  // Split into left and right streams based on split_mode
+  // Supported modes:
+  //   - "duplicate": left and right have same vectors (with UID offset)
+  //   - "half_split": first half -> left, second half -> right
+  //   - "interleaved": even indices -> left, odd indices -> right
   std::vector<std::unique_ptr<VectorRecord>> left_records;
-  left_records.reserve(base_records.size());
-  for (auto& r : base_records) {
-    left_records.push_back(std::move(r));
-  }
-
   std::vector<std::unique_ptr<VectorRecord>> right_records;
-  right_records.reserve(left_records.size());
   constexpr uint64_t kRightUidOffset = 500000;
   constexpr uint64_t kModuloBase = 1000000ULL;
-  for (auto& lr : left_records) {
-    right_records.push_back(std::make_unique<VectorRecord>(lr->uid_ + kRightUidOffset, lr->timestamp_, lr->data_));
+
+  if (mode_config.split_mode == "half_split") {
+    // Half split: first half -> left, second half -> right
+    size_t half = base_records.size() / 2;
+    left_records.reserve(half);
+    right_records.reserve(base_records.size() - half);
+    
+    for (size_t i = 0; i < base_records.size(); ++i) {
+      if (i < half) {
+        left_records.push_back(std::move(base_records[i]));
+      } else {
+        auto& rec = base_records[i];
+        // Apply UID offset to right stream for dedup
+        right_records.push_back(std::make_unique<VectorRecord>(
+            rec->uid_ + kRightUidOffset, rec->timestamp_, rec->data_));
+      }
+    }
+    SAGEFLOW_LOG_INFO("TEST", "[SPLIT] half_split mode: left={} right={}", 
+                      left_records.size(), right_records.size());
+                      
+  } else if (mode_config.split_mode == "interleaved") {
+    // Interleaved: even indices -> left, odd indices -> right
+    left_records.reserve(base_records.size() / 2 + 1);
+    right_records.reserve(base_records.size() / 2 + 1);
+    
+    for (size_t i = 0; i < base_records.size(); ++i) {
+      if (i % 2 == 0) {
+        left_records.push_back(std::move(base_records[i]));
+      } else {
+        auto& rec = base_records[i];
+        // Apply UID offset to right stream for dedup
+        right_records.push_back(std::make_unique<VectorRecord>(
+            rec->uid_ + kRightUidOffset, rec->timestamp_, rec->data_));
+      }
+    }
+    SAGEFLOW_LOG_INFO("TEST", "[SPLIT] interleaved mode: left={} right={}", 
+                      left_records.size(), right_records.size());
+                      
+  } else {
+    // Default: duplicate mode - left and right have same vectors
+    left_records.reserve(base_records.size());
+    for (auto& r : base_records) {
+      left_records.push_back(std::move(r));
+    }
+    
+    right_records.reserve(left_records.size());
+    for (auto& lr : left_records) {
+      right_records.push_back(std::make_unique<VectorRecord>(
+          lr->uid_ + kRightUidOffset, lr->timestamp_, lr->data_));
+    }
+    SAGEFLOW_LOG_INFO("TEST", "[SPLIT] duplicate mode: left={} right={}", 
+                      left_records.size(), right_records.size());
   }
 
   const size_t expected_left = left_records.size();
   const size_t expected_right = right_records.size();
 
   // Compute expected matches - use consistent UID mapping
-  constexpr double kAlpha = 0.1;
+  // Use alpha from config (default 0.1, use 0.001 for SIFT-like large-norm data)
+  const double kAlpha = mode_config.alpha;
+  SAGEFLOW_LOG_INFO("TEST", "[GT] Computing ground truth with alpha={}, threshold={}", 
+                    kAlpha, mode_config.threshold);
   std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash> expected_matches;
   bool used_cached_ground_truth = false;
   if (dataset_source_for_cache) {
@@ -604,7 +811,8 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   }
   if (!used_cached_ground_truth) {
     expected_matches =
-      computeExpectedPairsByTraversal(left_records, right_records, mode_config.threshold, win_ms, kAlpha, kModuloBase);
+      computeExpectedPairsByTraversal(left_records, right_records, mode_config.threshold, win_ms, 
+                                       mode_config.similarity_mode, kAlpha, kModuloBase);
     if (dataset_source_for_cache) {
       persistGroundTruth(*dataset_source_for_cache, mode_config, method, expected_left, win_ms, mode_config.threshold, kAlpha, kModuloBase, expected_matches);
     }
@@ -647,8 +855,23 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   });
 
   // Build pipeline
-  left_source->join(right_source, std::move(join_func), method, mode_config.threshold, static_cast<size_t>(parallelism))
-      ->writeSink(std::move(sink_func), 1);
+  auto join_stream =
+      left_source->join(right_source, std::move(join_func), method, mode_config.threshold, static_cast<size_t>(parallelism));
+
+  // 使用完整 JoinStrategyConfig，确保 alpha/mode 能传到 JoinOperator 以及索引层（ComputeEngine）。
+  auto strategy_cfg = buildJoinStrategyConfigForTest(
+      method,
+      mode_config.threshold,
+      mode_config.alpha,
+      mode_config.similarity_mode,
+      mode_config,
+      mode_config.vector_dim,
+      win_ms,
+      mode_config.trig_ms,
+      parallelism);
+  join_stream->setJoinStrategyConfig(strategy_cfg);
+
+  join_stream->writeSink(std::move(sink_func), 1);
 
   // Execute
   StreamEnvironment env;
@@ -663,7 +886,10 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   {
     using namespace std::chrono_literals;
     bool timed_out = false;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1000);
+    // 这里不要给 1000s 这种超长等待：
+    // 一旦 JoinOperator 因配置约束/异常提前退出，输入永远不会被消费，测试会“假卡死”。
+    // 对性能回归测试而言，30s 足够覆盖该规模数据。
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     // All methods are now eager - we only need to wait for inputs to be processed
     // Windows won't drain fully until window time passes after last record
     // Note: lazy methods have been removed, so is_eager_method is always true

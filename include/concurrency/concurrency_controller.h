@@ -25,7 +25,8 @@ class ConcurrencyController {
 
   // New method for join-specific queries, returning shared_ptr records
   virtual auto query_for_join(const VectorRecord& record,
-                              double join_similarity_threshold) -> std::vector<std::shared_ptr<const VectorRecord>> = 0;
+                              double join_similarity_threshold,
+                              double similarity_alpha) -> std::vector<std::shared_ptr<const VectorRecord>> = 0;
 
   /**
    * @brief 获取底层索引（用于分区索引访问）

@@ -276,7 +276,7 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerInde
   
   // 通过 ConcurrencyManager 查询候选项
   auto candidates = concurrency_manager_->query_for_join(
-      target_index, query_record, config_.similarity_threshold);
+      target_index, query_record, config_.similarity_threshold, similarity_alpha_);
   
   // 直接输出所有匹配 - Sink 层会进行去重
   // 
@@ -329,9 +329,10 @@ double ClusteredJoinMethod::computeSimilarity(
   }
   double distance = std::sqrt(distance_sq);
   
-  // alpha = 0.1 是默认值，与 ComputeEngine 一致
-  constexpr double kAlpha = 0.1;
-  return std::exp(-kAlpha * distance);
+  // ClusteredJoinMethod 的候选获取通常走索引层 query_for_join()，
+  // 相似度过滤由 Index 内部使用 ComputeEngine 完成。
+  // 这里保留一个统一实现，用于某些暴力验证/回退路径。
+  return std::exp(-similarity_alpha_ * distance);
 }
 
 }  // namespace sageFlow

@@ -60,6 +60,17 @@ enum class ClusteredIndexType {
 };
 
 /**
+ * @brief 相似度计算模式
+ * 
+ * 控制 exp(-alpha * L2_distance) 中 alpha 的计算方式
+ */
+enum class SimilarityMode {
+    FIXED_ALPHA,      ///< 使用固定的 alpha 值（默认 0.1）
+    ADAPTIVE_ALPHA,   ///< 根据数据分布自动计算 alpha
+    NORMALIZED        ///< 先归一化向量，再使用固定 alpha
+};
+
+/**
  * @brief Join 策略完整配置
  * 
  * 包含所有可配置的 Join 参数，支持从 TOML 配置文件加载。
@@ -70,6 +81,30 @@ struct JoinStrategyConfig {
     bool is_eager = false;  ///< true=Eager模式, false=Lazy模式
     double similarity_threshold = 0.8;
     int dimension = 128;  ///< 向量维度
+    
+    // ==================== 相似度计算配置 ====================
+    /**
+     * @brief 相似度计算模式
+     * 
+     * - FIXED_ALPHA: 使用固定的 similarity_alpha 值
+     * - ADAPTIVE_ALPHA: 根据数据分布自动计算 alpha（使 median 距离 → sim=0.5）
+     * - NORMALIZED: 先归一化向量（L2范数=1），再使用固定 alpha
+     */
+    SimilarityMode similarity_mode = SimilarityMode::FIXED_ALPHA;
+    
+    /**
+     * @brief 相似度计算的 alpha 参数
+     * 
+     * 相似度公式: sim = exp(-alpha * L2_distance)
+     * 
+     * 推荐值:
+     * - 归一化向量 (范数≈1): alpha = 0.1 ~ 1.0
+     * - 原始 SIFT 向量 (范数≈500): alpha = 0.001 ~ 0.002
+     * - 自适应模式: 此值作为初始值，会根据数据自动调整
+     * 
+     * 选择原则: 使 "典型相似对" 的相似度落在 [0.5, 0.9] 范围内
+     */
+    double similarity_alpha = 0.1;
     
     // ==================== 分区配置 ====================
     PartitionStrategy partition_strategy = PartitionStrategy::ROUND_ROBIN;
@@ -218,11 +253,13 @@ std::string toString(PartitionStrategy ps);
 std::string toString(WindowStateType ws);
 std::string toString(IndexStrategy is);
 std::string toString(ClusteredIndexType cit);
+std::string toString(SimilarityMode sm);
 
 JoinAlgorithm parseJoinAlgorithm(const std::string& s);
 PartitionStrategy parsePartitionStrategy(const std::string& s);
 WindowStateType parseWindowStateType(const std::string& s);
 IndexStrategy parseIndexStrategy(const std::string& s);
 ClusteredIndexType parseClusteredIndexType(const std::string& s);
+SimilarityMode parseSimilarityMode(const std::string& s);
 
 }  // namespace sageFlow

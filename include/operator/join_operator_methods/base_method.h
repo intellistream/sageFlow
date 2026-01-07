@@ -21,7 +21,7 @@ enum class JoinMethodType {
 class BaseMethod {
  public:
   explicit BaseMethod(double join_similarity_threshold)
-    : join_similarity_threshold_(join_similarity_threshold){}
+    : join_similarity_threshold_(join_similarity_threshold) {}
 
    virtual ~BaseMethod() = default;
 
@@ -55,6 +55,15 @@ class BaseMethod {
 
  protected:
   double join_similarity_threshold_;
+  // 相似度计算参数 alpha（与 pipeline/JoinOperator 绑定，由工厂在构建策略时设置）
+  // 仅用于：
+  // - 调用 ConcurrencyManager::query_for_join(..., alpha) 时显式传参
+  // - WindowState 暴力扫描等非索引路径的相似度计算
+  double similarity_alpha_ = 0.1;
+
+ public:
+  void setSimilarityAlpha(double alpha) { similarity_alpha_ = alpha; }
+  [[nodiscard]] double getSimilarityAlpha() const { return similarity_alpha_; }
  private:
 };
 }  // namespace sageFlow

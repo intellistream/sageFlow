@@ -74,7 +74,7 @@ class PartitionedIndex : public Index {
    * @param join_similarity_threshold 相似度阈值
    * @return 满足阈值的向量 UID 列表
    */
-  std::vector<uint64_t> query_for_join(const VectorRecord& record, double join_similarity_threshold) override;
+  std::vector<uint64_t> query_for_join(const VectorRecord& record, double join_similarity_threshold, double similarity_alpha) override;
 
   // ==========================================================================
   // 分区特定操作
@@ -104,7 +104,10 @@ class PartitionedIndex : public Index {
    * @param threshold 相似度阈值
    * @return 满足阈值的向量 UID 列表
    */
-  std::vector<uint64_t> queryPartitionForJoin(size_t partition_id, const VectorRecord& query, double threshold);
+  std::vector<uint64_t> queryPartitionForJoin(size_t partition_id,
+                                              const VectorRecord& query,
+                                              double threshold,
+                                              double similarity_alpha);
 
   /**
    * @brief 跨分区查询
@@ -122,7 +125,10 @@ class PartitionedIndex : public Index {
    * @param num_probes 探测分区数
    * @return 满足阈值的向量 UID 列表
    */
-  std::vector<uint64_t> queryMultiPartitionForJoin(const VectorRecord& query, double threshold, size_t num_probes = 2);
+  std::vector<uint64_t> queryMultiPartitionForJoin(const VectorRecord& query,
+                                                   double threshold,
+                                                   double similarity_alpha,
+                                                   size_t num_probes = 2);
 
   // ==========================================================================
   // 状态查询

@@ -55,7 +55,10 @@ class ConcurrencyManager {
 
   // Method for join-specific queries, returning shared_ptr records
   auto query_for_join(int index_id, const VectorRecord& record,
-                      double join_similarity_threshold) -> std::vector<std::shared_ptr<const VectorRecord>>;
+                      double join_similarity_threshold,
+                      double similarity_alpha) -> std::vector<std::shared_ptr<const VectorRecord>>;
+
+  // 说明：ComputeEngine 不保存 alpha（纯计算）。alpha 由上层算子/策略绑定并显式传入 query_for_join。
 
   // ========== 新增：分区索引访问接口 ==========
   

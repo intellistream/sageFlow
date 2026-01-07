@@ -296,7 +296,7 @@ private:
                 last_sink_total = sink_total;
                 sink_stable_since = std::chrono::steady_clock::now();
             }
-            
+
             // Sink 会对重复的 combined_id 进行去重：
             // total_emits = processed_count + dedup_count（理想情况下）
             if (sink_total >= target_emits) {

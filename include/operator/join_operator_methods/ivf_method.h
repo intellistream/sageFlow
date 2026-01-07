@@ -5,6 +5,7 @@
 #include <vector>
 #include <atomic>
 #include "operator/join_operator_methods/base_method.h"
+#include "operator/utils/join_strategy_config.h"
 #include "state/window_state.h"
 #include "execution/runtime_context.h"
 #include "concurrency/concurrency_manager.h"

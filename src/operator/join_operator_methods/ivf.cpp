@@ -20,7 +20,7 @@ std::vector<std::unique_ptr<VectorRecord>> IvfJoinMethod::ExecuteEager(
   }
   SAGEFLOW_LOG_INFO("JOIN_IVF", "ExecuteEager: querying index={} for uid={} threshold={:.4f}",
                     idx, query_record.uid_, join_similarity_threshold_);
-  auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_);
+  auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_, similarity_alpha_);
   SAGEFLOW_LOG_INFO("JOIN_IVF", "ExecuteEager: index={} returned {} candidates", idx, candidates.size());
   SAGEFLOW_LOG_DEBUG("JOIN_IVF", "eager_query slot={} candidates={} ", query_slot, candidates.size());
   // LOG输出匹配上的向量和到达向量具体是什么

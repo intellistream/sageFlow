@@ -15,7 +15,7 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceJoinMethod::ExecuteEager(
   if (idx == -1) {
     return results;
   }
-  auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_);
+  auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_, similarity_alpha_);
   results.reserve(candidates.size());
   for (auto &c : candidates) {
     if (c) results.emplace_back(std::make_unique<VectorRecord>(*c));
@@ -46,5 +46,7 @@ REGISTER_JOIN_METHOD(
        int left_idx,
        int right_idx) {
         return std::make_unique<sageFlow::BruteForceJoinMethod>(
-            left_idx, right_idx, config.similarity_threshold, cm);
+            left_idx, right_idx, 
+            config.similarity_threshold, 
+            cm);
     });

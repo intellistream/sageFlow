@@ -986,8 +986,6 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
         // 1. 数据通过 CentroidPartitioner 路由到对应的 subtask
         // 2. 同一分区内的数据由同一个 subtask 串行处理
         // 3. 因此分区内无并发竞争，只需 Insert -> Query
-        // 
-        // Owner-Computes 去重由 JoinMethod::ExecuteEager 内部处理
         
         // 阶段1：Insert 当前记录到对应窗口和索引
         updateSideWithState(
@@ -1105,16 +1103,41 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
     // 1.1 运行时关键约束：ClusteredJoin 需要 num_partitions == parallelism
     // 说明：CentroidPartitioner 内部会将 partition_idx 映射到 channel（subtask）空间；
     // 若两者不一致，会出现逻辑分区折叠/多播语义失真，导致召回损失且难以诊断。
+    //
+    // 这里做“运行时纠正”而不是直接抛异常：
+    // - 集成测试/外部配置经常只设置了算法但没显式配 num_partitions；
+    // - 对 ClusteredJoin 来说，num_partitions 与 parallelism 强绑定，运行时以 parallelism 为准更合理。
     if (strategy_config_.algorithm == JoinAlgorithm::CLUSTERED_JOIN) {
         const auto runtime_p = static_cast<size_t>(context.getParallelism());
         if (strategy_config_.num_partitions != static_cast<int>(runtime_p)) {
-            throw std::runtime_error(
-                "ClusteredJoin runtime constraint violated: num_partitions=" +
-                std::to_string(strategy_config_.num_partitions) +
-                " must equal parallelism=" + std::to_string(runtime_p));
+            SAGEFLOW_LOG_WARN("JOIN",
+                "ClusteredJoin runtime constraint auto-fix: num_partitions={} -> parallelism={}",
+                strategy_config_.num_partitions, runtime_p);
+            strategy_config_.num_partitions = static_cast<int>(runtime_p);
         }
     }
 
+    // 1.2 IVF 动态参数（与旧构造路径保持一致）
+    // 如果 IVF 参数保持默认 100/10，则根据 window/step 推断 nlist/nprobes，避免手动调参。
+    if (strategy_config_.algorithm == JoinAlgorithm::IVF &&
+        strategy_config_.ivf_nlist == 100 &&
+        strategy_config_.ivf_nprobes == 10) {
+        const int64_t window_size = strategy_config_.window_size_ms;
+        const int64_t step_size = strategy_config_.step_size_ms;
+        const int64_t vector_count =
+            (step_size > 0) ? (window_size / step_size) : window_size;
+
+        int nlist = std::max(1, static_cast<int>(4.0 * std::sqrt(static_cast<double>(std::max<int64_t>(1, vector_count)))));
+        int nprobes = std::max(3, nlist * 30 / 100);
+        nprobes = std::min(nprobes, nlist);
+
+        SAGEFLOW_LOG_INFO("JOIN",
+            "IVF dynamic params (strategy-config): window={}ms step={}ms N≈{} -> nlist={} nprobes={}",
+            window_size, step_size, vector_count, nlist, nprobes);
+
+        strategy_config_.ivf_nlist = nlist;
+        strategy_config_.ivf_nprobes = nprobes;
+    }
     // 2. 使用 JoinStrategyFactory 创建组件
     auto components = JoinStrategyFactory::create(
         strategy_config_, concurrency_manager_, context.getParallelism());
@@ -1129,6 +1152,12 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
     // 5. 设置索引 ID
     left_index_id_ = components.left_index_id;
     right_index_id_ = components.right_index_id;
+
+    // 5.1 启用索引插入/查询路径（用于 BruteForce/IVF/HNSW/HDR 等通过 ConcurrencyManager 管理索引的方法）
+    // 注意：旧的字符串构造路径里，BRUTEFORCE 会走 WindowState-based 的 BruteForceBaseline，
+    // 因此 use_index_=false；但在“策略配置”路径下，工厂会为 BRUTEFORCE 创建 BruteForceJoinMethod
+    // （底层使用 Knn::query_for_join → StorageManager::similarityJoinQuery），必须启用索引路径才能插入/查询。
+    use_index_ = (left_index_id_ != -1 && right_index_id_ != -1);
 
     // 6. 根据窗口状态类型设置标志
     use_shared_state_ = (strategy_config_.window_state_type == WindowStateType::SHARED);
@@ -1180,20 +1209,6 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
             // 传递索引 ID（用于 IVF/HNSW 模式，索引由 JoinStrategyFactory 创建）
             clustered->setIndexIds(left_index_id_, right_index_id_);
             
-            // ====== Owner-Computes 去重策略 ======
-            // 
-            // 在 PartitionedWindowState 模式下：
-            //   - 每个 subtask 只能看到路由到自己分区的数据
-            //   - 如果 CentroidPartitioner 正确训练，数据按分区隔离
-            //   - 如果 CentroidPartitioner 未训练（所有数据到 subtask 0），只有 subtask 0 能看到数据
-            //   - 两种情况下都不需要 Owner-Computes 去重，因为没有跨分区的重复
-            //
-            // 因此，设置 effective_parallelism = 1 来禁用 Owner-Computes 去重
-            // 
-            // 注意：这与共享索引模式（SharedWindowState + RoundRobin）不同：
-            //   - 共享模式下所有 subtask 都能看到所有数据
-            //   - 需要 Owner-Computes 来避免同一匹配对被多个 subtask 输出
-            //
             clustered->setEffectiveParallelism(1);  // 禁用 Owner-Computes 去重
             
             use_index_ = true;

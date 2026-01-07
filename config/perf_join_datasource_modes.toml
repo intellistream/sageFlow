@@ -36,27 +36,129 @@ type = "random"
 [performance_test.storage]
 format = "json"  # Options: "fvecs", "json"
 file_path = "test/data/generated_test_data.json"
+# ==================== siftsmall 真实数据集测试 ====================
+# 使用 siftsmall_base.fvecs (10000 条 128 维真实向量) 作为输入
+# 数据分布更自然，适合测试聚类分区效果
 #
-#[[performance_test]]
-## Test Mode 2: Direct Load (load data directly from existing file)
-#name = "perf_join_direct_load_sift"
-#mode = "direct_load"
-#methods = ["bruteforce_eager", "ivf_eager"]
-#sizes = [2000]
-#records_count = 10
-#vector_dim = 128
-#parallelism = [1,2,4,8,16,32]
-#window_time_ms = [10000]
-#window_trigger_ms = 50
-#time_interval = 10
-#similarity_threshold = 0.8
+# 相似度计算配置:
+# - similarity_mode: "fixed_alpha" | "adaptive_alpha" | "normalized"
+# - similarity_alpha: alpha 参数值（建议根据数据分布调整）
 #
-#[performance_test.data_source]
-#type = "dataset"
-#file_path = "data/siftsmall/siftsmall_query.fvecs"
-#expected_dim = 128
-#loop = true
-#
+# SIFT 数据特征:
+# - 向量范数 ≈ 508, 很稳定 (std=0.6)
+# - L2 距离 median ≈ 550
+# - 推荐使用 normalized 模式或 alpha=0.001
+
+[[performance_test]]
+# siftsmall 使用归一化模式：自动归一化向量后再计算相似度
+# 这样可以用标准的 alpha=0.1 和 threshold=0.8
+name = "siftsmall_normalized"
+mode = "direct_load"
+methods = ["bruteforce"]
+sizes = [1000, 2000]
+records_count = 10
+vector_dim = 128
+parallelism = [1, 2, 4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+similarity_mode = "normalized"
+similarity_alpha = 0.1
+split_mode = "half_split"
+
+[performance_test.data_source]
+type = "dataset"
+file_path = "data/siftsmall/siftsmall_base.fvecs"
+expected_dim = 128
+loop = false
+
+[[performance_test]]
+# siftsmall half_split 使用自适应 alpha
+# alpha=0.001 使 median 距离对应 sim≈0.5
+name = "siftsmall_half_split_adaptive"
+mode = "direct_load"
+methods = ["bruteforce", "clustered_join"]
+sizes = [1000, 2000]
+records_count = 10
+vector_dim = 128
+parallelism = [1, 2, 4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.5
+similarity_mode = "fixed_alpha"
+similarity_alpha = 0.001
+split_mode = "half_split"
+
+[performance_test.data_source]
+type = "dataset"
+file_path = "data/siftsmall/siftsmall_base.fvecs"
+expected_dim = 128
+loop = false
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 0.1
+training_samples = 500
+
+[[performance_test]]
+# siftsmall interleaved 模式（交叉分割）
+name = "siftsmall_interleaved_adaptive"
+mode = "direct_load"
+methods = ["bruteforce", "clustered_join"]
+sizes = [1000, 2000]
+records_count = 10
+vector_dim = 128
+parallelism = [1, 2, 4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.5
+similarity_mode = "fixed_alpha"
+similarity_alpha = 0.001
+split_mode = "interleaved"
+
+[performance_test.data_source]
+type = "dataset"
+file_path = "data/siftsmall/siftsmall_base.fvecs"
+expected_dim = 128
+loop = false
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+num_partitions = 8
+multicast_enabled = true
+overlap_ratio = 0.1
+training_samples = 500
+
+[[performance_test]]
+# siftsmall 复制模式：左右流完全相同（验证数据加载和 Join 流程）
+# 复制模式可以找到自匹配 (dist=0 => sim=1.0)
+name = "siftsmall_duplicate"
+mode = "direct_load"
+methods = ["bruteforce"]
+sizes = [1000, 2000]
+records_count = 10
+vector_dim = 128
+parallelism = [1, 2, 4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+# 自匹配需要高阈值 (sim=1.0 对于 dist=0)
+similarity_threshold = 0.99
+similarity_mode = "fixed_alpha"
+similarity_alpha = 0.001
+split_mode = "duplicate"
+
+[performance_test.data_source]
+type = "dataset"
+file_path = "data/siftsmall/siftsmall_base.fvecs"
+expected_dim = 128
+loop = false
+
 #[[performance_test]]
 ## Test Mode 3: Generate and Use Directly (no file I/O)
 #name = "perf_join_direct_use_random"
