@@ -146,6 +146,22 @@ public:
     static bool isValidConfigFile(const std::string& config_path);
 
     /**
+     * @brief 设置配置文件路径（优先于默认路径和环境变量）
+     * @param path 配置文件路径
+     */
+    static void setConfigPath(const std::string& path);
+
+    /**
+     * @brief 从环境变量获取配置文件路径
+     * 
+     * 检查环境变量 SAGEFLOW_TEST_CONFIG_PATH，如果设置则使用该路径。
+     * 优先级：setConfigPath() > 环境变量 > 默认路径
+     * 
+     * @return 配置文件路径（如果环境变量未设置则返回空字符串）
+     */
+    static std::string getConfigPathFromEnv();
+
+    /**
      * @brief 获取默认集成测试配置文件路径
      * @return 默认配置文件路径
      */
@@ -200,6 +216,9 @@ private:
      * @return 整数向量
      */
     static std::vector<int> parseIntArray(const toml::array& arr);
+
+    /// 自定义配置文件路径（通过 setConfigPath 设置）
+    static std::string custom_config_path_;
 };
 
 }  // namespace test

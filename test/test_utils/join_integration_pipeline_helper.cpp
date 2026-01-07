@@ -83,22 +83,16 @@ public:
                 "IntegrationTestJoin",
                 [](std::unique_ptr<VectorRecord>& left,
                    std::unique_ptr<VectorRecord>& right) -> std::unique_ptr<VectorRecord> {
-                    // 提取向量
-                    auto lv = extractFloatVector(*left);
-                    auto rv = extractFloatVector(*right);
-                    
-                    // 合并向量
-                    std::vector<float> out;
-                    out.reserve(lv.size() + rv.size());
-                    out.insert(out.end(), lv.begin(), lv.end());
-                    out.insert(out.end(), rv.begin(), rv.end());
-                    
                     // 生成合并后的 UID：left_uid * 1000000 + right_uid % 1000000
                     constexpr uint64_t kModuloBase = 1000000ULL;
                     uint64_t id = left->uid_ * kModuloBase + right->uid_ % kModuloBase;
                     int64_t ts = std::max(left->timestamp_, right->timestamp_);
-                    
-                    return createVectorRecord(id, ts, out);
+
+                    // 注意：集成测试只需要 (left_uid, right_uid) 来计算 recall/precision，
+                    // 不需要构造合并后的大向量 payload。
+                    // 在高并行 + multicast（例如 p=32,k>=8）下，重复输出数量会非常大；
+                    // 若每条输出都分配/拷贝大向量，会导致内存爆炸（即使 Sink 最终会去重）。
+                    return createVectorRecord(id, ts, {});
                 },
                 config_.dimension);
             
@@ -147,19 +141,27 @@ public:
             env.addStream(right_source_);
             
             // 执行
-            auto start = std::chrono::high_resolution_clock::now();
+            auto start_wall = std::chrono::high_resolution_clock::now();
+            auto start_steady = std::chrono::steady_clock::now();
             env.execute();
             
             // 等待完成
-            waitForCompletion(env);
+            auto wait_stats = waitForCompletion(env, start_steady);
             
             // 停止并等待终止
             env.stop();
             env.awaitTermination();
             
-            auto end = std::chrono::high_resolution_clock::now();
+            auto end_wall = std::chrono::high_resolution_clock::now();
             result.execution_time_ms = 
-                std::chrono::duration<double, std::milli>(end - start).count();
+                std::chrono::duration<double, std::milli>(end_wall - start_wall).count();
+            
+            // 算法口径：Join emits stable 时间点（并行 makespan）
+            result.join_time_ms = wait_stats.join_time_ms;
+            result.sink_wait_ms = wait_stats.sink_wait_ms;
+            result.total_emits = wait_stats.total_emits;
+            result.sink_processed = wait_stats.sink_processed;
+            result.sink_dedup = wait_stats.sink_dedup;
             
             // 收集结果
             result.matches = sink_->getMatches();
@@ -184,8 +186,17 @@ public:
     }
 
 private:
-    void waitForCompletion(StreamEnvironment& env) {
+    struct WaitStats {
+        double join_time_ms = 0.0;     // time to emits stable
+        double sink_wait_ms = 0.0;     // time spent waiting sink catch-up
+        uint64_t total_emits = 0;
+        uint64_t sink_processed = 0;
+        uint64_t sink_dedup = 0;
+    };
+
+    WaitStats waitForCompletion(StreamEnvironment& env, std::chrono::steady_clock::time_point start_steady) {
         using namespace std::chrono_literals;
+        WaitStats stats;
         
         const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
         
@@ -241,6 +252,7 @@ private:
         auto emit_end_by = std::chrono::steady_clock::now() + max_emit_wait;
         uint64_t last_emits = JoinMetrics::instance().total_emits.load();
         auto emits_stable_since = std::chrono::steady_clock::now();
+        auto emits_stable_at = std::chrono::steady_clock::now();
         
         while (std::chrono::steady_clock::now() < emit_end_by) {
             std::this_thread::sleep_for(20ms);
@@ -252,36 +264,73 @@ private:
             }
             
             if (std::chrono::steady_clock::now() - emits_stable_since >= emits_stable_window) {
+                emits_stable_at = std::chrono::steady_clock::now();
                 SAGEFLOW_LOG_INFO("PipelineHelper", 
                     "JoinOperator emits stable at {}", cur_emits);
                 break;
             }
         }
+
+        // 记录 Join 算法完成时间（并行 makespan）
+        stats.total_emits = JoinMetrics::instance().total_emits.load();
+        stats.join_time_ms = std::chrono::duration<double, std::milli>(emits_stable_at - start_steady).count();
         
         // 阶段3：等待 Sink 处理完所有 emits
-        const auto sink_stable_window = 100ms;
+        const auto sink_stable_window = 200ms;
         const auto max_sink_wait = std::chrono::seconds(30);
         auto sink_end_by = std::chrono::steady_clock::now() + max_sink_wait;
         uint64_t target_emits = JoinMetrics::instance().total_emits.load();
+        auto sink_wait_start = std::chrono::steady_clock::now();
+        uint64_t last_sink_total = 0;
+        auto sink_stable_since = std::chrono::steady_clock::now();
         
         while (std::chrono::steady_clock::now() < sink_end_by) {
             std::this_thread::sleep_for(10ms);
             
             uint64_t sink_count = sink_ ? static_cast<uint64_t>(sink_->getProcessedCount()) : 0;
+            uint64_t dedup_count = sink_ ? static_cast<uint64_t>(sink_->getDedupCount()) : 0;
+            uint64_t sink_total = sink_count + dedup_count;
+
+            // 稳定检测：如果 sink_total 不再变化一段时间，则认为已经追赶到极限（避免因差 1 条而等满 30s）
+            if (sink_total != last_sink_total) {
+                last_sink_total = sink_total;
+                sink_stable_since = std::chrono::steady_clock::now();
+            }
             
-            if (sink_count >= target_emits) {
+            // Sink 会对重复的 combined_id 进行去重：
+            // total_emits = processed_count + dedup_count（理想情况下）
+            if (sink_total >= target_emits) {
                 SAGEFLOW_LOG_INFO("PipelineHelper", 
-                    "Sink processed all emits: target={} actual={}", target_emits, sink_count);
+                    "Sink processed all emits (including dedup): target={} processed={} dedup={}",
+                    target_emits, sink_count, dedup_count);
+                break;
+            }
+
+            // 达不到 target 但已经稳定，提前结束等待（不把等待窗口当成算法时间）
+            if (std::chrono::steady_clock::now() - sink_stable_since >= sink_stable_window) {
+                SAGEFLOW_LOG_INFO("PipelineHelper",
+                    "Sink catch-up stabilized (processed+dedup={} < target={}), stop waiting early",
+                    sink_total, target_emits);
                 break;
             }
         }
+
+        stats.sink_wait_ms = std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - sink_wait_start).count();
         
         uint64_t final_sink = sink_ ? static_cast<uint64_t>(sink_->getProcessedCount()) : 0;
+        uint64_t final_dedup = sink_ ? static_cast<uint64_t>(sink_->getDedupCount()) : 0;
         uint64_t final_emits = JoinMetrics::instance().total_emits.load();
-        if (final_sink < final_emits) {
+        stats.total_emits = final_emits;
+        stats.sink_processed = final_sink;
+        stats.sink_dedup = final_dedup;
+        if (final_sink + final_dedup < final_emits) {
             SAGEFLOW_LOG_WARN("PipelineHelper", 
-                "Sink did not process all emits: target={} actual={}", final_emits, final_sink);
+                "Sink did not process all emits: target={} processed={} dedup={}",
+                final_emits, final_sink, final_dedup);
         }
+
+        return stats;
     }
     
     std::shared_ptr<DataStreamSource> left_source_;
@@ -462,6 +511,15 @@ JoinIntegrationPipelineHelper::createValidatedPipeline(
     // 警告日志
     for (const auto& warning : validation.warnings) {
         SAGEFLOW_LOG_WARN("PipelineHelper", "Config warning: {}", warning);
+    }
+
+    // 运行时可验证的关键约束补充：ClusteredJoin 需要 num_partitions == parallelism
+    if (config.algorithm == JoinAlgorithm::CLUSTERED_JOIN &&
+        config.num_partitions > 0 &&
+        config.num_partitions != parallelism) {
+        SAGEFLOW_LOG_WARN("PipelineHelper",
+            "Config warning: ClusteredJoin: num_partitions={} should equal parallelism={} to avoid recall loss.",
+            config.num_partitions, parallelism);
     }
     
     return createPipeline(std::move(left_stream), std::move(right_stream), 

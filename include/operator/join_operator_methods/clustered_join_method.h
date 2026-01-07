@@ -24,16 +24,15 @@ namespace sageFlow {
  * 核心特性：
  * 1. 不再维护内部窗口状态，使用外部传入的 WindowState
  * 2. 不再创建索引，使用外部传入的索引 ID
- * 3. ExecuteEager 仅负责索引查询和 Owner-Computes 去重
+ * 3. ExecuteEager 仅负责索引查询
  * 4. 与其他 Join 方法共享统一的 apply() 流程：
  *    - updateSideWithState(): 更新 WindowState + 插入索引
  *    - getCandidatesFromState() → ExecuteEager(): 获取候选
  *    - executeJoinWithState(): 执行 Join 函数
  *
- * Owner-Computes 规则（分区模式下去重）：
- * - 对于匹配对 (left_uid, right_uid)，owner = min(left_uid, right_uid) % parallelism
- * - 只有 owner subtask 输出该匹配对
- * - 共享模式下 effective_parallelism_=1，规则始终满足
+ * 去重机制：
+ * - 在 Sink 层使用统一去重（基于 combined_id = left_uid * 1000000 + right_uid）
+ * - 不再使用 Owner-Computes 规则
  *
  * 推荐配置：
  * - partition_strategy: centroid
@@ -189,12 +188,13 @@ class ClusteredJoinMethod final : public BaseMethod {
   size_t getParallelism() const { return parallelism_; }
 
   /**
-   * @brief 设置有效并行度
-   * 
-   * 当 CentroidPartitioner 未训练时，所有数据都路由到 subtask 0，
-   * 此时 effective_parallelism 应设为 1 以禁用 Owner-Computes 去重。
-   * 
-   * @param effective_p 有效并行度
+   * @brief 设置有效并行度（已弃用）
+   *
+   * 注意：Owner-Computes 机制已移除，此方法仅保留向后兼容性。
+   * 去重现在在 Sink 层统一处理。
+   *
+   * @param effective_p 有效并行度（已弃用）
+   * @deprecated Owner-Computes 机制已移除
    */
   void setEffectiveParallelism(size_t effective_p) {
     effective_parallelism_ = effective_p;
@@ -251,22 +251,18 @@ class ClusteredJoinMethod final : public BaseMethod {
   // ==================== 内部方法 ====================
 
   /**
-   * @brief Owner-Computes 去重判断
+   * @brief Owner-Computes 去重判断（已弃用）
    *
-   * 对于匹配对 (left_uid, right_uid)，只有 owner_subtask 输出该匹配对。
-   * owner_subtask = min(left_uid, right_uid) % effective_parallelism
-   *
-   * 注意：使用 effective_parallelism_ 而不是 parallelism_。
-   * - 共享模式：effective_parallelism_ = 1，所有匹配都输出
-   * - 分区模式：effective_parallelism_ = parallelism_，执行去重
+   * 注意：此方法已弃用，不再使用 Owner-Computes 规则。
+   * 去重现在在 Sink 层统一处理。
    *
    * @param left_uid 左侧记录 UID
    * @param right_uid 右侧记录 UID
-   * @return true 如果当前 subtask 是 owner
+   * @return true（始终返回 true，因为不再进行去重）
+   * @deprecated 不再使用 Owner-Computes 去重机制
    */
   bool isOwner(uint64_t left_uid, uint64_t right_uid) const {
-    if (effective_parallelism_ <= 1) return true;  // 共享模式不去重
-    return (std::min(left_uid, right_uid) % effective_parallelism_) == subtask_index_;
+    return true;  // 不再进行 Owner-Computes 去重
   }
 
   /**

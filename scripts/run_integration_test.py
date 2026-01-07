@@ -82,6 +82,15 @@ Examples:
         default=['bruteforce'],
         help='Join methods to test (default: bruteforce)'
     )
+
+    # 允许直接指定 gtest_filter（高级用法），用于只跑特定 test_case（例如 exp_a_p2_r005）
+    # 注意：如果提供该参数，将覆盖 --methods 生成的 filter。
+    parser.add_argument(
+        '--gtest-filter',
+        type=str,
+        default=None,
+        help='Override gtest filter string (e.g. "*exp_a_p2_r005*" or "*exp_b_k8*:*exp_b_k12*")'
+    )
     
     parser.add_argument(
         '--parallelism', '-p',
@@ -272,6 +281,7 @@ def run_test_binary(
     binary_path: str,
     gtest_filter: str,
     output_dir: str,
+    config_path: str = '',
     timeout: int = 3600,
     verbose: bool = False,
     dry_run: bool = False
@@ -282,6 +292,7 @@ def run_test_binary(
         binary_path: 测试二进制路径
         gtest_filter: gtest 过滤器字符串
         output_dir: 输出目录
+        config_path: 测试配置文件路径（如果为空则使用默认配置）
         timeout: 超时时间（秒）
         verbose: 是否显示详细输出
         dry_run: 是否仅打印命令
@@ -302,6 +313,10 @@ def run_test_binary(
     env = os.environ.copy()
     env['SAGEFLOW_TEST_OUTPUT_DIR'] = output_dir
     
+    # 设置配置文件路径环境变量
+    if config_path:
+        env['SAGEFLOW_TEST_CONFIG_PATH'] = config_path
+    
     # 确保输出目录存在
     Path(output_dir).mkdir(parents=True, exist_ok=True)
     
@@ -309,6 +324,8 @@ def run_test_binary(
     print(f"Running tests...")
     print(f"{'='*60}")
     print(f"Binary: {binary_path}")
+    if config_path:
+        print(f"Config: {config_path}")
     if gtest_filter:
         print(f"Filter: {gtest_filter}")
     print(f"Output: {output_dir}")
@@ -379,6 +396,21 @@ def collect_results(output_dir: str) -> Dict:
             print(f"Warning: Failed to parse {json_file}: {e}")
         except Exception as e:
             print(f"Warning: Error reading {json_file}: {e}")
+
+    # 兼容：测试二进制当前会将汇总报告写入固定目录 test/result/integration/
+    # 即使 per-test CSV 写到了 result_output_dir（由 SAGEFLOW_TEST_OUTPUT_DIR 覆盖）。
+    if not results:
+        fallback_path = Path('test/result/integration')
+        for json_file in fallback_path.glob('*report*.json'):
+            try:
+                with open(json_file, 'r') as f:
+                    data = json.load(f)
+                    key = json_file.stem.replace('_report', '').replace('report', 'main')
+                    results[key] = data
+            except json.JSONDecodeError:
+                continue
+            except Exception:
+                continue
     
     return results
 
@@ -423,6 +455,7 @@ def main():
     print("SageFlow Integration Test Runner")
     print(f"{'='*60}")
     print(f"Methods: {args.methods}")
+    print(f"Config: {args.config}")
     if args.parallelism:
         print(f"Parallelism: {args.parallelism}")
     if args.data_sizes:
@@ -438,13 +471,14 @@ def main():
             return 1
     
     # 构建 gtest_filter
-    gtest_filter = build_gtest_filter(args.methods)
+    gtest_filter = args.gtest_filter if args.gtest_filter else build_gtest_filter(args.methods)
     
     # 运行测试
     success, stdout, stderr = run_test_binary(
         binary_path=args.binary_path,
         gtest_filter=gtest_filter,
         output_dir=args.output_dir,
+        config_path=args.config,
         timeout=args.timeout,
         verbose=args.verbose,
         dry_run=args.dry_run

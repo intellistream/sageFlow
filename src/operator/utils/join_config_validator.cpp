@@ -302,18 +302,14 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
                 "Current: " + std::to_string(config.clustered_multicast_k) + ".");
         }
         
-        // **关键约束**：num_partitions 必须等于 parallelism
-        // 原因：CentroidPartitioner 使用 `partition_idx % num_channels` 映射
-        // 如果 num_partitions > parallelism，会导致多个逻辑分区映射到同一物理线程
-        // 这会破坏 k 值多播的语义，导致召回率下降
-        // 例如：8 个分区 → 4 个线程时，k=1 会丢失同线程内其他分区的匹配
-        // 注意：此处只能添加警告，运行时会在 JoinOperator::open() 中强制检查
-        if (config.num_partitions > 0) {
-            result.addWarning(
-                "ClusteredJoin: num_partitions=" + std::to_string(config.num_partitions) + 
-                " should equal parallelism to avoid recall loss. "
-                "Runtime check will enforce this constraint.");
-        }
+        // **关键约束**：ClusteredJoin 的 num_partitions 必须等于运行时 parallelism
+        //
+        // 原因：CentroidPartitioner 使用 `partition_idx % num_channels` 映射，
+        // 若 num_partitions != parallelism，会导致逻辑分区折叠到同一物理 subtask，
+        // 从而破坏 multicast_k / overlap_ratio 的语义并导致召回率下降。
+        //
+        // 但这里无法静态校验（parallelism 来自 RuntimeContext），因此不在 Validator 中产生误导性警告；
+        // 运行时由 JoinOperator::initializeWithStrategyConfig() 强制检查并抛错。
         
         // 警告：multicast_k 和 overlap_ratio 的关系
         if (config.clustered_multicast_k > 0 && config.clustered_overlap_ratio != 0.1) {

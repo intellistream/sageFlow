@@ -1102,6 +1102,19 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
     SAGEFLOW_LOG_INFO("JOIN", "Initializing with strategy config: algorithm={} parallelism={}",
                      toString(strategy_config_.algorithm), context.getParallelism());
 
+    // 1.1 运行时关键约束：ClusteredJoin 需要 num_partitions == parallelism
+    // 说明：CentroidPartitioner 内部会将 partition_idx 映射到 channel（subtask）空间；
+    // 若两者不一致，会出现逻辑分区折叠/多播语义失真，导致召回损失且难以诊断。
+    if (strategy_config_.algorithm == JoinAlgorithm::CLUSTERED_JOIN) {
+        const auto runtime_p = static_cast<size_t>(context.getParallelism());
+        if (strategy_config_.num_partitions != static_cast<int>(runtime_p)) {
+            throw std::runtime_error(
+                "ClusteredJoin runtime constraint violated: num_partitions=" +
+                std::to_string(strategy_config_.num_partitions) +
+                " must equal parallelism=" + std::to_string(runtime_p));
+        }
+    }
+
     // 2. 使用 JoinStrategyFactory 创建组件
     auto components = JoinStrategyFactory::create(
         strategy_config_, concurrency_manager_, context.getParallelism());

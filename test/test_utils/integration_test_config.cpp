@@ -4,6 +4,8 @@
 
 #include <toml++/toml.hpp>
 
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <sstream>
 
@@ -101,7 +103,33 @@ std::string IntegrationTestConfigLoader::resolvePath(const std::string& path) {
     return DynamicConfigManager::resolveProjectRelativePath(path);
 }
 
+// 静态成员变量定义
+std::string IntegrationTestConfigLoader::custom_config_path_;
+
+void IntegrationTestConfigLoader::setConfigPath(const std::string& path) {
+    custom_config_path_ = path;
+    SAGEFLOW_LOG_INFO("ConfigLoader", "Custom config path set: {}", path);
+}
+
+std::string IntegrationTestConfigLoader::getConfigPathFromEnv() {
+    const char* env_path = std::getenv("SAGEFLOW_TEST_CONFIG_PATH");
+    if (env_path != nullptr && std::strlen(env_path) > 0) {
+        return std::string(env_path);
+    }
+    return "";
+}
+
 std::string IntegrationTestConfigLoader::getDefaultConfigPath() {
+    // 优先级：setConfigPath() > 环境变量 > 默认路径
+    if (!custom_config_path_.empty()) {
+        return resolvePath(custom_config_path_);
+    }
+    
+    std::string env_path = getConfigPathFromEnv();
+    if (!env_path.empty()) {
+        return resolvePath(env_path);
+    }
+    
     return resolvePath("config/integration_test_cases.toml");
 }
 
@@ -417,6 +445,17 @@ std::vector<IntegrationTestCase> IntegrationTestConfigLoader::loadFromFile(
         if (config.contains("common")) {
             if (auto* common_table = config["common"].as_table()) {
                 common = parseTestCase(*common_table, IntegrationTestCase{});
+            }
+        }
+
+        // 允许通过环境变量覆盖结果输出目录（便于脚本批量运行并隔离输出）
+        // scripts/run_integration_test.py 已设置该环境变量。
+        if (const char* out_dir = std::getenv("SAGEFLOW_TEST_OUTPUT_DIR")) {
+            if (std::strlen(out_dir) > 0) {
+                common.result_output_dir = resolvePath(std::string(out_dir));
+                SAGEFLOW_LOG_INFO("IntegrationTestConfig",
+                                  "Overriding result_output_dir via env SAGEFLOW_TEST_OUTPUT_DIR: {}",
+                                  common.result_output_dir);
             }
         }
 

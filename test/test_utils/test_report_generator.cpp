@@ -289,6 +289,8 @@ void TestReportGenerator::writeJsonDetailedResults(std::ostream& os, const TestR
         os << "      \"f1_score\": " << std::setprecision(4) << r.f1_score << ",\n";
         os << "      \"throughput_records_per_sec\": " << std::setprecision(1) << r.throughput_records_per_sec << ",\n";
         os << "      \"execution_time_ms\": " << std::setprecision(2) << r.execution_time_ms << ",\n";
+        os << "      \"join_time_ms\": " << std::setprecision(2) << r.join_time_ms << ",\n";
+        os << "      \"sink_wait_ms\": " << std::setprecision(2) << r.sink_wait_ms << ",\n";
         os << "      \"avg_query_latency_us\": " << std::setprecision(2) << r.avg_query_latency_us << ",\n";
         os << "      \"expected_matches\": " << r.expected_matches << ",\n";
         os << "      \"actual_matches\": " << r.actual_matches << ",\n";

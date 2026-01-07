@@ -92,9 +92,16 @@ struct IntegrationTestResult {
     int64_t false_positives = 0;
     int64_t false_negatives = 0;
     int64_t dedup_count = 0;  // Sink 去重拦截的数量
+
+    // Join/Sink emits 诊断（用于解释 multicast/overlap 带来的时间异常）
+    uint64_t total_emits = 0;       // Join 总 emits（包含重复）
+    uint64_t sink_processed = 0;    // Sink 处理的唯一输出数
+    uint64_t sink_dedup = 0;        // Sink 去重拦截的输出数
     
     // 时间
     double execution_time_ms = 0.0;
+    double join_time_ms = 0.0;      // Join 算法完成时间（emits stable）
+    double sink_wait_ms = 0.0;      // Sink 追赶等待时间
     double throughput_records_per_sec = 0.0;
     
     // Breakdown 分析
@@ -111,6 +118,12 @@ struct IntegrationTestResult {
             test_name, toString(algorithm), data_size, parallelism,
             recall, precision, expected_count, actual_count, true_positives, dedup_count,
             execution_time_ms, passed ? "PASSED" : ("FAILED: " + failure_reason));
+        SAGEFLOW_LOG_INFO("IntegrationTest",
+            "[{}] Time breakdown (ms): join_time={:.2f} sink_wait={:.2f} total={:.2f}",
+            test_name, join_time_ms, sink_wait_ms, execution_time_ms);
+        SAGEFLOW_LOG_INFO("IntegrationTest",
+            "[{}] Emits: total_emits={} sink_processed={} sink_dedup={}",
+            test_name, total_emits, sink_processed, sink_dedup);
         
         if (breakdown.hasData()) {
             SAGEFLOW_LOG_INFO("IntegrationTest",
@@ -203,7 +216,9 @@ inline void saveTestResults(
     ofs << "test_name,algorithm,data_size,parallelism,"
         << "recall,precision,f1_score,"
         << "expected_count,actual_count,true_positives,false_positives,false_negatives,"
-        << "execution_time_ms,throughput_rps,passed,failure_reason\n";
+        << "execution_time_ms,join_time_ms,sink_wait_ms,"
+        << "total_emits,sink_processed,sink_dedup,"
+        << "throughput_rps,passed,failure_reason\n";
     
     // 写入结果
     for (const auto& r : results) {
@@ -220,6 +235,11 @@ inline void saveTestResults(
             << r.false_positives << ","
             << r.false_negatives << ","
             << std::fixed << std::setprecision(2) << r.execution_time_ms << ","
+            << std::fixed << std::setprecision(2) << r.join_time_ms << ","
+            << std::fixed << std::setprecision(2) << r.sink_wait_ms << ","
+            << r.total_emits << ","
+            << r.sink_processed << ","
+            << r.sink_dedup << ","
             << std::fixed << std::setprecision(2) << r.throughput_records_per_sec << ","
             << (r.passed ? "true" : "false") << ","
             << "\"" << r.failure_reason << "\"\n";
@@ -430,6 +450,13 @@ protected:
                 result.failure_reason = "Pipeline execution failed: " + exec_result.error_message;
                 return result;
             }
+
+            // 算法口径 + Sink 追赶等待：来自 PipelineHelper 的等待策略（更贴近真实 makespan）
+            result.join_time_ms = exec_result.join_time_ms;
+            result.sink_wait_ms = exec_result.sink_wait_ms;
+            result.total_emits = exec_result.total_emits;
+            result.sink_processed = exec_result.sink_processed;
+            result.sink_dedup = exec_result.sink_dedup;
             
             result.actual_count = static_cast<int64_t>(exec_result.matches.size());
             result.dedup_count = exec_result.dedup_count;
@@ -593,6 +620,8 @@ TestResult toTestResult(const IntegrationTestResult& r) {
     tr.precision = r.precision;
     tr.f1_score = r.f1_score;
     tr.execution_time_ms = r.execution_time_ms;
+            tr.join_time_ms = r.join_time_ms;
+            tr.sink_wait_ms = r.sink_wait_ms;
     tr.throughput_records_per_sec = r.throughput_records_per_sec;
     tr.expected_matches = r.expected_count;
     tr.actual_matches = r.actual_count;

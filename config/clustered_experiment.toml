@@ -1,0 +1,676 @@
+# ClusteredJoin 实验配置
+# 
+# 包含两组实验：
+# - 实验 A: Overlap Ratio × Parallelism 矩阵实验 (k=0)
+# - 实验 B: Multicast K 扫描实验 (p=32)
+
+# ==================== 通用配置 ====================
+[common]
+vector_dim = 128
+window_size_ms = 10000
+step_size_ms = 10
+similarity_threshold = 0.8
+seed = 42
+time_interval_ms = 10
+base_timestamp = 1000000
+result_output_dir = "test/result/clustered_experiment"
+compare_with_ground_truth = true
+positive_ratio = 0.10
+negative_ratio = 0.60
+positive_pairs = 500
+near_threshold_pairs = 50
+negative_pairs = 500
+random_tail = 2000
+alpha = 0.1
+save_results = true
+generate_report = true
+
+# ==================== 实验 A: Overlap Ratio × Parallelism 矩阵 ====================
+# 固定 k=0，变化 p ∈ {1,2,4,8,16} 和 overlap_ratio ∈ {0.01,0.02,0.05,0.10,0.20}
+
+# --- p=1 系列 ---
+[[test_case]]
+name = "exp_a_p1_r001"
+description = "Experiment A: p=1, overlap_ratio=0.01"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 1
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.01
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [1]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p1_r002"
+description = "Experiment A: p=1, overlap_ratio=0.02"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 1
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.02
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [1]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p1_r005"
+description = "Experiment A: p=1, overlap_ratio=0.05"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 1
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.05
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [1]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p1_r010"
+description = "Experiment A: p=1, overlap_ratio=0.10"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 1
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.10
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [1]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p1_r020"
+description = "Experiment A: p=1, overlap_ratio=0.20"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 1
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.20
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [1]
+expected_min_recall = 0.10
+enabled = true
+
+# --- p=2 系列 ---
+[[test_case]]
+name = "exp_a_p2_r001"
+description = "Experiment A: p=2, overlap_ratio=0.01"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 2
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.01
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [2]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p2_r002"
+description = "Experiment A: p=2, overlap_ratio=0.02"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 2
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.02
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [2]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p2_r005"
+description = "Experiment A: p=2, overlap_ratio=0.05"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 2
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.05
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [2]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p2_r010"
+description = "Experiment A: p=2, overlap_ratio=0.10"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 2
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.10
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [2]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p2_r020"
+description = "Experiment A: p=2, overlap_ratio=0.20"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 2
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.20
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [2]
+expected_min_recall = 0.10
+enabled = true
+
+# --- p=4 系列 ---
+[[test_case]]
+name = "exp_a_p4_r001"
+description = "Experiment A: p=4, overlap_ratio=0.01"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.01
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [4]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p4_r002"
+description = "Experiment A: p=4, overlap_ratio=0.02"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.02
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [4]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p4_r005"
+description = "Experiment A: p=4, overlap_ratio=0.05"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.05
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [4]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p4_r010"
+description = "Experiment A: p=4, overlap_ratio=0.10"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.10
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [4]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p4_r020"
+description = "Experiment A: p=4, overlap_ratio=0.20"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.20
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [4]
+expected_min_recall = 0.10
+enabled = true
+
+# --- p=8 系列 ---
+[[test_case]]
+name = "exp_a_p8_r001"
+description = "Experiment A: p=8, overlap_ratio=0.01"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.01
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [8]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p8_r002"
+description = "Experiment A: p=8, overlap_ratio=0.02"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.02
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [8]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p8_r005"
+description = "Experiment A: p=8, overlap_ratio=0.05"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.05
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [8]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p8_r010"
+description = "Experiment A: p=8, overlap_ratio=0.10"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.10
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [8]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p8_r020"
+description = "Experiment A: p=8, overlap_ratio=0.20"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.20
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [8]
+expected_min_recall = 0.10
+enabled = true
+
+# --- p=16 系列 ---
+[[test_case]]
+name = "exp_a_p16_r001"
+description = "Experiment A: p=16, overlap_ratio=0.01"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.01
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p16_r002"
+description = "Experiment A: p=16, overlap_ratio=0.02"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.02
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p16_r005"
+description = "Experiment A: p=16, overlap_ratio=0.05"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.05
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p16_r010"
+description = "Experiment A: p=16, overlap_ratio=0.10"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.10
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_a_p16_r020"
+description = "Experiment A: p=16, overlap_ratio=0.20"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.20
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+# ==================== 实验 B: Multicast K 扫描 (p=32) ====================
+
+[[test_case]]
+name = "exp_b_k1"
+description = "Experiment B: p=32, k=1 (unicast only)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 1
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [32]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_b_k2"
+description = "Experiment B: p=32, k=2"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 2
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [32]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_b_k4"
+description = "Experiment B: p=32, k=4"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 4
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [32]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "exp_b_k8"
+description = "Experiment B: p=32, k=8"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 8
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [32]
+expected_min_recall = 0.30
+enabled = true
+
+[[test_case]]
+name = "exp_b_k12"
+description = "Experiment B: p=32, k=12"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 12
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [32]
+expected_min_recall = 0.50
+enabled = true
+
+[[test_case]]
+name = "exp_b_k24"
+description = "Experiment B: p=32, k=24"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 24
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [32]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "exp_b_k32"
+description = "Experiment B: p=32, k=32 (full coverage)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 32
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [32]
+expected_min_recall = 0.95
+enabled = true

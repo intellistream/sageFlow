@@ -71,6 +71,22 @@ struct PipelineExecutionResult {
     
     /// 执行时间（毫秒）
     double execution_time_ms = 0.0;
+
+    /// Join 算法完成时间（毫秒）：以 JoinOperator emits stable 的时间点为准（并行 makespan）
+    /// 注意：该时间不包含 Sink 追赶等待阶段，更接近“算法计算完成”的现实口径。
+    double join_time_ms = 0.0;
+
+    /// Sink 追赶等待耗时（毫秒）：从 emits stable 到等待结束（追平/稳定/超时）
+    double sink_wait_ms = 0.0;
+
+    /// Join 输出的总 emits 数（包含重复）
+    uint64_t total_emits = 0;
+    
+    /// Sink 已处理的唯一输出数（去重后）
+    uint64_t sink_processed = 0;
+    
+    /// Sink 去重拦截的输出数
+    uint64_t sink_dedup = 0;
     
     /// 左流处理的记录数
     int64_t left_processed = 0;
