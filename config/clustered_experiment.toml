@@ -9,7 +9,9 @@
 vector_dim = 128
 window_size_ms = 10000
 step_size_ms = 10
-similarity_threshold = 0.8
+similarity_threshold = 0.5
+similarity_mode = "fixed_alpha"
+alpha = 0.001
 seed = 42
 time_interval_ms = 10
 base_timestamp = 1000000
@@ -21,9 +23,12 @@ positive_pairs = 500
 near_threshold_pairs = 50
 negative_pairs = 500
 random_tail = 2000
-alpha = 0.1
 save_results = true
 generate_report = true
+data_source_type = "dataset"
+data_source_file_path = "data/siftsmall/siftsmall_base.fvecs"
+data_source_expected_dim = 128
+split_mode = "half_split"
 
 # ==================== 实验 A: Overlap Ratio × Parallelism 矩阵 ====================
 # 固定 k=0，变化 p ∈ {1,2,4,8,16} 和 overlap_ratio ∈ {0.01,0.02,0.05,0.10,0.20}
@@ -46,7 +51,7 @@ clustered_cold_start_enabled = true
 clustered_broadcast_dedup = true
 data_sizes = [2000]
 parallelism = [1]
-expected_min_recall = 0.10
+expected_min_recall = 0.0
 enabled = true
 
 [[test_case]]

@@ -192,7 +192,20 @@ public:
 
 private:
     std::vector<MatchPair> matches_;
-    std::unordered_set<uint64_t> seen_ids_;  ///< 已见过的 combined_id（用于 Sink 去重）
+    struct PairKey {
+        uint64_t left_uid = 0;
+        uint64_t right_uid = 0;
+        bool operator==(const PairKey& other) const {
+            return left_uid == other.left_uid && right_uid == other.right_uid;
+        }
+    };
+    struct PairKeyHash {
+        size_t operator()(const PairKey& k) const noexcept {
+            uint64_t x = k.left_uid ^ (k.right_uid + 0x9e3779b97f4a7c15ULL + (k.left_uid << 6) + (k.left_uid >> 2));
+            return static_cast<size_t>(x);
+        }
+    };
+    std::unordered_set<PairKey, PairKeyHash> seen_pairs_;  ///< 已见过的 (left_uid,right_uid)（用于 Sink 去重）
     int64_t processed_count_ = 0;
     int64_t dedup_count_ = 0;  ///< 被去重拦截的记录数
     mutable std::mutex mutex_;

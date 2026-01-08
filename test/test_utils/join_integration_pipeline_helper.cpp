@@ -83,16 +83,20 @@ public:
                 "IntegrationTestJoin",
                 [](std::unique_ptr<VectorRecord>& left,
                    std::unique_ptr<VectorRecord>& right) -> std::unique_ptr<VectorRecord> {
-                    // 生成合并后的 UID：left_uid * 1000000 + right_uid % 1000000
-                    constexpr uint64_t kModuloBase = 1000000ULL;
-                    uint64_t id = left->uid_ * kModuloBase + right->uid_ % kModuloBase;
+                    // 注意：集成测试需要稳定的 (left_uid, right_uid) 来计算 recall/precision 和做去重，
+                    // 不能依赖把 pair 编进 uid 的“可逆解码”（实际应用中 uid 不保证有偏移/不冲突）。
+                    //
+                    // 这里采用“显式携带 pair”的方案：
+                    // - record.uid_：仅用于下游快速去重/标识（使用 hash，避免依赖偏移与取模）
+                    // - record.data_：携带 [left_uid, right_uid] 两个 int64
+                    //
+                    // 同时保持 payload 很小，避免 multicast 下 OOM。
+                    uint64_t l = left->uid_;
+                    uint64_t r = right->uid_;
+                    uint64_t h = l ^ (r + 0x9e3779b97f4a7c15ULL + (l << 6) + (l >> 2));
                     int64_t ts = std::max(left->timestamp_, right->timestamp_);
-
-                    // 注意：集成测试只需要 (left_uid, right_uid) 来计算 recall/precision，
-                    // 不需要构造合并后的大向量 payload。
-                    // 在高并行 + multicast（例如 p=32,k>=8）下，重复输出数量会非常大；
-                    // 若每条输出都分配/拷贝大向量，会导致内存爆炸（即使 Sink 最终会去重）。
-                    return createVectorRecord(id, ts, {});
+                    return createInt64VectorRecord(
+                        h, ts, {static_cast<int64_t>(l), static_cast<int64_t>(r)});
                 },
                 config_.dimension);
             
@@ -354,24 +358,29 @@ void MatchCollectorSink::invoke(std::unique_ptr<VectorRecord>& record) {
     if (!record) return;
     
     std::lock_guard<std::mutex> lock(mutex_);
-    
-    // 从合并的 UID 中解析出 left_uid 和 right_uid
-    // 合并规则：id = left_uid * 1000000 + right_uid % 1000000
-    constexpr uint64_t kModuloBase = 1000000ULL;
-    uint64_t combined_id = record->uid_;
-    
-    // Sink 层去重：相同的 combined_id 只处理一次
-    // 这是最简单、最可靠的去重方式：
-    // - Sink 是单线程的，无锁竞争
-    // - combined_id 已经编码了 (left_uid, right_uid) 信息
-    // - 多播模式下多个 subtask 可能输出相同的匹配对，由 Sink 统一过滤
-    if (!seen_ids_.insert(combined_id).second) {
-        dedup_count_++;
-        return;  // 重复，跳过
+
+    uint64_t left_uid = 0;
+    uint64_t right_uid = 0;
+
+    // 优先从 payload 解码 (left_uid,right_uid)：Int64[2]
+    if (record->data_.type_ == DataType::Int64 && record->data_.dim_ == 2) {
+        const int64_t* p = reinterpret_cast<const int64_t*>(record->data_.data_.get());
+        left_uid = static_cast<uint64_t>(p[0]);
+        right_uid = static_cast<uint64_t>(p[1]);
+    } else {
+        // 向后兼容：旧测试把 pair 编进 uid（不推荐，仅保留兼容）
+        constexpr uint64_t kModuloBase = 1000000ULL;
+        uint64_t combined_id = record->uid_;
+        left_uid = combined_id / kModuloBase;
+        right_uid = combined_id % kModuloBase;
     }
-    
-    uint64_t left_uid = combined_id / kModuloBase;
-    uint64_t right_uid = combined_id % kModuloBase;
+
+    // Sink 层去重：相同的 (left_uid,right_uid) 只处理一次
+    PairKey key{left_uid, right_uid};
+    if (!seen_pairs_.insert(key).second) {
+        dedup_count_++;
+        return;
+    }
     
     MatchPair pair;
     pair.left_uid = left_uid;
@@ -399,7 +408,7 @@ int64_t MatchCollectorSink::getProcessedCount() const {
 void MatchCollectorSink::reset() {
     std::lock_guard<std::mutex> lock(mutex_);
     matches_.clear();
-    seen_ids_.clear();
+    seen_pairs_.clear();
     processed_count_ = 0;
     dedup_count_ = 0;
 }

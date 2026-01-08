@@ -20,6 +20,7 @@
 #include "test_utils/join_integration_pipeline_helper.h"
 #include "test_utils/test_data_generator.h"
 #include "test_utils/test_data_adapter.h"
+#include "test_utils/data_source/dataset_data_source.h"
 #include "test_utils/join_test_helper.h"
 #include "test_utils/test_report_generator.h"
 #include "operator/utils/join_config_validator.h"
@@ -302,6 +303,81 @@ protected:
         result.parallelism = parallelism;
         
         try {
+            // 注意：JoinFunction 的 combined_id 编码使用 kModuloBase=1'000'000，
+            // 右侧 UID 必须 < kModuloBase 才能在 (right_uid % kModuloBase) 下保持可逆。
+            // JoinDataSourceConfig 的默认 right_uid_offset=500'000 也遵循该约束。
+            constexpr uint64_t kRightUidOffset = 500000ULL;
+            std::vector<std::unique_ptr<VectorRecord>> left_stream;
+            std::vector<std::unique_ptr<VectorRecord>> right_stream;
+
+            // 如果配置为 dataset 直读，则优先使用数据集
+            if (test_case_.data_source_type == "dataset") {
+                DatasetDataSource::Config ds_config;
+                ds_config.file_path = test_case_.data_source_file_path;
+                ds_config.expected_dim = test_case_.data_source_expected_dim > 0
+                    ? test_case_.data_source_expected_dim
+                    : -1;
+                ds_config.loop = false;
+
+                auto ds = std::make_shared<DatasetDataSource>(ds_config);
+                const auto& vectors = ds->getAllVectors();
+                if (vectors.empty()) {
+                    throw std::runtime_error("Dataset is empty: " + ds_config.file_path);
+                }
+
+                size_t total = std::min(static_cast<size_t>(data_size), vectors.size());
+                if (total == 0) {
+                    throw std::runtime_error("Dataset records < data_size, nothing to run");
+                }
+
+                if (test_case_.vector_dim == 128 && !vectors.empty()) {
+                    test_case_.vector_dim = static_cast<int>(vectors[0].size());
+                }
+
+                std::vector<std::vector<float>> left_vectors_raw;
+                std::vector<std::vector<float>> right_vectors_raw;
+                left_vectors_raw.reserve(total);
+                right_vectors_raw.reserve(total);
+
+                if (test_case_.split_mode == "half_split") {
+                    size_t mid = total / 2;
+                    for (size_t i = 0; i < mid; ++i) left_vectors_raw.push_back(vectors[i]);
+                    for (size_t i = mid; i < total; ++i) right_vectors_raw.push_back(vectors[i]);
+                } else if (test_case_.split_mode == "interleaved") {
+                    for (size_t i = 0; i < total; ++i) {
+                        if (i % 2 == 0) {
+                            left_vectors_raw.push_back(vectors[i]);
+                        } else {
+                            right_vectors_raw.push_back(vectors[i]);
+                        }
+                    }
+                } else {  // duplicate
+                    for (size_t i = 0; i < total; ++i) {
+                        left_vectors_raw.push_back(vectors[i]);
+                        right_vectors_raw.push_back(vectors[i]);
+                    }
+                }
+
+                auto makeRecords = [&](const std::vector<std::vector<float>>& vecs,
+                                       uint64_t uid_offset) {
+                    std::vector<std::unique_ptr<VectorRecord>> out;
+                    out.reserve(vecs.size());
+                    for (size_t i = 0; i < vecs.size(); ++i) {
+                        int64_t ts = test_case_.base_timestamp +
+                                     static_cast<int64_t>(i) * test_case_.time_interval_ms;
+                        out.push_back(createVectorRecord(uid_offset + i, ts, vecs[i]));
+                    }
+                    return out;
+                };
+
+                left_stream = makeRecords(left_vectors_raw, 0);
+                right_stream = makeRecords(right_vectors_raw, kRightUidOffset);
+
+                SAGEFLOW_LOG_INFO("IntegrationTest",
+                    "[{}] Using DATASET mode ({}) split_mode={} left={} right={}",
+                    test_case_.name, ds_config.file_path, test_case_.split_mode,
+                    left_stream.size(), right_stream.size());
+            } else {
             // 1. 配置数据生成器
             // 使用更大的数据量以正确评估并行性能
             // 根据 data_size 参数动态调整，确保足够的计算密度
@@ -335,9 +411,6 @@ protected:
             // 根据 data_mode 选择数据分割方式：
             // - "duplicate": 复制向量到两个流（自连接，左右向量相同）
             // - "paired": 分割配对数据（左流=base，右流=perturbed，向量不同）
-            std::vector<std::unique_ptr<VectorRecord>> left_stream;
-            std::vector<std::unique_ptr<VectorRecord>> right_stream;
-            
             if (test_case_.data_mode == "paired") {
                 auto streams = JoinTestHelper::generatePairedJoinStreams(
                     generator, true /* apply_uid_offset */);
@@ -359,34 +432,27 @@ protected:
             SAGEFLOW_LOG_INFO("IntegrationTest",
                 "[{}] Split into left={} records, right={} records",
                 test_case_.name, left_stream.size(), right_stream.size());
-            
-            // 4. 计算 Ground Truth：
-            //    由于 left 和 right 流是相同向量的复制（带UID偏移），
-            //    需要计算所有 (left_i, right_j) 对，其中:
-            //    - similarity(vectors[i], vectors[j]) >= threshold
-            //    - |timestamp[i] - timestamp[j]| <= window_size
-            //    
-            //    使用与 ComputeEngine::Similarity 相同的相似度公式：exp(-alpha * L2_distance)
+            } // end generator/dataset branch
+
+            // 4. 计算 Ground Truth
             std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash> expected_matches;
-            
+
             const double threshold = test_case_.strategy.similarity_threshold;
             const int64_t window_size = test_case_.strategy.window_size_ms;
             const double alpha = test_case_.alpha;
-            
-            // 提取向量数据用于相似度计算
+
             std::vector<std::vector<float>> left_vectors;
             std::vector<std::vector<float>> right_vectors;
             left_vectors.reserve(left_stream.size());
             right_vectors.reserve(right_stream.size());
-            
+
             for (const auto& rec : left_stream) {
                 left_vectors.push_back(extractFloatVector(*rec));
             }
             for (const auto& rec : right_stream) {
                 right_vectors.push_back(extractFloatVector(*rec));
             }
-            
-            // 计算所有满足条件的配对
+
             auto computeSimilarity = [alpha](const std::vector<float>& a, 
                                              const std::vector<float>& b) -> double {
                 double sum_sq = 0.0;
@@ -397,23 +463,21 @@ protected:
                 double dist = std::sqrt(sum_sq);
                 return std::exp(-alpha * dist);
             };
-            
+
             for (size_t i = 0; i < left_stream.size(); ++i) {
                 for (size_t j = 0; j < right_stream.size(); ++j) {
-                    // 检查时间窗口
                     if (std::abs(left_stream[i]->timestamp_ - right_stream[j]->timestamp_) 
                         > window_size) {
                         continue;
                     }
-                    
-                    // 计算相似度
+
                     double sim = computeSimilarity(left_vectors[i], right_vectors[j]);
                     if (sim >= threshold) {
                         expected_matches.insert({left_stream[i]->uid_, right_stream[j]->uid_});
                     }
                 }
             }
-            
+
             result.expected_count = static_cast<int64_t>(expected_matches.size());
             
             SAGEFLOW_LOG_INFO("IntegrationTest",

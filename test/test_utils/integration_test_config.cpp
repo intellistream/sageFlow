@@ -176,6 +176,9 @@ JoinStrategyConfig IntegrationTestConfigLoader::parseStrategyConfig(
     if (auto v = table["similarity_threshold"].value<double>()) {
         config.similarity_threshold = *v;
     }
+    if (auto v = table["similarity_mode"].value<std::string>()) {
+        config.similarity_mode = parseSimilarityMode(*v);
+    }
     if (auto v = table["dimension"].value<int64_t>()) {
         config.dimension = static_cast<int>(*v);
     }
@@ -399,8 +402,25 @@ IntegrationTestCase IntegrationTestConfigLoader::parseTestCase(
     if (auto v = table["alpha"].value<double>()) {
         tc.alpha = *v;
     }
+    if (auto v = table["similarity_mode"].value<std::string>()) {
+        tc.similarity_mode = *v;
+    }
     if (auto v = table["data_mode"].value<std::string>()) {
         tc.data_mode = *v;
+    }
+
+    // 数据源：direct_load/dataset
+    if (auto v = table["data_source_type"].value<std::string>()) {
+        tc.data_source_type = *v;
+    }
+    if (auto v = table["data_source_file_path"].value<std::string>()) {
+        tc.data_source_file_path = resolvePath(*v);
+    }
+    if (auto v = table["data_source_expected_dim"].value<int64_t>()) {
+        tc.data_source_expected_dim = static_cast<int>(*v);
+    }
+    if (auto v = table["split_mode"].value<std::string>()) {
+        tc.split_mode = *v;
     }
 
     // 验证配置

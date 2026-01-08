@@ -37,7 +37,7 @@ struct IntegrationTestCase {
     std::vector<int> data_sizes;       ///< 测试的数据规模列表
     std::vector<int> parallelism;      ///< 测试的并行度列表
 
-    // ==================== 数据生成配置 ====================
+    // ==================== 数据生成/数据源配置 ====================
     double positive_ratio = 0.10;      ///< 正样本比例（相似度 > threshold）
     double negative_ratio = 0.60;      ///< 负样本比例（相似度 < threshold - 0.1）
     int64_t time_interval_ms = 10;     ///< 记录间时间间隔（毫秒）
@@ -50,6 +50,20 @@ struct IntegrationTestCase {
     int negative_pairs = 500;          ///< 负样本对数量
     int random_tail = 2000;            ///< 随机尾部数据量
     double alpha = 0.1;                ///< 相似度计算的 alpha 参数
+    std::string similarity_mode = "fixed_alpha"; ///< 相似度模式：fixed_alpha/adaptive_alpha/normalized
+    
+    /// 数据源选择：
+    /// - "generator" (默认)：使用 TestDataGenerator 生成数据
+    /// - "dataset": 直接从数据集文件加载（支持 fvecs/json）
+    std::string data_source_type = "generator";
+    std::string data_source_file_path;      ///< 数据集文件路径（dataset 模式）
+    int data_source_expected_dim = 0;       ///< 期望维度（0=不校验）
+    
+    /// 数据切分模式（dataset/生成数据通用）：
+    /// - duplicate: 左右流相同
+    /// - half_split: 前半 -> 左，后半 -> 右
+    /// - interleaved: 偶数 -> 左，奇数 -> 右
+    std::string split_mode = "duplicate";
     
     // ==================== 数据源模式配置 ====================
     /// 数据源模式：
