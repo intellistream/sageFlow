@@ -175,14 +175,14 @@ ctest --test-dir build -L INTEGRATION --output-on-failure
 
 ## Join 策略兼容性规则
 
-这部分容易误导：当前仓库虽然定义了多种 `PartitionStrategy/WindowStateType`，但**端到端链路真正稳定跑通**的主路径主要有两条（其余视为“暂未完全实现/不保证可用”）。
+当前仓库虽然定义了多种 `PartitionStrategy/WindowStateType`，但**端到端链路真正稳定跑通**的主路径主要有两条（其余视为“暂未完全实现/不保证可用”）。
 
 ### 策略 1：共享索引（Shared Index Join，主路径）
 - **组合**：`partition_strategy=ROUND_ROBIN` + `window_state_type=SHARED` + `index_strategy=SHARED`
 - **说明**：RoundRobin 负载均衡必须共享状态；否则跨分区匹配会丢失（recall drop）。
 
 ### 策略 2：ClusteredJoin（分区索引 Join，主路径）
-- **组合**：`partition_strategy=CENTROID` + `window_state_type=PARTITIONED/TWO_TIER` + `index_strategy=PARTITIONED`
+- **组合**：`partition_strategy=CENTROID` + `window_state_type=PARTITIONED` + `index_strategy=PARTITIONED`
 - **强约束**：**`num_partitions == parallelism`**
 - **说明**：使用 `CentroidPartitioner`（cold_start + overlap_ratio/multicast_k），用于 ClusteredJoin 实验（A/B）与真实数据集评测。
 
