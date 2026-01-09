@@ -426,6 +426,27 @@ void JoinOperator::open(const RuntimeContext& context) {
       }
   }
   
+  // DEBUG: 打印字符串路径的完整状态
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "[STRING_PATH] Complete state after open:");
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  use_strategy_config_={}", use_strategy_config_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  use_shared_state_={}", use_shared_state_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  use_index_={}", use_index_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  is_eager_={}", is_eager_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  parallelism_={}", parallelism_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  left_index_id_={} right_index_id_={}", left_index_id_, right_index_id_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  join_similarity_threshold_={}", join_similarity_threshold_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  batch_delete_threshold_={}", batch_delete_threshold_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  retention_buffer_={}", retention_buffer_);
+  SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  index_kind_={}", static_cast<int>(index_kind_));
+  if (join_func_) {
+      SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  join_func: window_size={} step_size={} dim={}",
+                       join_func_->getWindowSize(), join_func_->getStepSize(), join_func_->getDim());
+  }
+  if (join_method_) {
+      SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  join_method: alpha={}",
+                       join_method_->getSimilarityAlpha());
+  }
+  
   SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened: subtask={}/{}, shared_state={}", 
                    context.getSubtaskIndex(), context.getParallelism(), 
                    use_shared_state_);
@@ -1158,6 +1179,35 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
     // 因此 use_index_=false；但在“策略配置”路径下，工厂会为 BRUTEFORCE 创建 BruteForceJoinMethod
     // （底层使用 Knn::query_for_join → StorageManager::similarityJoinQuery），必须启用索引路径才能插入/查询。
     use_index_ = (left_index_id_ != -1 && right_index_id_ != -1);
+    // 5.2 设置 index_kind_（与字符串路径保持一致）
+    switch (strategy_config_.algorithm) {
+        case JoinAlgorithm::IVF:
+            index_kind_ = InternalIndexKind::IVF;
+            break;
+        case JoinAlgorithm::HNSW:
+            index_kind_ = InternalIndexKind::NONE;
+            break;
+        case JoinAlgorithm::HDR_TREE:
+            index_kind_ = InternalIndexKind::HDR_TREE;
+            break;
+        case JoinAlgorithm::BRUTEFORCE:
+            index_kind_ = InternalIndexKind::BRUTEFORCE;
+            break;
+        default:
+            index_kind_ = InternalIndexKind::NONE;
+            break;
+    }
+
+    // 5.3 计算批量删除阈值（与字符串路径保持一致）
+    // 这是关键！默认值 50 太小会导致频繁删除索引记录，影响召回率
+    {
+        int64_t window_size = join_func_ ? join_func_->getWindowSize() : strategy_config_.window_size_ms;
+        size_t computed_threshold = window_size * parallelism_ / kBatchDeleteDivisor;
+        batch_delete_threshold_ = std::max(kMinBatchDeleteThreshold, computed_threshold);
+        SAGEFLOW_LOG_INFO("JOIN", "Batch delete threshold computed (strategy config): {} (window={}, parallelism={})",
+                         batch_delete_threshold_, window_size, parallelism_);
+    }
+
 
     // 6. 根据窗口状态类型设置标志
     use_shared_state_ = (strategy_config_.window_state_type == WindowStateType::SHARED);
@@ -1222,6 +1272,40 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
                              static_cast<int>(strategy_config_.clustered_index_type));
         }
     }
+
+    // DEBUG: 打印策略配置路径的完整状态
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "[STRATEGY_PATH] Complete state after initializeWithStrategyConfig:");
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  use_strategy_config_={}", use_strategy_config_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  use_shared_state_={}", use_shared_state_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  use_index_={}", use_index_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  is_eager_={}", is_eager_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  parallelism_={}", parallelism_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  left_index_id_={} right_index_id_={}", left_index_id_, right_index_id_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  join_similarity_threshold_={}", join_similarity_threshold_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  batch_delete_threshold_={}", batch_delete_threshold_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  retention_buffer_={}", retention_buffer_);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  index_kind_={}", static_cast<int>(index_kind_));
+    if (join_func_) {
+        SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  join_func: window_size={} step_size={} dim={}",
+                         join_func_->getWindowSize(), join_func_->getStepSize(), join_func_->getDim());
+    }
+    if (join_method_) {
+        SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  join_method: alpha={}",
+                         join_method_->getSimilarityAlpha());
+    }
+    // 打印 strategy_config_ 的所有字段
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.algorithm={}", static_cast<int>(strategy_config_.algorithm));
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.similarity_threshold={}", strategy_config_.similarity_threshold);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.similarity_alpha={}", strategy_config_.similarity_alpha);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.window_size_ms={}", strategy_config_.window_size_ms);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.step_size_ms={}", strategy_config_.step_size_ms);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.dimension={}", strategy_config_.dimension);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.ivf_nlist={}", strategy_config_.ivf_nlist);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.ivf_nprobes={}", strategy_config_.ivf_nprobes);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.ivf_rebuild_threshold={}", strategy_config_.ivf_rebuild_threshold);
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.partition_strategy={}", static_cast<int>(strategy_config_.partition_strategy));
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.window_state_type={}", static_cast<int>(strategy_config_.window_state_type));
+    SAGEFLOW_LOG_INFO("JOIN_DEBUG_STATE", "  strategy_config_.index_strategy={}", static_cast<int>(strategy_config_.index_strategy));
 
     SAGEFLOW_LOG_INFO("JOIN", "JoinOperator initialized with strategy config: subtask={}/{} shared_state={}",
                      context.getSubtaskIndex(), context.getParallelism(), use_shared_state_);

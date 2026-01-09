@@ -859,17 +859,22 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
       left_source->join(right_source, std::move(join_func), method, mode_config.threshold, static_cast<size_t>(parallelism));
 
   // 使用完整 JoinStrategyConfig，确保 alpha/mode 能传到 JoinOperator 以及索引层（ComputeEngine）。
-  auto strategy_cfg = buildJoinStrategyConfigForTest(
-      method,
-      mode_config.threshold,
-      mode_config.alpha,
-      mode_config.similarity_mode,
-      mode_config,
-      mode_config.vector_dim,
-      win_ms,
-      mode_config.trig_ms,
-      parallelism);
-  join_stream->setJoinStrategyConfig(strategy_cfg);
+  // 注意：step_size 必须与 join_func->setWindow() 一致（使用 trigger_interval），
+  // 否则 IVF 参数计算会出现偏差导致召回下降。
+  bool need_strategy_config = (method == "clustered_join" || method == "clusteredjoin");
+  if (need_strategy_config) {
+    auto strategy_cfg = buildJoinStrategyConfigForTest(
+        method,
+        mode_config.threshold,
+        mode_config.alpha,
+        mode_config.similarity_mode,
+        mode_config,
+        mode_config.vector_dim,
+        win_ms,
+        trigger_interval,  // 与 join_func->setWindow() 保持一致
+        parallelism);
+    join_stream->setJoinStrategyConfig(strategy_cfg);
+  }
 
   join_stream->writeSink(std::move(sink_func), 1);
 

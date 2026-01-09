@@ -121,7 +121,7 @@ struct JoinStrategyConfig {
     // ==================== IVF 参数 ====================
     int ivf_nlist = 100;           ///< IVF 聚类数量
     int ivf_nprobes = 10;          ///< IVF 搜索时探测的聚类数
-    double ivf_rebuild_threshold = 0.3;  ///< 触发重建的阈值
+    double ivf_rebuild_threshold = 2.0;  ///< 触发重建的阈值（与字符串路径一致）
     
     // ==================== HNSW 参数 ====================
     int hnsw_m = 16;                   ///< 每层最大邻居数
