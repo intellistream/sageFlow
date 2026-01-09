@@ -1,4 +1,4 @@
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_strategy_config.h"
 #include "utils/logger.h"
 
 #include <algorithm>

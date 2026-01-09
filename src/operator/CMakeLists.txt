@@ -10,11 +10,12 @@ add_lib(
         window_operator.cpp
         itopk_operator.cpp
         aggregate_operator.cpp
-        distance_verifier.cpp
-        async_candidate_generator.cpp
-        join_strategy_config.cpp
-        join_strategy_factory.cpp
-        join_method_registry.cpp
+        # utils/ 子目录 - 配置和工厂相关
+        utils/join_strategy_config.cpp
+        utils/join_strategy_factory.cpp
+        utils/join_config_validator.cpp
+        utils/join_method_registry.cpp
+        # join_operator_methods/ 子目录 - 各种 join 方法实现
         join_operator_methods/base_method.cpp
         join_operator_methods/bruteforce.cpp
         join_operator_methods/bruteforce_baseline.cpp
@@ -23,8 +24,12 @@ add_lib(
         join_operator_methods/hdr_tree_method.cpp
         join_operator_methods/clustered_join_method.cpp
         join_operator_methods/s3j_method.cpp
+        join_operator_methods/vsjoin_method.cpp
         join_operator_methods/s3j_components/adaptive_partitioner.cpp
         join_operator_methods/s3j_components/adaptive_index_selector.cpp
+        # vsjoin_components/ 子目录 - VSJoin 专用组件
+        join_operator_methods/vsjoin_components/distance_verifier.cpp
+        join_operator_methods/vsjoin_components/async_candidate_generator.cpp
 )
 target_link_libraries(
         operator

@@ -74,6 +74,11 @@ if(ENABLE_GPERFTOOLS)
     add_definitions(-DENABLE_GPERFTOOLS)
 endif()
 
+# 全局启用指标收集宏，使得所有包含 monitoring.h 的代码都能正确启用指标
+if(SAGEFLOW_ENABLE_METRICS)
+    add_definitions(-DSAGEFLOW_ENABLE_METRICS=1)
+endif()
+
 add_subdirectory(src)
 
 # 只在需要时添加测试和示例（避免循环依赖问题）
@@ -83,12 +88,19 @@ if(BUILD_TESTING)
 endif()
 
 # ============================================================================
-# Python bindings (optional)
+
+# ============================================================================
+# Python bindings (optional, auto-enabled for wheel builds)
 # ============================================================================
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
 
-if(BUILD_PYTHON_BINDINGS)
-    message(STATUS "Building Python bindings for sage_flow")
-    add_subdirectory(python)
+# Auto-enable for scikit-build-core wheel builds
+if(SKBUILD)
+    set(BUILD_PYTHON_BINDINGS ON CACHE BOOL "Build Python bindings (auto-enabled by SKBUILD)" FORCE)
+    message(STATUS "SKBUILD detected: Auto-enabling BUILD_PYTHON_BINDINGS")
 endif()
 
+if(BUILD_PYTHON_BINDINGS)
+    message(STATUS "Building Python bindings for sage_flow")
+    add_subdirectory(sage_flow)
+endif()

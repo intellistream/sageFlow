@@ -1,6 +1,6 @@
 [[performance_test]]
 # 所有方法均使用 eager 模式，无需后缀
-methods = ["bruteforce", "ivf"]
+methods = ["bruteforce", "ivf", "hdr_tree"]
 #methods = ["ivf"]
 # 新解析结构需要 name 字段；迁移时赋予一个标识名称
 name = "perf_join_test"
@@ -19,5 +19,12 @@ time_interval = 10
 # 阈值（全局）
 similarity_threshold = 0.8
 seed = 42
+
+# HDR-Tree specific parameters
+[performance_test.hdr_tree_params]
+projected_dim = 8
+max_node_size = 100
+delta_buffer_size = 1000
+pca_sample_size = 5000
 
 log.level = "debug"

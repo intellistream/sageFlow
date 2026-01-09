@@ -12,52 +12,48 @@
 #include "common/data_types.h"
 #include "operator/operator.h"
 #include "operator/join_operator_methods/base_method.h"
+#include "operator/utils/join_strategy_config.h"
 #include "concurrency/concurrency_manager.h"
 #include "state/window_state.h"
 #include "state/partitioned_window_state.h"
 #include "state/shared_window_state.h"
 
-// VSJoin 组件
-#include "state/partitioned_vector_state.h"
-#include "index/partitioned_index.h"
-#include "coordination/partition_coordinator.h"
-#include "operator/async_candidate_generator.h"
-#include "operator/distance_verifier.h"
-#include "execution/vector_space_partitioner.h"
-
 namespace sageFlow {
-
-/**
- * @brief VSJoin 配置结构
- *
- * 用于配置 VSJoin 流式向量连接模式的各项参数。
- * VSJoin 使用向量空间分区策略，实现高效的跨分区相似性连接。
- */
-struct VSJoinConfig {
-    bool enabled = false;                    ///< 是否启用 VSJoin 模式
-    int num_partitions = 8;                  ///< 向量空间分区数
-    size_t compact_threshold = 100;          ///< 双层窗口压缩阈值
-    bool enable_boundary_tracking = true;    ///< 启用边界向量追踪
-    int64_t allowed_lateness = 0;            ///< 允许的延迟（毫秒，0=不处理延迟）
-    int64_t watermark_delay = 1000;          ///< watermark 延迟（毫秒）
-    size_t async_generator_threads = 4;      ///< 异步候选生成线程数
-    size_t num_probes = 2;                   ///< 跨分区探测数
-    int ivf_nlist = 100;                     ///< 每个分区 IVF 的聚类数
-    int ivf_nprobes = 10;                    ///< IVF 查询时探测的聚类数
-    double distance_alpha = 0.1;             ///< 距离到相似度的转换系数
-};
   // Forward declaration for PerformanceMonitor
   class PerformanceMonitor;
 
   class JoinOperator final : public Operator {
    public:
+    /**
+     * @brief 使用方法名字符串构造 JoinOperator（向后兼容）
+     */
     explicit JoinOperator(std::unique_ptr<Function> &join_func,
                           const std::shared_ptr<ConcurrencyManager> &concurrency_manager,
                           const std::string& join_method_name = "bruteforce",
                           double join_similarity_threshold = 0.8,
                           bool enable_profiling = false,
                           const std::string& profile_output_path = "",
-                          bool use_shared_state = false);  // 新增参数
+                          bool use_shared_state = false);
+
+    /**
+     * @brief 使用策略配置构造 JoinOperator（E-01 新增）
+     *
+     * 通过 JoinStrategyConfig 创建完整的 Join 策略，包括：
+     * - JoinMethod（通过 JoinStrategyFactory）
+     * - WindowState（左右两侧）
+     * - 索引（共享或分区）
+     *
+     * @param join_func Join 函数
+     * @param concurrency_manager 并发管理器
+     * @param config 策略配置
+     * @param enable_profiling 是否启用性能分析
+     * @param profile_output_path 性能分析输出路径
+     */
+    explicit JoinOperator(std::unique_ptr<Function> &join_func,
+                          const std::shared_ptr<ConcurrencyManager> &concurrency_manager,
+                          const JoinStrategyConfig& config,
+                          bool enable_profiling = false,
+                          const std::string& profile_output_path = "");
 
     auto open() -> void override;
     
@@ -83,25 +79,6 @@ struct VSJoinConfig {
     void setRetentionBuffer(int64_t buffer) {
         retention_buffer_ = std::max<int64_t>(buffer, 0);
     }
-    // ================== VSJoin 相关方法 ==================
-    
-    /**
-     * @brief 设置 VSJoin 配置
-     * @param config VSJoin 配置
-     */
-    void setVSJoinConfig(const VSJoinConfig& config);
-    
-    /**
-     * @brief 获取 VSJoin 配置
-     * @return VSJoin 配置引用
-     */
-    const VSJoinConfig& getVSJoinConfig() const { return vsjoin_config_; }
-    
-    /**
-     * @brief 检查是否启用 VSJoin
-     * @return true 表示 VSJoin 模式已启用
-     */
-    bool isVSJoinEnabled() const { return vsjoin_config_.enabled; }
 
     /**
      * @brief 获取期望的分区器
@@ -119,7 +96,7 @@ struct VSJoinConfig {
         int dimension = 0, int num_partitions = 0) const override;
 
    private:
-    enum class InternalIndexKind { NONE, IVF, BRUTEFORCE, VAMANA };  // 可扩展
+    enum class InternalIndexKind { NONE, IVF, BRUTEFORCE, VAMANA, HDR_TREE };  // 可扩展
 
     bool createIndexPair(IndexType type, const std::string& prefix);
     bool createIndexPair(IndexType type, const std::string& prefix, const IndexParameters& params);
@@ -166,6 +143,18 @@ struct VSJoinConfig {
     int64_t logicalWindowLowerBound(int64_t reference_timestamp) const;
     bool isRecordFresh(const std::unique_ptr<VectorRecord>& record, int64_t logical_lower_bound) const;
 
+    /**
+     * @brief E-01: 使用策略配置初始化 JoinOperator
+     *
+     * 通过 JoinStrategyFactory 创建所有必要的组件：
+     * - JoinMethod
+     * - WindowState (左右两侧)
+     * - 索引
+     *
+     * @param context 运行时上下文
+     */
+    void initializeWithStrategyConfig(const RuntimeContext& context);
+
     // 使用 WindowState 获取候选项的辅助方法
     std::vector<std::unique_ptr<VectorRecord>> getCandidatesFromState(
         const VectorRecord* data_ptr,
@@ -203,6 +192,11 @@ struct VSJoinConfig {
     std::unique_ptr<WindowState> left_state_;
     std::unique_ptr<WindowState> right_state_;
     bool use_shared_state_ = false;  // 是否使用共享状态模式
+
+    // E-01: 策略配置支持
+    JoinStrategyConfig strategy_config_;       // 策略配置
+    bool use_strategy_config_ = false;         // 是否使用策略配置模式
+    size_t parallelism_ = 1;                   // 并行度（从 RuntimeContext 获取）
 
     // 线程安全的初始化标志
     std::once_flag init_flag_;
@@ -255,80 +249,34 @@ struct VSJoinConfig {
     std::atomic<int64_t> max_seen_left_ts_{std::numeric_limits<int64_t>::min()};
     std::atomic<int64_t> max_seen_right_ts_{std::numeric_limits<int64_t>::min()};
     
+    // ====== 批量删除配置 ======
+    // 当 WindowState 中过期记录数超过此阈值时，触发批量删除索引中的过期数据
+    // 
+    // 公式设计原理：
+    //   window_vector_count = window_size_ms / step_size_ms  // 窗口内向量数量
+    //   batch_delete_threshold_ = max(kMinBatchDeleteThreshold, 
+    //                                 window_vector_count * parallelism / kBatchDeleteDivisor)
+    //
+    // - window_vector_count 越大，过期记录积累越多，可以容忍更大的批次
+    // - parallelism 越高，多个 subtask 并发操作，需要更大的阈值减少删除频率
+    // - kBatchDeleteDivisor (10) 控制批次大小与窗口向量数的比例
+    // - kMinBatchDeleteThreshold (50) 保证最小批次，避免过于频繁的删除
+    //
+    // 示例计算（window=10000ms, step=10ms → vector_count=1000）：
+    //   p=1:  max(50, 1000*1/10)  = max(50, 100)  = 100
+    //   p=4:  max(50, 1000*4/10)  = max(50, 400)  = 400
+    //   p=16: max(50, 1000*16/10) = max(50, 1600) = 1600
+    //
+    // 示例计算（window=60000ms, step=10ms → vector_count=6000）：
+    //   p=1:  max(50, 6000*1/10)  = max(50, 600)  = 600
+    //   p=8:  max(50, 6000*8/10)  = max(50, 4800) = 4800
+    //
+    static constexpr size_t kMinBatchDeleteThreshold = 50;   ///< 最小批量删除阈值
+    static constexpr size_t kBatchDeleteDivisor = 10;         ///< 批量删除除数因子
+    size_t batch_delete_threshold_ = kMinBatchDeleteThreshold; ///< 实际使用的批量删除阈值
+    
     // GPERFTOOLS profiling support
     std::unique_ptr<PerformanceMonitor> profiler_;
     bool enable_profiling_ = false;
-    
-    // ================== VSJoin 组件 ==================
-    
-    /// VSJoin 配置
-    VSJoinConfig vsjoin_config_;
-    
-    /// 向量空间分区器
-    std::shared_ptr<VectorSpacePartitioner> vsjoin_partitioner_;
-    
-    /// 左侧分区向量状态
-    std::unique_ptr<PartitionedVectorState> left_vsjoin_state_;
-    
-    /// 右侧分区向量状态
-    std::unique_ptr<PartitionedVectorState> right_vsjoin_state_;
-    
-    /// 左侧分区索引（shared_ptr 以便与 ConcurrencyManager 共享所有权）
-    std::shared_ptr<PartitionedIndex> left_vsjoin_index_;
-    
-    /// 右侧分区索引（shared_ptr 以便与 ConcurrencyManager 共享所有权）
-    std::shared_ptr<PartitionedIndex> right_vsjoin_index_;
-    
-    /// 分区协调器
-    std::unique_ptr<PartitionCoordinator> vsjoin_coordinator_;
-    
-    /// 左侧异步候选生成器
-    std::unique_ptr<AsyncCandidateGenerator> left_async_generator_;
-    
-    /// 右侧异步候选生成器
-    std::unique_ptr<AsyncCandidateGenerator> right_async_generator_;
-    
-    /// 距离验证器
-    std::shared_ptr<DistanceVerifier> vsjoin_verifier_;
-    
-    // ================== VSJoin 私有方法 ==================
-    
-    /**
-     * @brief 初始化 VSJoin 组件
-     * @param context 运行时上下文
-     */
-    void initVSJoinComponents(const RuntimeContext& context);
-    
-    /**
-     * @brief VSJoin 模式的 apply 方法
-     * @param record 输入记录
-     * @param slot 输入槽位
-     * @param collector 结果收集器
-     * @param context 运行时上下文
-     */
-    void applyVSJoin(Response&& record, int slot, Collector& collector,
-                     const RuntimeContext& context);
-    
-    /**
-     * @brief VSJoin Eager 模式执行
-     * @param query 查询向量
-     * @param slot 输入槽位
-     * @param collector 结果收集器
-     * @param context 运行时上下文
-     */
-    void executeVSJoinEager(const VectorRecord& query, int slot,
-                            Collector& collector, const RuntimeContext& context);
-    
-    /**
-     * @brief 从 Response 中提取 VectorRecord
-     * @param record Response 对象
-     * @return VectorRecord 指针，失败返回 nullptr
-     */
-    std::unique_ptr<VectorRecord> extractVectorRecord(const Response& record);
-    
-    /**
-     * @brief 关闭 VSJoin 组件
-     */
-    void closeVSJoinComponents();
   };
   }  // namespace sageFlow

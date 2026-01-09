@@ -5,8 +5,8 @@
 
 #include <gtest/gtest.h>
 
-#include "operator/join_config_validator.h"
-#include "operator/join_strategy_config.h"
+#include "operator/utils/join_config_validator.h"
+#include "operator/utils/join_strategy_config.h"
 
 namespace sageFlow {
 namespace {

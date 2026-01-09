@@ -18,6 +18,7 @@ enum class IndexType {  // NOLINT
   BruteForce,
   IVF,
   Vectraflow,
+  HDRForest,
   HDRTree,
   PartitionedIndex
 };
@@ -29,6 +30,11 @@ struct IVFParameters {
   int nprobes = 10;
 };
 
+struct HDRForestParameters {
+  int n_clusters = 10;
+  int f_sections = 5;
+};
+
 struct HNSWParameters {
   int m = 20;
   int ef_construction = 100;
@@ -38,7 +44,7 @@ struct HNSWParameters {
 struct NoParameters {};
 
 // Variant to hold any index parameters
-using IndexParameters = std::variant<NoParameters, IVFParameters, HNSWParameters>;
+using IndexParameters = std::variant<NoParameters, IVFParameters, HNSWParameters, HDRForestParameters>;
 
 class Index {
  public:
