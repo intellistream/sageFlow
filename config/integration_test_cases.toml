@@ -78,6 +78,8 @@ window_state_type = "shared"
 index_strategy = "shared"
 data_sizes = [500]
 window_size_ms = 1000
+# IVF 参数由动态计算：N = window_size/time_interval = 1000/10 = 100
+# nlist = 4*sqrt(100) = 40, nprobes = 40*80% = 32
 parallelism = [1, 2, 4, 8, 16]
 expected_min_recall = 0.95
 expected_min_precision = 1.0

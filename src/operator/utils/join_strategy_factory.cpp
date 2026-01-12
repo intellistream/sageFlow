@@ -1,6 +1,5 @@
 #include "operator/utils/join_strategy_factory.h"
 
-#include "operator/join_operator_methods/bruteforce.h"
 #include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_operator_methods/hnsw.h"
@@ -62,11 +61,9 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
     
     // 2. 创建索引对
     // 统一架构：所有使用索引的 Join 方法都通过 ConcurrencyManager 管理共享索引
-    // - 共享索引策略：BRUTEFORCE, IVF, HNSW, HDR_TREE
+    // - 共享索引策略：IVF, HNSW, HDR_TREE
+    // - BRUTEFORCE 使用 BruteForceBaseline，不依赖索引
     // - 分区索引策略（分区内部使用索引管理）：CLUSTERED_JOIN, S3J
-
-    // 大多数方法都通过 ConcurrencyManager 管理的索引进行查询（包括 BRUTEFORCE 的“策略配置路径”，
-    // 该路径会创建 BruteForceJoinMethod，并依赖 BruteForce/KNN 索引完成 query_for_join 过滤）。
     bool need_index = (config.index_strategy == IndexStrategy::SHARED ||
                       config.algorithm == JoinAlgorithm::CLUSTERED_JOIN ||
                       config.algorithm == JoinAlgorithm::S3J);
@@ -179,7 +176,6 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createIvfMethod(
     std::shared_ptr<ConcurrencyManager> cm,
     int left_idx, int right_idx) {
     
-    // 使用新的 IVFMethod 类（而非旧的 IvfJoinMethod）
     IVFMethod::Config ivf_config;
     ivf_config.similarity_threshold = config.similarity_threshold;
     ivf_config.nlist = config.ivf_nlist;

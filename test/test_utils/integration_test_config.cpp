@@ -191,6 +191,9 @@ JoinStrategyConfig IntegrationTestConfigLoader::parseStrategyConfig(
     if (auto v = table["step_size_ms"].value<int64_t>()) {
         config.step_size_ms = *v;
     }
+    if (auto v = table["time_interval_ms"].value<int64_t>()) {
+        config.time_interval_ms = *v;
+    }
 
     // IVF 参数
     if (auto v = table["ivf_nlist"].value<int64_t>()) {
@@ -350,6 +353,16 @@ IntegrationTestCase IntegrationTestConfigLoader::parseTestCase(
         if (!table["step_size_ms"].value<int64_t>()) {
             tc.strategy.step_size_ms = common.strategy.step_size_ms;
         }
+    }
+    // 继承 time_interval_ms（用于 IVF 动态参数计算）
+    if (common.strategy.time_interval_ms > 0 && tc.strategy.time_interval_ms == 10) {
+        if (!table["time_interval_ms"].value<int64_t>()) {
+            tc.strategy.time_interval_ms = common.strategy.time_interval_ms;
+        }
+    }
+    // 同时同步到 tc.time_interval_ms（用于数据生成）
+    if (tc.strategy.time_interval_ms != 10) {
+        tc.time_interval_ms = tc.strategy.time_interval_ms;
     }
 
     // 数据配置

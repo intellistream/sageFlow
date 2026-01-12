@@ -114,6 +114,7 @@ struct JoinStrategyConfig {
     WindowStateType window_state_type = WindowStateType::SHARED;
     int64_t window_size_ms = 10000;  ///< 窗口大小（毫秒）
     int64_t step_size_ms = 1000;     ///< 滑动步长（毫秒）
+    int64_t time_interval_ms = 10;   ///< 向量到达间隔（毫秒），用于估算窗口内向量数
     
     // ==================== 索引配置 ====================
     IndexStrategy index_strategy = IndexStrategy::SHARED;

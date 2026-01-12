@@ -6,6 +6,8 @@
 #include <thread>
 #include <vector>
 #include <string>
+#include <atomic>
+#include <mutex>
 
 #include "common/data_types.h"  // Include VectorRecord definition
 #include "function/function_api.h"
@@ -76,6 +78,15 @@ class Operator {
   size_t parallelism_ = 1; // 默认并行度为 1
   bool is_available_ = true;  // Indicates if the operator is available for processing
   std::string name = "Operator"; // 添加name字段用于标识算子
+
+  // ------------------------------------------------------------------
+  // Lifecycle coordination for multi-vertex execution:
+  // ExecutionGraph creates multiple ExecutionVertex threads that may share
+  // the same Operator instance (shared_ptr). These fields allow ExecutionVertex
+  // to ensure open() runs once and close() runs once after the last vertex.
+  // ------------------------------------------------------------------
+  mutable std::once_flag open_once_;
+  std::atomic<size_t> active_vertices_{0};
 };
 
 }  // namespace sageFlow

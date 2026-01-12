@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/ivf_method.h"
+#include "operator/utils/join_method_registry.h"
 #include "compute_engine/simd_distance.h"
 #include "utils/logger.h"
 
@@ -151,6 +152,7 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
         // 使用 IVF 索引进行查询
         auto candidates = rangeSearchWithIndex(query_record, target_index_id);
         
+        
         SAGEFLOW_LOG_DEBUG("IVFMethod",
             "ExecuteEager: query_uid={}, slot={}, index_id={}, found {} candidates via IVF index",
             query_record.uid_, query_slot, target_index_id, candidates.size());
@@ -165,6 +167,7 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
     } else {
         // 降级模式：无索引时使用暴力搜索
         auto records = target_state->getRecordsSnapshot(subtask_index_);
+        
         
         SAGEFLOW_LOG_DEBUG("IVFMethod",
             "ExecuteEager: query_uid={}, slot={}, fallback to bruteforce, searching {} records",
@@ -363,3 +366,36 @@ double IVFMethod::computeSimilarity(
 }
 
 } // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::IVF,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "IVF",
+        "IVF (Inverted File Index) based approximate nearest neighbor join. "
+        "Uses k-means clustering for space partitioning. "
+        "Balanced recall-speed tradeoff.",
+        sageFlow::JoinAlgorithm::IVF,
+        true,   // supports_eager
+        true,   // supports_lazy
+        sageFlow::PartitionStrategy::ROUND_ROBIN,
+        sageFlow::WindowStateType::SHARED,
+        "Faiss, IEEE TBD 2017"
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int left_idx,
+       int right_idx) {
+        sageFlow::IVFMethod::Config ivf_config;
+        ivf_config.similarity_threshold = config.similarity_threshold;
+        ivf_config.nlist = config.ivf_nlist;
+        ivf_config.nprobes = config.ivf_nprobes;
+        ivf_config.rebuild_threshold = config.ivf_rebuild_threshold;
+        ivf_config.use_existing_index = true;
+        
+        auto method = std::make_unique<sageFlow::IVFMethod>(ivf_config);
+        method->setIndexIds(left_idx, right_idx);
+        method->setConcurrencyManager(cm);
+        return method;
+    });

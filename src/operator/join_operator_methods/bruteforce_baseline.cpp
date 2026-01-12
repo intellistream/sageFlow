@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
+#include "operator/utils/join_method_registry.h"
 #include "compute_engine/simd_distance.h"
 #include "utils/logger.h"
 
@@ -106,18 +107,19 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteEager(
     // 返回的引用在锁释放后可能被其他线程修改
     auto records_snapshot = target_state->getRecordsSnapshot(subtask_index);
     
-    // 调试：记录窗口大小
+    // 调试：记录窗口大小和状态指针
     static std::atomic<uint64_t> query_count{0};
     static std::atomic<uint64_t> total_window_size{0};
     uint64_t qc = query_count.fetch_add(1, std::memory_order_relaxed);
     total_window_size.fetch_add(records_snapshot.size(), std::memory_order_relaxed);
     if (qc % 500 == 0) {
         SAGEFLOW_LOG_INFO("BruteForceBaseline",
-            "ExecuteEager: subtask={}/{} query_uid={} slot={} window_size={} avg_window={:.1f} shared={}",
+            "ExecuteEager: subtask={}/{} query_uid={} slot={} window_size={} avg_window={:.1f} shared={} state_ptr={}",
             subtask_index_, parallelism_, query_record.uid_, query_slot, 
             records_snapshot.size(), 
             static_cast<double>(total_window_size.load()) / (qc + 1),
-            target_state->isShared());
+            target_state->isShared(),
+            static_cast<void*>(target_state));
     }
     
     SAGEFLOW_LOG_DEBUG("BruteForceBaseline",
@@ -288,3 +290,28 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecords(
 }
 
 } // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::BRUTEFORCE,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "BruteForce",
+        "Ground truth baseline with brute-force scan. "
+        "Provides 100% recall rate. Suitable for small windows or as reference.",
+        sageFlow::JoinAlgorithm::BRUTEFORCE,
+        true,   // supports_eager
+        true,   // supports_lazy
+        sageFlow::PartitionStrategy::ROUND_ROBIN,
+        sageFlow::WindowStateType::SHARED,
+        ""      // paper_reference
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> /*cm*/,
+       int /*dim*/,
+       int /*left_idx*/,
+       int /*right_idx*/) {
+        return std::make_unique<sageFlow::BruteForceBaseline>(
+            config.similarity_threshold,
+            config.similarity_mode,
+            config.similarity_alpha);
+    });

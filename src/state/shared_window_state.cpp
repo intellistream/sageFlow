@@ -71,6 +71,12 @@ void SharedWindowState::evictExpired(int64_t current_timestamp,
     // subtask_index 在共享状态中被忽略
     std::unique_lock lock(mutex_);
     
+    // 防止整数下溢：当 current_timestamp 是最小值时，不进行 evict
+    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    if (current_timestamp == kMinTimestamp) {
+        return;  // 避免下溢导致错误删除
+    }
+    
     // 计算过期阈值：timestamp < current_timestamp - multiplier * window_size
     int64_t expiry_threshold = current_timestamp - 
         static_cast<int64_t>(eviction_buffer_multiplier_ * window_size);

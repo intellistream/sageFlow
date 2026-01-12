@@ -65,7 +65,16 @@ void ClusteredJoinMethod::initialize(
     return;
   }
   
-  subtask_index_ = context.getSubtaskIndex();
+  // IMPORTANT:
+  // ExecutionGraph currently runs multiple ExecutionVertex threads that may share
+  // the SAME Operator/JoinMethod instance. Therefore, we MUST NOT bind a single
+  // subtask_index into this method during initialize(), otherwise other subtasks
+  // will inherit the wrong identity and can never re-initialize due to initialized_.
+  //
+  // In the refactored pipeline, per-subtask identity must come from the
+  // ExecuteEager(..., subtask_index) parameter (and WindowState partition access),
+  // not from initialize().
+  subtask_index_ = 0;
   parallelism_ = context.getParallelism();
   concurrency_manager_ = std::move(concurrency_manager);
   
@@ -84,8 +93,8 @@ void ClusteredJoinMethod::initialize(
   initialized_ = true;
   
   SAGEFLOW_LOG_INFO("ClusteredJoin",
-      "Initialized subtask {} of {}, effective_parallelism={}",
-      subtask_index_, parallelism_, effective_parallelism_);
+      "Initialized (shared instance) parallelism={}, effective_parallelism={}",
+      parallelism_, effective_parallelism_);
 }
 
 void ClusteredJoinMethod::setIndexIds(int left_index_id, int right_index_id) {
@@ -120,7 +129,7 @@ void ClusteredJoinMethod::close() {
   initialized_ = false;
   
   SAGEFLOW_LOG_INFO("ClusteredJoin", 
-      "Closed subtask {} of {}", subtask_index_, parallelism_);
+      "Closed (shared instance) parallelism={}", parallelism_);
 }
 
 // ==================== 索引配置 ====================

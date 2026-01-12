@@ -251,7 +251,12 @@ private:
         
         // 阶段2：等待 JoinOperator emits 稳定
         // 所有输入处理完后，JoinOperator 需要时间产生所有输出
-        const auto emits_stable_window = 200ms;  // 更长的稳定窗口
+        // 注意：高并行度 + 全局锁竞争下，total_emits 可能会出现 >200ms 的“停顿”
+        // （线程在等待锁/调度），这并不代表 Join 已经完成。
+        // 这里按并行度放大稳定窗口，避免测试框架过早 stop 导致召回率“随机波动”。
+        const auto emits_stable_window =
+            (parallelism_ >= 16) ? 2000ms :
+            (parallelism_ >= 8)  ? 1000ms : 200ms;
         const auto max_emit_wait = std::chrono::seconds(60);
         auto emit_end_by = std::chrono::steady_clock::now() + max_emit_wait;
         uint64_t last_emits = JoinMetrics::instance().total_emits.load();
@@ -280,7 +285,11 @@ private:
         stats.join_time_ms = std::chrono::duration<double, std::milli>(emits_stable_at - start_steady).count();
         
         // 阶段3：等待 Sink 处理完所有 emits
-        const auto sink_stable_window = 200ms;
+        // 同理：在高并行度下，sink 的 processed/dedup 也可能出现短暂停顿，
+        // 不应因为 200ms 不变就提前结束，否则会把“还没消费完”的 emits 当成最终结果。
+        const auto sink_stable_window =
+            (parallelism_ >= 16) ? 2000ms :
+            (parallelism_ >= 8)  ? 1000ms : 200ms;
         const auto max_sink_wait = std::chrono::seconds(30);
         auto sink_end_by = std::chrono::steady_clock::now() + max_sink_wait;
         uint64_t target_emits = JoinMetrics::instance().total_emits.load();
@@ -310,12 +319,17 @@ private:
                 break;
             }
 
-            // 达不到 target 但已经稳定，提前结束等待（不把等待窗口当成算法时间）
+            // 达不到 target 但已经稳定：仅在差距极小（<=1）时提前结束等待，
+            // 否则继续等到 timeout，避免在高并行度/锁竞争时“误判稳定”。
             if (std::chrono::steady_clock::now() - sink_stable_since >= sink_stable_window) {
-                SAGEFLOW_LOG_INFO("PipelineHelper",
-                    "Sink catch-up stabilized (processed+dedup={} < target={}), stop waiting early",
-                    sink_total, target_emits);
-                break;
+                if (target_emits > sink_total && (target_emits - sink_total) <= 1) {
+                    SAGEFLOW_LOG_INFO("PipelineHelper",
+                        "Sink catch-up stabilized with tiny gap (processed+dedup={} < target={}), stop waiting early",
+                        sink_total, target_emits);
+                    break;
+                }
+                // gap still large: keep waiting
+                sink_stable_since = std::chrono::steady_clock::now();
             }
         }
 

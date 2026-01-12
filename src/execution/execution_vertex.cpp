@@ -8,6 +8,7 @@
 #include "spdlog/spdlog.h"
 #include <spdlog/fmt/fmt.h>
 #include "utils/logger.h"
+#include <mutex>
 
 namespace sageFlow {
 
@@ -51,8 +52,21 @@ void ExecutionVertex::run() const {
 
   auto source_op = dynamic_cast<OutputOperator*>(operator_.get());
   try {
-    // 打开算子，传入运行时上下文
-    operator_->open(runtime_context);
+    // ------------------------------------------------------------------
+    // Operator lifecycle coordination:
+    // ExecutionGraph currently creates N ExecutionVertex threads that share
+    // the SAME Operator instance (shared_ptr). If each thread calls open()/close(),
+    // it causes data races and nondeterministic behavior (especially in Join).
+    //
+    // We therefore:
+    // - open() exactly once (call_once) using a deterministic context (subtask 0)
+    // - close() exactly once when the LAST vertex thread finishes
+    // ------------------------------------------------------------------
+    operator_->active_vertices_.fetch_add(1, std::memory_order_acq_rel);
+    std::call_once(operator_->open_once_, [this] {
+      RuntimeContext open_ctx(0, operator_->get_parallelism());
+      operator_->open(open_ctx);
+    });
     
     // 创建collector，将emit操作注册到collector中
     Collector collector([this](std::unique_ptr<Response> response, int slot) {
@@ -108,8 +122,10 @@ void ExecutionVertex::run() const {
     SAGEFLOW_LOG_ERROR("VERTEX", "Exception name={} what={} ", name_, e.what());
   }
 
-  // 关闭算子
-  operator_->close();
+  // 关闭算子：仅由最后一个 vertex 线程负责
+  if (operator_->active_vertices_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    operator_->close();
+  }
 
   SAGEFLOW_LOG_INFO("VERTEX", "{} finished", name_);
 }
