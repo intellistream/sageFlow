@@ -7,10 +7,12 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_operator_methods/hdr_tree_method.h"
+#include "operator/join_operator_methods/clustered_join_method.h"
 #include "operator/join_metrics.h"
 #include "operator/utils/join_strategy_factory.h"
 #include "operator/utils/join_config_validator.h"
 #include "execution/partitioner_factory.h"
+#include "execution/centroid_partitioner.h"
 #include "utils/monitoring.h"
 
 #include <algorithm>
@@ -21,6 +23,9 @@
 #include <limits>
 #include <thread>
 #include <set>
+#include <chrono>
+#include <cstdlib>
+#include <cctype>
 #include <unordered_set>
 
 #include "utils/logger.h"
@@ -28,11 +33,6 @@
 #include "spdlog/fmt/bundled/chrono.h"
 
 namespace sageFlow {
-
-// 调试统计变量 - 文件作用域，支持跨函数访问
-static std::atomic<uint64_t> g_total_candidates{0};
-static std::atomic<uint64_t> g_total_queries{0};
-static std::atomic<uint64_t> g_total_filtered_by_ts{0};
 
 bool JoinOperator::createIndexPair(IndexType type, const std::string& prefix) {
     if (!concurrency_manager_) return false;
@@ -171,7 +171,7 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         SAGEFLOW_LOG_INFO("JOIN", "BruteForce mode enabled (WindowState-based)");
         
     
-        } else if (algo == "hdrtree" || algo == "hdr_tree" || algo == "hdrforest") {
+    } else if (algo == "hdrtree" || algo == "hdr_tree" || algo == "hdrforest") {
         index_kind_ = InternalIndexKind::HDR_TREE;
         // HDRTree 推荐使用 PartitionedWindowState
         use_shared_state_ = true; 
@@ -200,8 +200,7 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
             join_method_ = std::make_unique<BruteForceBaseline>(join_similarity_threshold_);
             SAGEFLOW_LOG_WARN("JOIN", "Failed to create HDRTree index pair, falling back to BruteForce");
         }
-
-} else if (algo == "hnsw") {
+    } else if (algo == "hnsw") {
         // HNSW 模式
         // HNSW 使用共享索引，需要 SharedWindowState 以确保所有并行实例看到完整窗口
         use_shared_state_ = true;
@@ -226,15 +225,53 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
         } else {
             index_kind_ = InternalIndexKind::NONE;
             use_index_ = false;
-            join_method_ = std::make_unique<BruteForceJoinMethod>(
-              -1, -1, join_similarity_threshold_, concurrency_manager_);
+            join_method_ = std::make_unique<BruteForceBaseline>(
+              join_similarity_threshold_, SimilarityMode::FIXED_ALPHA, 2.0);
             SAGEFLOW_LOG_WARN("JOIN", "Failed to create HNSW index pair, falling back to BruteForce");
         }
+    } else if (algo == "clustered_join" || algo == "clusteredjoin" || algo == "clustered") {
+        // ClusteredJoin 模式：每个 subtask 独立索引 + CentroidPartitioner
+        // 使用 PartitionedWindowState，数据通过质心分区器路由
+        use_shared_state_ = false;
+        index_kind_ = InternalIndexKind::NONE;  // ClusteredJoinMethod 自己管理索引
+        use_index_ = false;  // 不使用共享索引
+        
+        // 设置默认的策略配置，以便 getPreferredPartitioner() 能返回正确的分区器
+        strategy_config_.algorithm = JoinAlgorithm::CLUSTERED_JOIN;
+        strategy_config_.partition_strategy = PartitionStrategy::CENTROID;  // 必须使用质心分区
+        strategy_config_.window_state_type = WindowStateType::PARTITIONED; // 必须使用分区状态
+        strategy_config_.index_strategy = IndexStrategy::PARTITIONED;       // 每个 subtask 独立索引
+        strategy_config_.similarity_threshold = join_similarity_threshold_;
+        strategy_config_.dimension = join_func_->getDim();
+        strategy_config_.window_size_ms = join_func_->getWindowSize();
+        strategy_config_.step_size_ms = join_func_->getStepSize();
+        // 使用默认的 clustered 配置参数
+        strategy_config_.num_partitions = 8;  // 默认8个分区
+        strategy_config_.clustered_overlap_ratio = 0.1;
+        strategy_config_.clustered_rebalance_threshold = 0.3;
+        strategy_config_.clustered_multicast_enabled = true;  // 启用边界向量多播
+        strategy_config_.clustered_index_type = ClusteredIndexType::BRUTEFORCE;  // 默认使用 bruteforce
+        use_strategy_config_ = true;  // 启用策略配置模式
+        
+        // 创建 ClusteredJoinMethod（实际初始化在 open() 中完成）
+        ClusteredJoinMethod::Config clustered_config;
+        clustered_config.similarity_threshold = join_similarity_threshold_;
+        clustered_config.dimension = join_func_->getDim();
+        clustered_config.window_size_ms = join_func_->getWindowSize();
+        clustered_config.num_partitions = strategy_config_.num_partitions;
+        clustered_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
+        // 默认使用 BruteForce 索引（高召回率）
+        clustered_config.index_type = ClusteredIndexType::BRUTEFORCE;
+        
+        join_method_ = std::make_unique<ClusteredJoinMethod>(clustered_config);
+        
+        SAGEFLOW_LOG_INFO("JOIN", "ClusteredJoin mode enabled: partitions={} overlap={:.2f} index_type=bruteforce",
+                         clustered_config.num_partitions, clustered_config.overlap_ratio);
     } else {
         index_kind_ = InternalIndexKind::NONE;
         use_index_ = false;
-        join_method_ = std::make_unique<BruteForceJoinMethod>(
-          -1, -1, join_similarity_threshold_, concurrency_manager_);
+        join_method_ = std::make_unique<BruteForceBaseline>(
+          join_similarity_threshold_, SimilarityMode::FIXED_ALPHA, 2.0);
     }
 }
 
@@ -289,14 +326,8 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
 }
 
 JoinOperator::~JoinOperator() {
-    // 输出候选统计信息（调试用）
     static std::atomic<int> destructor_count{0};
     if (destructor_count.fetch_add(1) == 0) {
-        SAGEFLOW_LOG_INFO("JOIN_DEBUG", "Candidate stats: total_queries={} total_candidates={} avg_per_query={:.2f} filtered_by_ts={}",
-            g_total_queries.load(), g_total_candidates.load(),
-            g_total_queries.load() > 0 ? static_cast<double>(g_total_candidates.load()) / g_total_queries.load() : 0.0,
-            g_total_filtered_by_ts.load());
-        
         // 输出 QIQ 三阶段统计
         auto& m = JoinMetrics::instance();
         uint64_t q1_count = m.qiq_q1_count.load();
@@ -345,50 +376,75 @@ void JoinOperator::open(const RuntimeContext& context) {
         return;
     }
   
-  // 根据配置创建窗口状态
-  if (use_shared_state_) {
-      left_state_ = std::make_unique<SharedWindowState>();
-      right_state_ = std::make_unique<SharedWindowState>();
-      SAGEFLOW_LOG_INFO("JOIN", "Using SharedWindowState");
-  } else {
-      left_state_ = std::make_unique<PartitionedWindowState>(context.getParallelism());
-      right_state_ = std::make_unique<PartitionedWindowState>(context.getParallelism());
-      SAGEFLOW_LOG_INFO("JOIN", "Using PartitionedWindowState with parallelism={}", 
-                       context.getParallelism());
-  }
+    // 根据配置创建窗口状态
+    if (use_shared_state_) {
+        left_state_ = std::make_unique<SharedWindowState>();
+        right_state_ = std::make_unique<SharedWindowState>();
+        SAGEFLOW_LOG_INFO("JOIN", "Using SharedWindowState");
+    } else {
+        left_state_ = std::make_unique<PartitionedWindowState>(context.getParallelism());
+        right_state_ = std::make_unique<PartitionedWindowState>(context.getParallelism());
+        SAGEFLOW_LOG_INFO("JOIN", "Using PartitionedWindowState with parallelism={}", 
+                        context.getParallelism());
+    }
   
-  left_state_->setEvictionBufferMultiplier(1.5);
-  right_state_->setEvictionBufferMultiplier(1.5);
-  
-  // 计算批量删除阈值：基于窗口向量数量和并行度动态调整
-  {
-      int64_t window_size = join_func_ ? join_func_->getWindowSize() : 10000;
-      size_t computed_threshold = window_size * parallelism_ / kBatchDeleteDivisor;
-      batch_delete_threshold_ = std::max(kMinBatchDeleteThreshold, computed_threshold);
-      SAGEFLOW_LOG_INFO("JOIN", "Batch delete threshold computed: {} (window={}, parallelism={})",
-                       batch_delete_threshold_, window_size, parallelism_);
-  }
-  
-  // 初始化新架构的 Join 方法（传入 WindowState）
-  if (join_method_) {
-      // 尝试作为 BruteForceBaseline 初始化 - 不使用索引，直接从 WindowState 查找
-      if (auto* bf = dynamic_cast<BruteForceBaseline*>(join_method_.get())) {
-          bf->open(context, left_state_.get(), right_state_.get());
-          SAGEFLOW_LOG_INFO("JOIN", "BruteForceBaseline method initialized with WindowState");
-      }
-      // 尝试作为 IVFMethod 初始化 - 使用 ConcurrencyManager 中的索引
-      else if (auto* ivf = dynamic_cast<IVFMethod*>(join_method_.get())) {
-          // 传递索引 ID 和 ConcurrencyManager
-          ivf->setIndexIds(left_index_id_, right_index_id_);
-          ivf->open(context, left_state_.get(), right_state_.get(), concurrency_manager_.get());
-          SAGEFLOW_LOG_INFO("JOIN", "IVFMethod initialized with ConcurrencyManager index, left_idx={} right_idx={}",
-                           left_index_id_, right_index_id_);
-      }
-  }
-  
-  SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened: subtask={}/{}, shared_state={}", 
-                   context.getSubtaskIndex(), context.getParallelism(), 
-                   use_shared_state_);
+    // 高并行度需要更大的 eviction buffer 来容忍处理延迟
+    // 高并行度下（shared state + 多线程），输入处理顺序可能出现“大幅乱序”，
+    // eviction 需要更大的 buffer 才能避免误删导致召回率抖动/下降。
+    //
+    // 经验默认值（可被环境变量覆盖）：
+    // - p>=16: 32
+    // - p>=8 : 16
+    // - p>=4 : 8
+    // - else : 1.5
+    //
+    // Debug override:
+    //   SAGEFLOW_EVICTION_MULTIPLIER=FLOAT (e.g. 1.5 / 3.0 / 5.0)
+    double eviction_multiplier = 1.5;
+    if (context.getParallelism() >= 4) {
+        eviction_multiplier = std::min(32.0, 2.0 * static_cast<double>(context.getParallelism()));
+    }
+    if (const char* v = std::getenv("SAGEFLOW_EVICTION_MULTIPLIER")) {
+        try {
+            eviction_multiplier = std::stod(v);
+        } catch (...) {
+            // ignore invalid override
+        }
+    }
+    left_state_->setEvictionBufferMultiplier(eviction_multiplier);
+    right_state_->setEvictionBufferMultiplier(eviction_multiplier);
+    SAGEFLOW_LOG_INFO("JOIN", "Eviction buffer multiplier set to {} for parallelism={}",
+                    eviction_multiplier, context.getParallelism());
+    
+    // 计算批量删除阈值：基于窗口向量数量和并行度动态调整
+    {
+        int64_t window_size = join_func_ ? join_func_->getWindowSize() : 10000;
+        size_t computed_threshold = window_size * parallelism_ / kBatchDeleteDivisor;
+        batch_delete_threshold_ = std::max(kMinBatchDeleteThreshold, computed_threshold);
+        SAGEFLOW_LOG_INFO("JOIN", "Batch delete threshold computed: {} (window={}, parallelism={})",
+                        batch_delete_threshold_, window_size, parallelism_);
+    }
+    
+    // 初始化新架构的 Join 方法（传入 WindowState）
+    if (join_method_) {
+        // 尝试作为 BruteForceBaseline 初始化 - 不使用索引，直接从 WindowState 查找
+        if (auto* bf = dynamic_cast<BruteForceBaseline*>(join_method_.get())) {
+            bf->open(context, left_state_.get(), right_state_.get());
+            SAGEFLOW_LOG_INFO("JOIN", "BruteForceBaseline method initialized with WindowState");
+        }
+        // 尝试作为 IVFMethod 初始化 - 使用 ConcurrencyManager 中的索引
+        else if (auto* ivf = dynamic_cast<IVFMethod*>(join_method_.get())) {
+            // 传递索引 ID 和 ConcurrencyManager
+            ivf->setIndexIds(left_index_id_, right_index_id_);
+            ivf->open(context, left_state_.get(), right_state_.get(), concurrency_manager_.get());
+            SAGEFLOW_LOG_INFO("JOIN", "IVFMethod initialized with ConcurrencyManager index, left_idx={} right_idx={}",
+                            left_index_id_, right_index_id_);
+        }
+    }
+    
+    SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened: subtask={}/{}, shared_state={}", 
+                    context.getSubtaskIndex(), context.getParallelism(), 
+                    use_shared_state_);
   }); // end of std::call_once
 }
 
@@ -693,7 +749,8 @@ std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidatesFromState(
     // 当 state == left_state_ 时，说明记录来自右流（slot=1），需要查询左索引
     // ExecuteEager 内部使用 otherIndexId(slot) 来选择正确的索引
     int query_slot = (state == right_state_.get()) ? left_slot_id_ : right_slot_id_;
-    return join_method_->ExecuteEager(*data_ptr, query_slot);
+    // 传递 subtask_index 以确保 PartitionedWindowState 访问正确的分区
+    return join_method_->ExecuteEager(*data_ptr, query_slot, subtask_index);
 }
 
 auto JoinOperator::updateSideWithState(
@@ -733,42 +790,53 @@ auto JoinOperator::updateSideWithState(
     auto& window = (slot == left_slot_id_) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
     int64_t timelimit = window.windowTimeLimit(now_time_stamp);
     
-    // 更新全局最大已见时间戳（原子操作，支持乱序）
-    // 使用 compare_exchange 确保只更新为更大的值
-    std::atomic<int64_t>& max_seen_ts = (slot == left_slot_id_) 
-        ? max_seen_left_ts_ : max_seen_right_ts_;
-    int64_t current_max = max_seen_ts.load(std::memory_order_relaxed);
-    while (now_time_stamp > current_max && 
-           !max_seen_ts.compare_exchange_weak(current_max, now_time_stamp,
-                                               std::memory_order_release,
-                                               std::memory_order_relaxed)) {
-        // 重试直到成功或发现更大的值
+    // 更新时间戳追踪
+    // - 分区策略：使用 WindowState 的分区级别时间戳追踪
+    // - 共享策略：使用全局时间戳追踪
+    if (isPartitionedStrategy()) {
+        // 分区策略：更新分区级别的 max_seen_timestamp
+        state->updateMaxSeenTimestamp(now_time_stamp, subtask_index);
+    } else {
+        // 共享策略：更新全局时间戳（原子操作，支持乱序）
+        std::atomic<int64_t>& max_seen_ts = (slot == left_slot_id_) 
+            ? max_seen_left_ts_ : max_seen_right_ts_;
+        int64_t current_max = max_seen_ts.load(std::memory_order_relaxed);
+        while (now_time_stamp > current_max && 
+               !max_seen_ts.compare_exchange_weak(current_max, now_time_stamp,
+                                                   std::memory_order_release,
+                                                   std::memory_order_relaxed)) {
+            // 重试直到成功或发现更大的值
+        }
     }
     
     // 安全 evict 策略：
-    // - 多线程模式：使用双侧的 max_seen_ts 的最小值，确保乱序安全
-    // - 单线程模式：直接使用当前侧的时间戳，因为没有并发问题
-    // - 如果某一侧还没有记录（INT64_MIN），则使用另一侧的时间戳
-    int64_t left_max = max_seen_left_ts_.load(std::memory_order_acquire);
-    int64_t right_max = max_seen_right_ts_.load(std::memory_order_acquire);
-    
-    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    // - 分区策略：使用 WindowState 的分区级别 getSafeEvictTimestamp
+    // - 共享策略：使用全局双侧 max_seen_ts 的最小值
     int64_t safe_evict_ts;
     
-    // 处理初始状态：如果某侧还没有记录，使用另一侧的时间戳
-    if (left_max == kMinTimestamp && right_max == kMinTimestamp) {
-        // 两侧都没有记录，不需要 evict
-        safe_evict_ts = kMinTimestamp;
-    } else if (left_max == kMinTimestamp) {
-        // 左侧没有记录，使用右侧时间戳
-        safe_evict_ts = right_max;
-    } else if (right_max == kMinTimestamp) {
-        // 右侧没有记录，使用左侧时间戳
-        safe_evict_ts = left_max;
+    if (isPartitionedStrategy()) {
+        // 分区策略：直接使用当前分区的 max_seen_ts
+        // 因为分区是隔离的，不需要考虑其他分区的状态
+        safe_evict_ts = state->getSafeEvictTimestamp(subtask_index, nullptr);
     } else {
-        // 两侧都有记录，使用最小值确保安全
-        safe_evict_ts = std::min(left_max, right_max);
+        // 共享策略：需要等待双侧都推进，取最小值确保安全
+        int64_t left_max = max_seen_left_ts_.load(std::memory_order_acquire);
+        int64_t right_max = max_seen_right_ts_.load(std::memory_order_acquire);
+        
+        constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+        
+        // 安全 evict 策略：只有当双侧都有记录时才进行 evict
+        // 这是因为在高并行度下，某些 subtask 可能只收到一侧数据，
+        // 如果使用单侧时间戳进行 evict，可能会删除另一侧需要匹配的记录
+        if (left_max == kMinTimestamp || right_max == kMinTimestamp) {
+            // 某侧还没有记录，暂不 evict，避免删除潜在匹配
+            safe_evict_ts = kMinTimestamp;
+        } else {
+            // 两侧都有记录，使用最小值确保安全
+            safe_evict_ts = std::min(left_max, right_max);
+        }
     }
+    
     {
         MetricsTimer t_window_evict(JoinMetrics::instance().expire_ns);
         state->evictExpired(safe_evict_ts, join_func_->getWindowSize(), subtask_index);
@@ -818,10 +886,6 @@ void JoinOperator::executeJoinWithState(
     // 从这里开始计时 similarity_ns（不包括候选项获取时间）
     MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
     
-    // 调试：统计候选数量（使用全局变量）
-    g_total_candidates.fetch_add(candidates.size(), std::memory_order_relaxed);
-    g_total_queries.fetch_add(1, std::memory_order_relaxed);
-    
     // 计算时间窗口边界
     // 候选项的时间戳必须在 [data_ptr.timestamp - window_size, data_ptr.timestamp + window_size] 范围内
     // 即 |data_ptr.timestamp - cand.timestamp| <= window_size
@@ -832,7 +896,6 @@ void JoinOperator::executeJoinWithState(
     for (const auto& cand : candidates) {
         // 使用时间戳直接判断候选项是否在窗口范围内
         if (cand->timestamp_ < window_lower_bound || cand->timestamp_ > window_upper_bound) {
-            g_total_filtered_by_ts.fetch_add(1, std::memory_order_relaxed);
             continue;
         }
         
@@ -858,14 +921,6 @@ void JoinOperator::executeJoinWithState(
             t_joinF.stop();
             t_similarity.resume();
             if (res.record_) {
-                // 调试：输出实际匹配的 uid 对
-                static std::atomic<uint64_t> match_debug_count{0};
-                uint64_t mdc = match_debug_count.fetch_add(1, std::memory_order_relaxed);
-                if (mdc < 20) {
-                    SAGEFLOW_LOG_INFO("JOIN_MATCH_DETAIL",
-                        "Match: slot={} query_uid={} cand_uid={} result_uid={}",
-                        slot, data_ptr->uid_, cand->uid_, res.record_->uid_);
-                }
                 local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
             }
         } catch (const std::exception& e) {
@@ -912,62 +967,87 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     auto data_for_join = std::make_unique<VectorRecord>(*data_ptr);
     
     // ====== 自适应并发策略 ======
-    // 根据并行度选择不同的策略
+    // 根据策略类型和并行度选择不同的并发控制：
+    // 1. 分区策略（Centroid/LSH）：分区内无锁竞争，直接使用 IQ
+    // 2. 共享策略 + 单线程：无竞争，直接使用 IQ
+    // 3. 共享策略 + 多线程：需要 QIQ 保证召回率
     
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
     
-    if (context.getParallelism() <= 1) {
-        // ====== 单线程：IQ 策略（无锁，无需第二次查询） ======
+    // 并发策略选择：
+    // - 分区策略 or 单线程：无竞争，使用“无锁 IQ”（Insert -> Query）
+    // - 共享状态 + 多线程：使用“带全局锁的 IQ”（写锁 Insert + 读锁 Query）
+    //
+    // ⚠️ 重要：QIQ（Query-Insert-Query）在 shared + 多线程下会系统性丢召回（已用集成测试 A/B 复现）。
+    // 为避免误用，这里不再允许通过环境变量切换到 QIQ；若设置了该变量，将记录告警并忽略。
+    const bool use_lockless_iq = isPartitionedStrategy() || (context.getParallelism() <= 1);
+    bool force_qiq = false;
+    if (!isPartitionedStrategy() && context.getParallelism() > 1) {
+        if (const char* v = std::getenv("SAGEFLOW_JOIN_HIGH_P_STRATEGY")) {
+            std::string s(v);
+            std::transform(s.begin(), s.end(), s.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            if (s == "qiq") {
+                // 默认禁止 QIQ（会系统性丢召回）。仅允许在显式打开“危险开关”时用于实验复现：
+                //   SAGEFLOW_ALLOW_UNSAFE_QIQ=1
+                //   SAGEFLOW_JOIN_HIGH_P_STRATEGY=QIQ
+                const char* allow = std::getenv("SAGEFLOW_ALLOW_UNSAFE_QIQ");
+                const bool allow_qiq = (allow && std::string(allow) == "1");
+                if (allow_qiq) {
+                    force_qiq = true;
+                    static std::atomic<bool> warned{false};
+                    bool expected = false;
+                    if (warned.compare_exchange_strong(expected, true)) {
+                        SAGEFLOW_LOG_WARN("JOIN",
+                            "UNSAFE: enabling QIQ due to SAGEFLOW_ALLOW_UNSAFE_QIQ=1; this mode is known to reduce recall in shared+multi-thread.");
+                    }
+                } else {
+                    static std::atomic<bool> warned{false};
+                    bool expected = false;
+                    if (warned.compare_exchange_strong(expected, true)) {
+                        SAGEFLOW_LOG_WARN("JOIN",
+                            "Ignoring SAGEFLOW_JOIN_HIGH_P_STRATEGY=QIQ (set SAGEFLOW_ALLOW_UNSAFE_QIQ=1 to force for experiments). Using iq_locked.");
+                    }
+                    force_qiq = false;
+                }
+            } else if (s == "iq") {
+                force_qiq = false;
+            }
+        }
+    }
+    if (use_lockless_iq) {
+        // ====== IQ 策略（无锁，适用于分区模式或单线程） ======
         // 
-        // 在单线程模式下，所有记录是串行处理的：
-        // 1. 当 L1 查询时，对侧窗口包含所有已处理的右流记录
-        // 2. Query2 查到的结果和 Query1 完全相同（因为中间没有其他记录被处理）
-        // 3. 匹配的完整性由"先 Insert 后 Query"保证：
-        //    - L1 的 Query 会搜索右窗口，找到所有已插入的 R*
-        //    - R1 的 Query 会搜索左窗口，找到 L1（因为 L1 已经 Insert 了）
-        // 
-        // 因此单线程下只需 Insert -> Query，无需 QIQ
+        // 在分区模式下，每个分区有独立的 WindowState 和索引：
+        // 1. 数据通过 CentroidPartitioner 路由到对应的 subtask
+        // 2. 同一分区内的数据由同一个 subtask 串行处理
+        // 3. 因此分区内无并发竞争，只需 Insert -> Query
         
-        // 阶段1：Insert 当前记录到对应窗口
+        // 阶段1：Insert 当前记录到对应窗口和索引
         updateSideWithState(
             current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
         
         // 阶段2：Query 对侧窗口查找匹配
         executeJoinWithState(data_for_join.get(), opposite_state, slot, 
                             subtask_index, local_return_pool);
-    } else {
-        // ====== 高并行度：全局读写锁 + QIQ 策略 ======
-        // 结合读写锁和 QIQ，保证高召回率
+    } else if (!force_qiq) {
+        // ====== 共享策略 + 多线程：全局读写锁 + IQ 策略（Insert-Query）======
         // 
-        // 问题：即使用锁，如果只查询一次（Insert 之前），两个同时到达的记录
-        // A 和 B 可能互相丢失：
-        //   - A 的 Query 在 B 的 Insert 之前 → A 找不到 B
-        //   - B 的 Query 在 A 的 Insert 之前 → B 找不到 A
+        // QIQ 策略存在固有缺陷：Q2 只能看到在它执行时已完成的 Insert。
+        // 如果两个记录 A 和 B 几乎同时到达：
+        //   - A 的 Q1 在 B 的 Insert 之前 → A 找不到 B
+        //   - A 的 Q2 也可能在 B 的 Insert 之前 → A 仍然找不到 B
+        //   - B 的 Q1 和 Q2 也可能在 A 的 Insert 之前 → B 也找不到 A
+        // 这导致相似记录对被双向丢失！
         // 
-        // 解决：Query1 -> Insert -> Query2，与低并行度一致
+        // IQ 策略：先 Insert，再 Query
+        // - 当记录 A 被 Query 时，A 已经被 Insert 到窗口
+        // - 如果 B 的 Insert 先于 A 的 Query，A 会找到 B
+        // - 如果 B 的 Insert 晚于 A 的 Query，B 的 Query 一定能找到 A
+        //   （因为 A 的 Insert 在 A 的 Query 之前，也就是在 B 的 Query 之前）
+        // - 保证每对相似记录至少被发现一次
         
-        std::unordered_set<uint64_t> matched_uids;
-        
-        // 阶段1：第一次 Query（读锁，可并行）
-        {
-            uint64_t q1_start = metrics_timestamp();
-            uint64_t before_lock = metrics_timestamp();
-            std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
-            metrics_record_lock_wait(before_lock);
-            executeJoinWithState(data_for_join.get(), opposite_state, slot, 
-                                subtask_index, local_return_pool);
-            // 统计 Q1 总耗时（含锁等待）
-            metrics_record_elapsed(JoinMetrics::instance().qiq_q1_ns, q1_start);
-            JoinMetrics::instance().qiq_q1_count.fetch_add(1, std::memory_order_relaxed);
-        }
-        
-        for (const auto& p : local_return_pool) {
-            if (p.second) {
-                matched_uids.insert(p.second->uid_);
-            }
-        }
-        
-        // 阶段2：Insert（写锁，独占）
+        // 阶段1：Insert（写锁，独占）
         {
             uint64_t insert_start = metrics_timestamp();
             uint64_t before_lock = metrics_timestamp();
@@ -980,39 +1060,62 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
             JoinMetrics::instance().qiq_insert_count.fetch_add(1, std::memory_order_relaxed);
         }
         
-        // 阶段3：第二次 Query（读锁，可并行）
-        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> second_query_results;
+        // 阶段2：Query（读锁，可并行）
+        size_t query_window_size = 0;
+        {
+            uint64_t q1_start = metrics_timestamp();
+            uint64_t before_lock = metrics_timestamp();
+            std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
+            metrics_record_lock_wait(before_lock);
+            query_window_size = opposite_state->size(subtask_index);
+            executeJoinWithState(data_for_join.get(), opposite_state, slot, 
+                                subtask_index, local_return_pool);
+            // 统计 Query 总耗时（含锁等待）
+            metrics_record_elapsed(JoinMetrics::instance().qiq_q1_ns, q1_start);
+            JoinMetrics::instance().qiq_q1_count.fetch_add(1, std::memory_order_relaxed);
+        }
+    } else {
+        // ====== 共享策略 + 多线程：全局读写锁 + QIQ（Query-Insert-Query）======
+        // 仅用于实验复现（必须显式开启 SAGEFLOW_ALLOW_UNSAFE_QIQ=1）。
+        //
+        // 注意：QIQ 在 shared + 多线程下可能系统性丢召回（并发可见性问题），
+        // 该分支不作为默认策略。
+        //
+        // 阶段1：Query1（读锁）
+        {
+            uint64_t q1_start = metrics_timestamp();
+            uint64_t before_lock = metrics_timestamp();
+            std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
+            metrics_record_lock_wait(before_lock);
+            executeJoinWithState(data_for_join.get(), opposite_state, slot,
+                                 subtask_index, local_return_pool);
+            metrics_record_elapsed(JoinMetrics::instance().qiq_q1_ns, q1_start);
+            JoinMetrics::instance().qiq_q1_count.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        // 阶段2：Insert（写锁）
+        {
+            uint64_t insert_start = metrics_timestamp();
+            uint64_t before_lock = metrics_timestamp();
+            std::unique_lock<std::shared_mutex> write_lock(join_rw_mutex_);
+            metrics_record_lock_wait(before_lock);
+            updateSideWithState(
+                current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
+            metrics_record_elapsed(JoinMetrics::instance().qiq_insert_ns, insert_start);
+            JoinMetrics::instance().qiq_insert_count.fetch_add(1, std::memory_order_relaxed);
+        }
+
+        // 阶段3：Query2（读锁）
         {
             uint64_t q2_start = metrics_timestamp();
             uint64_t before_lock = metrics_timestamp();
             std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
             metrics_record_lock_wait(before_lock);
-            executeJoinWithState(data_for_join.get(), opposite_state, slot, 
-                                subtask_index, second_query_results);
-            // 统计 Q2 总耗时（含锁等待）
+            executeJoinWithState(data_for_join.get(), opposite_state, slot,
+                                 subtask_index, local_return_pool);
             metrics_record_elapsed(JoinMetrics::instance().qiq_q2_ns, q2_start);
             JoinMetrics::instance().qiq_q2_count.fetch_add(1, std::memory_order_relaxed);
         }
-        
-        // 去重逻辑移到锁外：matched_uids 和 second_query_results 都是线程本地变量
-        for (auto& p : second_query_results) {
-            if (p.second && matched_uids.find(p.second->uid_) == matched_uids.end()) {
-                matched_uids.insert(p.second->uid_);
-                local_return_pool.push_back(std::move(p));
-            }
-        }
-    }
-    
-    // 调试：记录匹配数量
-    static std::atomic<uint64_t> total_matches{0};
-    static std::atomic<uint64_t> debug_count{0};
-    total_matches.fetch_add(local_return_pool.size(), std::memory_order_relaxed);
-    uint64_t dc = debug_count.fetch_add(1, std::memory_order_relaxed);
-    if (dc % 500 == 0) {
-        SAGEFLOW_LOG_INFO("JOIN_DEBUG_MATCH", 
-            "subtask={}/{} slot={} uid={} matches_this={} total_matches={}",
-            subtask_index, context.getParallelism(), slot, 
-            data_for_join->uid_, local_return_pool.size(), total_matches.load());
     }
     
     // 发送 Join 结果
@@ -1041,6 +1144,52 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
     SAGEFLOW_LOG_INFO("JOIN", "Initializing with strategy config: algorithm={} parallelism={}",
                      toString(strategy_config_.algorithm), context.getParallelism());
 
+    // 1.1 运行时关键约束：ClusteredJoin 需要 num_partitions == parallelism
+    // 说明：CentroidPartitioner 内部会将 partition_idx 映射到 channel（subtask）空间；
+    // 若两者不一致，会出现逻辑分区折叠/多播语义失真，导致召回损失且难以诊断。
+    //
+    // 这里做“运行时纠正”而不是直接抛异常：
+    // - 集成测试/外部配置经常只设置了算法但没显式配 num_partitions；
+    // - 对 ClusteredJoin 来说，num_partitions 与 parallelism 强绑定，运行时以 parallelism 为准更合理。
+    if (strategy_config_.algorithm == JoinAlgorithm::CLUSTERED_JOIN) {
+        const auto runtime_p = static_cast<size_t>(context.getParallelism());
+        if (strategy_config_.num_partitions != static_cast<int>(runtime_p)) {
+            SAGEFLOW_LOG_WARN("JOIN",
+                "ClusteredJoin runtime constraint auto-fix: num_partitions={} -> parallelism={}",
+                strategy_config_.num_partitions, runtime_p);
+            strategy_config_.num_partitions = static_cast<int>(runtime_p);
+        }
+    }
+
+    // 1.2 IVF 动态参数
+    // 如果 IVF 参数保持默认 100/10，则根据窗口大小和向量到达间隔计算 nlist/nprobes。
+    // 
+    // 公式：N = window_size_ms / time_interval_ms（窗口内预期向量数）
+    // nlist = 4 * sqrt(N)（经验公式）
+    // nprobes = 80% * nlist（保证高召回率）
+    if (strategy_config_.algorithm == JoinAlgorithm::IVF &&
+        strategy_config_.ivf_nlist == 100 &&
+        strategy_config_.ivf_nprobes == 10) {
+        const int64_t window_size = strategy_config_.window_size_ms;
+        const int64_t time_interval = strategy_config_.time_interval_ms;
+        
+        // 使用 time_interval_ms 计算窗口内预期向量数
+        const int64_t vector_count =
+            (time_interval > 0) ? (window_size / time_interval) : window_size;
+
+        // nlist 使用 4*sqrt(N)，但至少 32 个聚类以保证召回率
+        int nlist = std::max(32, static_cast<int>(4.0 * std::sqrt(static_cast<double>(std::max<int64_t>(1, vector_count)))));
+        // nprobes 使用 nlist 的 100%（即搜索所有聚类），保证最高召回率
+        // 对于流式 Join 场景，召回率比性能更重要
+        int nprobes = nlist;
+
+        SAGEFLOW_LOG_INFO("JOIN",
+            "IVF dynamic params (strategy-config): window={}ms time_interval={}ms N≈{} -> nlist={} nprobes={}",
+            window_size, time_interval, vector_count, nlist, nprobes);
+
+        strategy_config_.ivf_nlist = nlist;
+        strategy_config_.ivf_nprobes = nprobes;
+    }
     // 2. 使用 JoinStrategyFactory 创建组件
     auto components = JoinStrategyFactory::create(
         strategy_config_, concurrency_manager_, context.getParallelism());
@@ -1056,16 +1205,73 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
     left_index_id_ = components.left_index_id;
     right_index_id_ = components.right_index_id;
 
+    // 5.1 启用索引插入/查询路径（用于 IVF/HNSW/HDR 等通过 ConcurrencyManager 管理索引的方法）
+    // 注意：BRUTEFORCE 使用 BruteForceBaseline，不依赖索引。
+    use_index_ = (left_index_id_ != -1 && right_index_id_ != -1);
+    // 5.2 设置 index_kind_（与字符串路径保持一致）
+    switch (strategy_config_.algorithm) {
+        case JoinAlgorithm::IVF:
+            index_kind_ = InternalIndexKind::IVF;
+            break;
+        case JoinAlgorithm::HNSW:
+            index_kind_ = InternalIndexKind::NONE;
+            break;
+        case JoinAlgorithm::HDR_TREE:
+            index_kind_ = InternalIndexKind::HDR_TREE;
+            break;
+        case JoinAlgorithm::BRUTEFORCE:
+            index_kind_ = InternalIndexKind::BRUTEFORCE;
+            break;
+        default:
+            index_kind_ = InternalIndexKind::NONE;
+            break;
+    }
+
+    // 5.3 计算批量删除阈值（与字符串路径保持一致）
+    // 这是关键！默认值 50 太小会导致频繁删除索引记录，影响召回率
+    {
+        int64_t window_size = join_func_ ? join_func_->getWindowSize() : strategy_config_.window_size_ms;
+        size_t computed_threshold = window_size * parallelism_ / kBatchDeleteDivisor;
+        batch_delete_threshold_ = std::max(kMinBatchDeleteThreshold, computed_threshold);
+        SAGEFLOW_LOG_INFO("JOIN", "Batch delete threshold computed (strategy config): {} (window={}, parallelism={})",
+                         batch_delete_threshold_, window_size, parallelism_);
+    }
+
+
     // 6. 根据窗口状态类型设置标志
     use_shared_state_ = (strategy_config_.window_state_type == WindowStateType::SHARED);
 
     // 7. 设置 eviction buffer multiplier
+    // 高并行度下（shared state + 多线程），输入处理顺序可能出现“大幅乱序”，
+    // eviction 需要更大的 buffer 才能避免误删导致召回率抖动/下降。
+    //
+    // 经验默认值（可被环境变量覆盖）：
+    // - p>=16: 32
+    // - p>=8 : 16
+    // - p>=4 : 8
+    // - else : 1.5
+    //
+    // Debug override:
+    //   SAGEFLOW_EVICTION_MULTIPLIER=FLOAT (e.g. 1.5 / 3.0 / 5.0)
+    double eviction_multiplier = 1.5;
+    if (context.getParallelism() >= 4) {
+        eviction_multiplier = std::min(32.0, 2.0 * static_cast<double>(context.getParallelism()));
+    }
+    if (const char* v = std::getenv("SAGEFLOW_EVICTION_MULTIPLIER")) {
+        try {
+            eviction_multiplier = std::stod(v);
+        } catch (...) {
+            // ignore invalid override
+        }
+    }
     if (left_state_) {
-        left_state_->setEvictionBufferMultiplier(1.5);
+        left_state_->setEvictionBufferMultiplier(eviction_multiplier);
     }
     if (right_state_) {
-        right_state_->setEvictionBufferMultiplier(1.5);
+        right_state_->setEvictionBufferMultiplier(eviction_multiplier);
     }
+    SAGEFLOW_LOG_INFO("JOIN", "Eviction buffer multiplier set to {} for parallelism={}",
+                     eviction_multiplier, context.getParallelism());
 
     // 8. 初始化 JoinMethod 与 WindowState 的关联
     if (join_method_) {
@@ -1089,6 +1295,35 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
         }
         // VSJoin 将通过 VSJoinMethod 处理，不再需要特殊初始化
         // 参考: include/operator/join_operator_methods/vsjoin_method.h
+        
+        // ClusteredJoinMethod 初始化（重构版：统一架构）
+        // ClusteredJoin 现在使用与其他 Join 方法相同的流程：
+        // - 使用 JoinOperator 的 left_state_/right_state_
+        // - 使用 JoinOperator 的 left_index_id_/right_index_id_
+        // - 通过 setIndexIds() 传递索引 ID
+        else if (auto* clustered = dynamic_cast<ClusteredJoinMethod*>(join_method_.get())) {
+            // 初始化 ClusteredJoinMethod
+            clustered->initialize(context, concurrency_manager_);
+            
+            // 传递 WindowState（用于 BruteForce 模式直接访问窗口数据）
+            // BruteForce 模式绕过 ConcurrencyManager，与 BruteForceBaseline 架构一致
+            clustered->setWindowStates(left_state_.get(), right_state_.get());
+            
+            // 传递索引 ID（用于 IVF/HNSW 模式，索引由 JoinStrategyFactory 创建）
+            clustered->setIndexIds(left_index_id_, right_index_id_);
+            
+            clustered->setEffectiveParallelism(1);  // 禁用 Owner-Computes 去重
+            
+            use_index_ = true;
+            
+            SAGEFLOW_LOG_INFO("JOIN", "ClusteredJoinMethod initialized via strategy config, "
+                             "subtask={}/{} left_idx={} right_idx={} effective_p={} "
+                             "index_type={}",
+                             context.getSubtaskIndex(), context.getParallelism(),
+                             left_index_id_, right_index_id_,
+                             clustered->getEffectiveParallelism(),
+                             static_cast<int>(strategy_config_.clustered_index_type));
+        }
     }
 
     SAGEFLOW_LOG_INFO("JOIN", "JoinOperator initialized with strategy config: subtask={}/{} shared_state={}",
@@ -1098,15 +1333,73 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
 std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
     int dimension, int num_partitions) const {
     // 根据 Join 配置返回适当的分区器
-    // 
-    // VSJoin 模式将通过策略配置 + VSJoinMethod 处理，
-    // 这里仅保留通用的分区器选择逻辑。
-    // 
-    // 对于需要 LSH 分区的 VSJoin 场景，应通过 JoinStrategyFactory 
-    // 创建对应的 Partitioner。
     
-    // 共享索引 Join（bruteforce/ivf）：使用 RoundRobin 实现负载均衡
-    // 返回 nullptr 让 ConnectionStrategy 使用默认的 RoundRobin
+    if (use_strategy_config_) {
+        switch (strategy_config_.algorithm) {
+            case JoinAlgorithm::CLUSTERED_JOIN: {
+                // ClusteredJoin 使用 CentroidPartitioner
+                // 构建配置：使用策略配置中的参数
+                CentroidPartitioner::Config cp_config;
+                cp_config.num_partitions = (num_partitions > 0) 
+                    ? num_partitions : strategy_config_.num_partitions;
+                cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
+                cp_config.dimension = (dimension > 0) 
+                    ? dimension : strategy_config_.dimension;
+                cp_config.seed = 42;
+                cp_config.rebalance_threshold = strategy_config_.clustered_rebalance_threshold;
+                // 关键：设置 multicast_k 用于控制向量分发到多少个分区
+                cp_config.multicast_k = strategy_config_.clustered_multicast_k;
+                // 关键修复：设置冷启动训练参数
+                cp_config.training_samples = static_cast<size_t>(strategy_config_.clustered_training_samples);
+                cp_config.enable_cold_start = strategy_config_.enable_cold_start;
+                
+                auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
+                
+                // 设置多播模式（边界向量复制）
+                partitioner->setMulticastEnabled(strategy_config_.clustered_multicast_enabled);
+                
+                SAGEFLOW_LOG_INFO("JOIN", "Created CentroidPartitioner for ClusteredJoin: "
+                                 "partitions={} overlap={:.2f} multicast={} multicast_k={} "
+                                 "training_samples={} cold_start={}",
+                                 cp_config.num_partitions, cp_config.overlap_ratio,
+                                 strategy_config_.clustered_multicast_enabled,
+                                 cp_config.multicast_k,
+                                 cp_config.training_samples, cp_config.enable_cold_start);
+                
+                return partitioner;
+            }
+            
+            case JoinAlgorithm::S3J: {
+                // S3J 也使用 CentroidPartitioner，但使用 S3J 特有参数
+                CentroidPartitioner::Config cp_config;
+                cp_config.num_partitions = (num_partitions > 0) 
+                    ? num_partitions : strategy_config_.s3j_num_centroids;
+                cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
+                cp_config.dimension = (dimension > 0) 
+                    ? dimension : strategy_config_.dimension;
+                cp_config.seed = 42;
+                
+                return std::make_unique<CentroidPartitioner>(cp_config);
+            }
+            
+            case JoinAlgorithm::VSJOIN: {
+                // VSJoin 使用 LSH 分区（通过 PartitionerFactory 创建）
+                // 这里返回 nullptr，让 ExecutionGraph 使用 PartitionerFactory
+                return nullptr;
+            }
+            
+            case JoinAlgorithm::BRUTEFORCE:
+            case JoinAlgorithm::IVF:
+            case JoinAlgorithm::HNSW:
+            case JoinAlgorithm::HDR_TREE:
+            default:
+                // 共享索引 Join：使用 RoundRobin 实现负载均衡
+                // 返回 nullptr 让 ConnectionStrategy 使用默认的 RoundRobin
+                return nullptr;
+        }
+    }
+    
+    // 向后兼容：没有使用策略配置时返回 nullptr（使用默认 RoundRobin）
     return nullptr;
 }
 

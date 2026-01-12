@@ -1,0 +1,67 @@
+# IQ 策略实验配置
+# 测试共享索引方法（bruteforce/ivf/hdr-tree）在纯IQ模式下各并行度的召回率
+
+[common]
+vector_dim = 128
+window_size_ms = 1000
+step_size_ms = 100
+similarity_threshold = 0.8
+seed = 42
+time_interval_ms = 10
+base_timestamp = 1000000
+result_output_dir = "test/result/iq_experiment"
+compare_with_ground_truth = true
+positive_ratio = 0.10
+negative_ratio = 0.60
+positive_pairs = 500
+near_threshold_pairs = 50
+negative_pairs = 500
+random_tail = 2000
+alpha = 0.1
+save_results = true
+generate_report = true
+
+# ==================== BruteForce IQ实验 ====================
+[[test_case]]
+name = "bruteforce_baseline"
+description = "BruteForce IQ experiment - 4000 data, 1000ms window"
+algorithm = "bruteforce"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+data_sizes = [4000]
+parallelism = [1, 2, 4, 8, 16]
+expected_min_recall = 0.50
+expected_min_precision = 1.0
+
+# ==================== IVF IQ实验 ====================
+[[test_case]]
+name = "ivf_standard"
+description = "IVF IQ experiment - 4000 data, 1000ms window"
+algorithm = "ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 10
+ivf_rebuild_threshold = 1.5
+data_sizes = [4000]
+parallelism = [1, 2, 4, 8, 16]
+expected_min_recall = 0.50
+
+# ==================== HDR-Tree IQ实验 ====================
+[[test_case]]
+name = "hdr_tree_standard"
+description = "HDR-Tree IQ experiment - 4000 data, 1000ms window"
+algorithm = "hdr_tree"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hdr_projected_dim = 16
+hdr_max_node_size = 100
+hdr_delta_buffer_size = 1000
+hdr_pca_sample_size = 10000
+data_sizes = [4000]
+parallelism = [1, 2, 4, 8, 16]
+expected_min_recall = 0.50
+enabled = true

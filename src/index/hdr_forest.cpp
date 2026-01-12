@@ -401,7 +401,9 @@ auto HDRForest::query_internal(const VectorRecord &record, int k) -> std::vector
     return result;
 }
 
-auto HDRForest::query_for_join(const VectorRecord &record, double join_similarity_threshold) -> std::vector<uint64_t> {
+auto HDRForest::query_for_join(const VectorRecord &record,
+                               double join_similarity_threshold,
+                               double similarity_alpha) -> std::vector<uint64_t> {
     std::shared_lock<std::shared_mutex> lock(mutex_);
     std::vector<uint64_t> results;
     
@@ -410,7 +412,7 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
         if (tree->rtree_index && tree->rtree_index->isPCATrained()) {
             // 优化：即时投影
             std::vector<float> projected = tree->rtree_index->projectVector(record.data_);
-            auto local_results = tree->rtree_index->query_for_join(record, projected, join_similarity_threshold);
+            auto local_results = tree->rtree_index->query_for_join(record, projected, join_similarity_threshold, similarity_alpha);
             results.insert(results.end(), local_results.begin(), local_results.end());
         } else {
             // 回退
@@ -418,7 +420,7 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
                 if (storage_manager_ && storage_manager_->engine_) {
                     auto rec = storage_manager_->getVectorByUid(uid);
                     if (rec) {
-                        float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_);
+                        float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_, similarity_alpha);
                         if (sim >= join_similarity_threshold) {
                             results.push_back(uid);
                         }
@@ -434,7 +436,7 @@ auto HDRForest::query_for_join(const VectorRecord &record, double join_similarit
         if (storage_manager_ && storage_manager_->engine_) {
             auto rec = storage_manager_->getVectorByUid(uid);
             if (rec) {
-                float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_);
+                float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_, similarity_alpha);
                 if (sim >= join_similarity_threshold) {
                     results.push_back(uid);
                 }

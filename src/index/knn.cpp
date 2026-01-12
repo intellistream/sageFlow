@@ -16,6 +16,7 @@ auto sageFlow::Knn::query(const VectorRecord &record, int k) -> std::vector<uint
 }
 
 auto sageFlow::Knn::query_for_join(const VectorRecord &record,
-                    double join_similarity_threshold) -> std::vector<uint64_t> {
-  return storage_manager_->similarityJoinQuery(record, join_similarity_threshold);
+                    double join_similarity_threshold,
+                    double similarity_alpha) -> std::vector<uint64_t> {
+  return storage_manager_->similarityJoinQuery(record, join_similarity_threshold, similarity_alpha);
 }

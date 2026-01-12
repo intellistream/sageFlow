@@ -6,6 +6,8 @@
 
 #include "state/window_state.h"
 #include <shared_mutex>
+#include <atomic>
+#include <limits>
 
 namespace sageFlow {
 
@@ -19,6 +21,10 @@ namespace sageFlow {
  * - 过期记录首先被标记（添加到 expired_uids_ 集合）
  * - 查询时可以检查 isExpired() 过滤已过期的候选项
  * - 当过期记录积累到阈值时，调用 flushExpiredUids() 批量返回待删除的 UID
+ * 
+ * 时间戳追踪：
+ * - 全局追踪 max_seen_timestamp
+ * - evict 使用 min(this_max, other_state_max) 确保乱序安全
  */
 class SharedWindowState : public WindowState {
 public:
@@ -51,6 +57,15 @@ public:
 
     bool isShared() const override { return true; }
 
+    // ==================== 时间戳追踪接口 ====================
+    
+    void updateMaxSeenTimestamp(int64_t timestamp, size_t subtask_index) override;
+    
+    int64_t getMaxSeenTimestamp(size_t subtask_index) const override;
+    
+    int64_t getSafeEvictTimestamp(size_t subtask_index, 
+                                  const WindowState* other_state = nullptr) const override;
+
 private:
     // 所有子任务共享的窗口
     std::deque<std::unique_ptr<VectorRecord>> shared_window_;
@@ -60,6 +75,9 @@ private:
     
     // 共享状态的读写锁
     mutable std::shared_mutex mutex_;
+    
+    // 全局最大已见时间戳
+    std::atomic<int64_t> max_seen_timestamp_{std::numeric_limits<int64_t>::min()};
 };
 
 } // namespace sageFlow

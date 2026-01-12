@@ -276,7 +276,8 @@ TEST_F(PartitionedIndexTest, QueryForJoin) {
 
   // 使用基础向量进行阈值查询
   auto query_record = createVectorRecord(999, 9999, base_vector);
-  auto results = index_->query_for_join(*query_record, 0.8);
+  // 方案A：alpha 由上层绑定并显式传入，这里测试沿用默认 alpha=0.1
+  auto results = index_->query_for_join(*query_record, 0.8, 0.1);
 
   // 应该返回一些结果（相似的向量）
   // 注意：由于是近似索引，结果可能不完美

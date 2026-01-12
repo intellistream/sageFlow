@@ -17,11 +17,10 @@ add_lib(
         utils/join_method_registry.cpp
         # join_operator_methods/ 子目录 - 各种 join 方法实现
         join_operator_methods/base_method.cpp
-        join_operator_methods/bruteforce.cpp
         join_operator_methods/bruteforce_baseline.cpp
-        join_operator_methods/ivf.cpp
         join_operator_methods/hnsw.cpp
         join_operator_methods/hdr_tree_method.cpp
+        join_operator_methods/ivf_method.cpp
         join_operator_methods/clustered_join_method.cpp
         join_operator_methods/s3j_method.cpp
         join_operator_methods/vsjoin_method.cpp

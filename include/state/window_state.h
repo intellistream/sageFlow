@@ -149,6 +149,40 @@ public:
      */
     static constexpr double DEFAULT_EVICTION_BUFFER_MULTIPLIER = 2.0;
 
+    // ==================== 时间戳追踪接口 ====================
+    
+    /**
+     * @brief 更新最大已见时间戳
+     * 
+     * 分区模式：每个 subtask 独立追踪时间戳
+     * 共享模式：全局追踪时间戳
+     * 
+     * @param timestamp 当前记录的时间戳
+     * @param subtask_index 子任务索引
+     */
+    virtual void updateMaxSeenTimestamp(int64_t timestamp, size_t subtask_index) = 0;
+    
+    /**
+     * @brief 获取最大已见时间戳
+     * @param subtask_index 子任务索引（分区模式使用）
+     * @return 该分区/全局的最大已见时间戳
+     */
+    virtual int64_t getMaxSeenTimestamp(size_t subtask_index) const = 0;
+    
+    /**
+     * @brief 计算安全的 evict 时间戳
+     * 
+     * 返回可以安全清理记录的时间戳阈值。
+     * - 分区模式：返回该分区的 max_seen_ts
+     * - 共享模式：返回全局 min(left_max, right_max)
+     * 
+     * @param subtask_index 子任务索引
+     * @param other_state 对侧窗口状态（用于共享模式取 min）
+     * @return 安全 evict 时间戳
+     */
+    virtual int64_t getSafeEvictTimestamp(size_t subtask_index, 
+                                          const WindowState* other_state = nullptr) const = 0;
+
 protected:
     /// 过期缓冲区倍数，默认 2.0 表示 2 倍窗口大小
     double eviction_buffer_multiplier_ = DEFAULT_EVICTION_BUFFER_MULTIPLIER;

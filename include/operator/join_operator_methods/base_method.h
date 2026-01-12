@@ -21,7 +21,7 @@ enum class JoinMethodType {
 class BaseMethod {
  public:
   explicit BaseMethod(double join_similarity_threshold)
-    : join_similarity_threshold_(join_similarity_threshold){}
+    : join_similarity_threshold_(join_similarity_threshold) {}
 
    virtual ~BaseMethod() = default;
 
@@ -39,11 +39,13 @@ class BaseMethod {
     * 
     * @param query_record 查询记录
     * @param query_slot 查询来源的 slot（0=左流，1=右流）
+    * @param subtask_index 当前执行的 subtask 索引（用于 PartitionedWindowState 分区访问）
     * @return 满足阈值的候选向量列表
     */
    virtual std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
        const VectorRecord& query_record,
-       int query_slot) = 0;
+       int query_slot,
+       size_t subtask_index = 0) = 0;
 
    virtual void Excute(std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,
                        std::unique_ptr<JoinFunction> &joinfuc,
@@ -53,6 +55,15 @@ class BaseMethod {
 
  protected:
   double join_similarity_threshold_;
+  // 相似度计算参数 alpha（与 pipeline/JoinOperator 绑定，由工厂在构建策略时设置）
+  // 仅用于：
+  // - 调用 ConcurrencyManager::query_for_join(..., alpha) 时显式传参
+  // - WindowState 暴力扫描等非索引路径的相似度计算
+  double similarity_alpha_ = 0.1;
+
+ public:
+  void setSimilarityAlpha(double alpha) { similarity_alpha_ = alpha; }
+  [[nodiscard]] double getSimilarityAlpha() const { return similarity_alpha_; }
  private:
 };
 }  // namespace sageFlow

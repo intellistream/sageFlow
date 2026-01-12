@@ -15,6 +15,7 @@
 #include <memory>
 #include <vector>
 #include <set>
+#include <unordered_set>
 #include <mutex>
 #include <functional>
 #include <chrono>
@@ -70,6 +71,22 @@ struct PipelineExecutionResult {
     
     /// 执行时间（毫秒）
     double execution_time_ms = 0.0;
+
+    /// Join 算法完成时间（毫秒）：以 JoinOperator emits stable 的时间点为准（并行 makespan）
+    /// 注意：该时间不包含 Sink 追赶等待阶段，更接近“算法计算完成”的现实口径。
+    double join_time_ms = 0.0;
+
+    /// Sink 追赶等待耗时（毫秒）：从 emits stable 到等待结束（追平/稳定/超时）
+    double sink_wait_ms = 0.0;
+
+    /// Join 输出的总 emits 数（包含重复）
+    uint64_t total_emits = 0;
+    
+    /// Sink 已处理的唯一输出数（去重后）
+    uint64_t sink_processed = 0;
+    
+    /// Sink 去重拦截的输出数
+    uint64_t sink_dedup = 0;
     
     /// 左流处理的记录数
     int64_t left_processed = 0;
@@ -82,6 +99,9 @@ struct PipelineExecutionResult {
     
     /// 错误信息（如果 success=false）
     std::string error_message;
+    
+    /// Sink 去重拦截的记录数（用于诊断 multicast 问题）
+    int64_t dedup_count = 0;
     
     /**
      * @brief 获取匹配数量
@@ -160,10 +180,34 @@ public:
      * @brief 重置收集器状态
      */
     void reset();
+    
+    /**
+     * @brief 获取去重拦截的记录数
+     * @return 被去重拦截的记录数
+     */
+    [[nodiscard]] int64_t getDedupCount() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return dedup_count_;
+    }
 
 private:
     std::vector<MatchPair> matches_;
+    struct PairKey {
+        uint64_t left_uid = 0;
+        uint64_t right_uid = 0;
+        bool operator==(const PairKey& other) const {
+            return left_uid == other.left_uid && right_uid == other.right_uid;
+        }
+    };
+    struct PairKeyHash {
+        size_t operator()(const PairKey& k) const noexcept {
+            uint64_t x = k.left_uid ^ (k.right_uid + 0x9e3779b97f4a7c15ULL + (k.left_uid << 6) + (k.left_uid >> 2));
+            return static_cast<size_t>(x);
+        }
+    };
+    std::unordered_set<PairKey, PairKeyHash> seen_pairs_;  ///< 已见过的 (left_uid,right_uid)（用于 Sink 去重）
     int64_t processed_count_ = 0;
+    int64_t dedup_count_ = 0;  ///< 被去重拦截的记录数
     mutable std::mutex mutex_;
 };
 

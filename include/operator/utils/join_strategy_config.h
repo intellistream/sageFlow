@@ -49,6 +49,28 @@ enum class IndexStrategy {
 };
 
 /**
+ * @brief Clustered Join 分区内索引类型
+ * 
+ * 控制 ClusteredJoin 在每个分区内使用的索引策略。
+ */
+enum class ClusteredIndexType {
+    BRUTEFORCE,  ///< 暴力扫描（Ground Truth，用于验证）
+    IVF,         ///< IVF 索引（默认，推荐用于生产）
+    HNSW         ///< HNSW 索引（可选）
+};
+
+/**
+ * @brief 相似度计算模式
+ * 
+ * 控制 exp(-alpha * L2_distance) 中 alpha 的计算方式
+ */
+enum class SimilarityMode {
+    FIXED_ALPHA,      ///< 使用固定的 alpha 值（默认 0.1）
+    ADAPTIVE_ALPHA,   ///< 根据数据分布自动计算 alpha
+    NORMALIZED        ///< 先归一化向量，再使用固定 alpha
+};
+
+/**
  * @brief Join 策略完整配置
  * 
  * 包含所有可配置的 Join 参数，支持从 TOML 配置文件加载。
@@ -60,6 +82,30 @@ struct JoinStrategyConfig {
     double similarity_threshold = 0.8;
     int dimension = 128;  ///< 向量维度
     
+    // ==================== 相似度计算配置 ====================
+    /**
+     * @brief 相似度计算模式
+     * 
+     * - FIXED_ALPHA: 使用固定的 similarity_alpha 值
+     * - ADAPTIVE_ALPHA: 根据数据分布自动计算 alpha（使 median 距离 → sim=0.5）
+     * - NORMALIZED: 先归一化向量（L2范数=1），再使用固定 alpha
+     */
+    SimilarityMode similarity_mode = SimilarityMode::FIXED_ALPHA;
+    
+    /**
+     * @brief 相似度计算的 alpha 参数
+     * 
+     * 相似度公式: sim = exp(-alpha * L2_distance)
+     * 
+     * 推荐值:
+     * - 归一化向量 (范数≈1): alpha = 0.1 ~ 1.0
+     * - 原始 SIFT 向量 (范数≈500): alpha = 0.001 ~ 0.002
+     * - 自适应模式: 此值作为初始值，会根据数据自动调整
+     * 
+     * 选择原则: 使 "典型相似对" 的相似度落在 [0.5, 0.9] 范围内
+     */
+    double similarity_alpha = 0.1;
+    
     // ==================== 分区配置 ====================
     PartitionStrategy partition_strategy = PartitionStrategy::ROUND_ROBIN;
     int num_partitions = 4;  ///< 向量空间分区数（用于 LSH/CENTROID）
@@ -68,6 +114,7 @@ struct JoinStrategyConfig {
     WindowStateType window_state_type = WindowStateType::SHARED;
     int64_t window_size_ms = 10000;  ///< 窗口大小（毫秒）
     int64_t step_size_ms = 1000;     ///< 滑动步长（毫秒）
+    int64_t time_interval_ms = 10;   ///< 向量到达间隔（毫秒），用于估算窗口内向量数
     
     // ==================== 索引配置 ====================
     IndexStrategy index_strategy = IndexStrategy::SHARED;
@@ -75,7 +122,7 @@ struct JoinStrategyConfig {
     // ==================== IVF 参数 ====================
     int ivf_nlist = 100;           ///< IVF 聚类数量
     int ivf_nprobes = 10;          ///< IVF 搜索时探测的聚类数
-    double ivf_rebuild_threshold = 0.3;  ///< 触发重建的阈值
+    double ivf_rebuild_threshold = 2.0;  ///< 触发重建的阈值（与字符串路径一致）
     
     // ==================== HNSW 参数 ====================
     int hnsw_m = 16;                   ///< 每层最大邻居数
@@ -95,10 +142,61 @@ struct JoinStrategyConfig {
     bool s3j_enable_adaptive = true;      ///< 是否启用自适应调整
     
     // ==================== ClusteredJoin 参数 ====================
-    double clustered_overlap_ratio = 0.1;     ///< 边界重叠比例
-    double clustered_rebalance_threshold = 0.3;  ///< 触发重平衡的阈值
-    bool clustered_border_replication = true;    ///< 是否复制边界向量
+    /**
+     * @brief 多播到最近的 k 个分区
+     * 
+     * - k = 0: 使用 overlap_ratio 阈值判定（当前行为）
+     * - k = 1: 仅主分区（等同于单播）
+     * - k >= 2: 固定多播到最近的 k 个分区
+     */
+    int clustered_multicast_k = 0;               ///< 多播到最近的 k 个分区 (0=使用overlap_ratio)
+    double clustered_overlap_ratio = 0.1;        ///< 边界重叠比例（当 multicast_k=0 时使用）
+    double clustered_rebalance_threshold = 0.3;  ///< 触发重平衡的阈值（未使用，保留供未来扩展）
     int clustered_training_samples = 1000;       ///< 训练样本数
+    
+    /**
+     * @brief 分区内索引类型
+     * 
+     * - BRUTEFORCE: 分区内全量扫描，100% 召回但较慢
+     * - IVF: 分区内 IVF 索引，平衡速度和召回
+     * - HNSW: 分区内 HNSW 索引，适合稀疏查询
+     */
+    ClusteredIndexType clustered_index_type = ClusteredIndexType::IVF;
+    
+    /**
+     * @brief 是否启用多播分区（边界向量复制）
+     * 
+     * 当为 true 时，边界向量会被复制到多个分区以保证召回率。
+     * 需要配合 CentroidPartitioner::setMulticastEnabled() 使用。
+     */
+    bool clustered_multicast_enabled = true;
+    
+    // ==================== 冷启动训练参数 ====================
+    /**
+     * @brief 是否启用冷启动模式
+     * 
+     * 当为 true 时，在 CentroidPartitioner 训练完成前，使用广播模式。
+     * 训练完成后自动切换到多播模式。
+     */
+    bool enable_cold_start = true;
+    
+    /**
+     * @brief 训练样本数阈值
+     * 
+     * 当收集的样本数达到此阈值时，触发 CentroidPartitioner 训练。
+     * 注意：此参数主要用于配置默认值，实际使用时会同步到 CentroidPartitioner::Config。
+     */
+    size_t training_samples = 1000;
+    
+    /**
+     * @brief 广播阶段是否去重
+     * 
+     * 当为 true 时，在广播阶段使用 Owner-Computes 策略：
+     * - 所有 subtask 都收到相同数据并更新状态
+     * - 只有 (uid % parallelism == subtask_index) 的 subtask 产生输出
+     * 这避免了重复的 Join 结果输出。
+     */
+    bool deduplicate_during_broadcast = true;
     
     // ==================== HDR-Tree 参数 ====================
     int hdr_projected_dim = 8;           ///< PCA 降维目标维度
@@ -155,10 +253,14 @@ std::string toString(JoinAlgorithm algo);
 std::string toString(PartitionStrategy ps);
 std::string toString(WindowStateType ws);
 std::string toString(IndexStrategy is);
+std::string toString(ClusteredIndexType cit);
+std::string toString(SimilarityMode sm);
 
 JoinAlgorithm parseJoinAlgorithm(const std::string& s);
 PartitionStrategy parsePartitionStrategy(const std::string& s);
 WindowStateType parseWindowStateType(const std::string& s);
 IndexStrategy parseIndexStrategy(const std::string& s);
+ClusteredIndexType parseClusteredIndexType(const std::string& s);
+SimilarityMode parseSimilarityMode(const std::string& s);
 
 }  // namespace sageFlow
