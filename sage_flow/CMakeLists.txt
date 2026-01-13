@@ -25,18 +25,14 @@ endif()
 pybind11_add_module(_sage_flow bindings.cpp)
 
 # Link against unified SAGE Flow library
-# sageFlow builds a single libsageflow.so containing all components
-target_link_libraries(_sage_flow PRIVATE 
-    sageflow
-)
+target_link_libraries(_sage_flow PRIVATE sageflow)
 
-# Include directories (including dependencies from parent build)
+# Include directories
 target_include_directories(_sage_flow PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/../include
 )
 
 # Add build-time dependencies include directories
-# These are fetched by parent sageFlow CMake via FetchContent
 if(DEFINED tomlplusplus_SOURCE_DIR)
     target_include_directories(_sage_flow SYSTEM PRIVATE ${tomlplusplus_SOURCE_DIR}/include)
 endif()
@@ -53,37 +49,31 @@ set_target_properties(_sage_flow PROPERTIES
     CXX_STANDARD_REQUIRED ON
     PREFIX "${PYTHON_MODULE_PREFIX}"
     SUFFIX "${PYTHON_MODULE_EXTENSION}"
-    # SOTA: Use RPATH $ORIGIN to find libraries in same directory
     BUILD_RPATH_USE_ORIGIN TRUE
     INSTALL_RPATH "$ORIGIN"
     INSTALL_RPATH_USE_LINK_PATH TRUE
 )
 
 # Install the module
-# SOTA: Conditional install based on build context
 if(DEFINED SKBUILD)
-    if(SKBUILD_STATE STREQUAL "editable")
-        # Editable install: use parent-defined install dir if available, else fallback
-        if(DEFINED SAGE_FLOW_INSTALL_DIR)
-            set(_install_dest "${SAGE_FLOW_INSTALL_DIR}")
-            message(STATUS "sage_flow: Using parent-defined install dir: ${_install_dest}")
-        else()
-            set(_install_dest "${CMAKE_CURRENT_SOURCE_DIR}/../../python")
-            message(STATUS "sage_flow: Using default editable install dir: ${_install_dest}")
-        endif()
-    else()
-        # Wheel build: install to wheel platlib
-        set(_install_dest "${SKBUILD_PLATLIB_DIR}/sage/middleware/components/sage_flow/python")
-    endif()
+    # Wheel build: install to wheel platlib/sage_flow/
+    set(_install_dest "${SKBUILD_PLATLIB_DIR}/sage_flow")
+    message(STATUS "_sage_flow module: Wheel build, install to ${_install_dest}")
     
     install(TARGETS _sage_flow
         LIBRARY DESTINATION ${_install_dest}
-        COMPONENT python
+        COMPONENT sage_flow
+    )
+    
+    # Also install libsageflow.so to the same directory
+    install(TARGETS sageflow
+        LIBRARY DESTINATION ${_install_dest}
+        COMPONENT sage_flow
     )
 else()
     # Standalone C++ project build
     install(TARGETS _sage_flow
-        LIBRARY DESTINATION python
-        COMPONENT python
+        LIBRARY DESTINATION sage_flow
+        COMPONENT sage_flow
     )
 endif()

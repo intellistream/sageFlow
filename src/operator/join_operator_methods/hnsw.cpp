@@ -47,7 +47,8 @@ std::vector<std::shared_ptr<const VectorRecord>> HNSWJoinMethod::rangeSearchViaK
 }
 
 std::vector<std::unique_ptr<VectorRecord>> HNSWJoinMethod::ExecuteEager(
-    const VectorRecord& query_record, int query_slot) {
+    const VectorRecord& query_record, int query_slot,
+    size_t subtask_index) {
   std::vector<std::unique_ptr<VectorRecord>> results;
   
   if (!concurrency_manager_) {
@@ -63,7 +64,7 @@ std::vector<std::unique_ptr<VectorRecord>> HNSWJoinMethod::ExecuteEager(
   
   // 使用 query_for_join 直接获取满足阈值的结果
   // 这是更准确的方式，因为它在索引层面就做了相似度过滤
-  auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_);
+  auto candidates = concurrency_manager_->query_for_join(idx, query_record, join_similarity_threshold_, similarity_alpha_);
   
   SAGEFLOW_LOG_DEBUG("HNSW_JOIN", "ExecuteEager: slot={} candidates={}", query_slot, candidates.size());
   

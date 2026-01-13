@@ -2,11 +2,13 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "function/function.h"
+#include "operator/utils/join_strategy_config.h"
 
 namespace sageFlow {
 class Function;
@@ -82,6 +84,11 @@ class Stream {
   void setJoinSimilarityThreshold(double threshold) { join_similarity_threshold_ = threshold; }
   const std::string& getJoinMethod() const { return join_method_; }
   double getJoinSimilarityThreshold() const { return join_similarity_threshold_; }
+  
+  // 完整策略配置（优先级高于 join_method_ 和 join_similarity_threshold_）
+  void setJoinStrategyConfig(const JoinStrategyConfig& config) { join_strategy_config_ = config; }
+  const std::optional<JoinStrategyConfig>& getJoinStrategyConfig() const { return join_strategy_config_; }
+  bool hasJoinStrategyConfig() const { return join_strategy_config_.has_value(); }
 
  private:
   size_t parallelism_;
@@ -89,5 +96,7 @@ class Stream {
   // 默认 Join 参数（当该 Stream 表示 Join 节点时使用）
   std::string join_method_ = "bruteforce_lazy";
   double join_similarity_threshold_ = 0.8;
+  // 完整策略配置（可选，优先于简单参数）
+  std::optional<JoinStrategyConfig> join_strategy_config_;
 };
 }  // namespace sageFlow

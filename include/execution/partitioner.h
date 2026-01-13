@@ -7,6 +7,7 @@
 #include <atomic>
 #include <functional>
 #include <memory>
+#include <vector>
 #include "common/data_types.h"
 #include "execution/vector_space_partitioner.h"
 
@@ -17,6 +18,32 @@ public:
   virtual size_t partition(const Response& data, size_t num_channels) = 0;
   // 是否为广播模式（默认false），供ResultPartition检测使用
   virtual bool isBroadcast() const { return false; }
+
+  // ========== 多播支持（Clustered Join 边界向量复制） ==========
+
+  /**
+   * @brief 检查是否支持多播模式
+   * 
+   * 多播模式允许将单条记录发送到多个目标分区，
+   * 用于 Clustered Join 中边界向量的复制。
+   * 
+   * @return true 表示支持 partitionMulti()
+   */
+  virtual bool supportsMulticast() const { return false; }
+
+  /**
+   * @brief 多播分区（返回多个目标分区）
+   * 
+   * 对于边界向量，可能需要发送到多个分区以保证 Join 的正确性。
+   * 默认实现调用 partition() 返回单元素向量。
+   * 
+   * @param data 待分区的数据
+   * @param num_channels 分区通道数
+   * @return 目标分区 ID 列表（至少包含一个元素）
+   */
+  virtual std::vector<size_t> partitionMulti(const Response& data, size_t num_channels) {
+    return {partition(data, num_channels)};
+  }
 };
 
 // 轮询/随机分发

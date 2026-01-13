@@ -40,7 +40,9 @@ class StorageManager {
 
   auto topk(const VectorRecord &record, int k) const -> std::vector<uint64_t>;
 
-  auto similarityJoinQuery(const VectorRecord &record, double join_similarity_threshold) const -> std::vector<uint64_t>;
+  auto similarityJoinQuery(const VectorRecord &record,
+                           double join_similarity_threshold,
+                           double similarity_alpha) const -> std::vector<uint64_t>;
 
  private:
   mutable std::shared_mutex map_mutex_;

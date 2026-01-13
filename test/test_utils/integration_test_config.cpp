@@ -4,6 +4,8 @@
 
 #include <toml++/toml.hpp>
 
+#include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <sstream>
 
@@ -101,7 +103,33 @@ std::string IntegrationTestConfigLoader::resolvePath(const std::string& path) {
     return DynamicConfigManager::resolveProjectRelativePath(path);
 }
 
+// 静态成员变量定义
+std::string IntegrationTestConfigLoader::custom_config_path_;
+
+void IntegrationTestConfigLoader::setConfigPath(const std::string& path) {
+    custom_config_path_ = path;
+    SAGEFLOW_LOG_INFO("ConfigLoader", "Custom config path set: {}", path);
+}
+
+std::string IntegrationTestConfigLoader::getConfigPathFromEnv() {
+    const char* env_path = std::getenv("SAGEFLOW_TEST_CONFIG_PATH");
+    if (env_path != nullptr && std::strlen(env_path) > 0) {
+        return std::string(env_path);
+    }
+    return "";
+}
+
 std::string IntegrationTestConfigLoader::getDefaultConfigPath() {
+    // 优先级：setConfigPath() > 环境变量 > 默认路径
+    if (!custom_config_path_.empty()) {
+        return resolvePath(custom_config_path_);
+    }
+    
+    std::string env_path = getConfigPathFromEnv();
+    if (!env_path.empty()) {
+        return resolvePath(env_path);
+    }
+    
     return resolvePath("config/integration_test_cases.toml");
 }
 
@@ -148,6 +176,9 @@ JoinStrategyConfig IntegrationTestConfigLoader::parseStrategyConfig(
     if (auto v = table["similarity_threshold"].value<double>()) {
         config.similarity_threshold = *v;
     }
+    if (auto v = table["similarity_mode"].value<std::string>()) {
+        config.similarity_mode = parseSimilarityMode(*v);
+    }
     if (auto v = table["dimension"].value<int64_t>()) {
         config.dimension = static_cast<int>(*v);
     }
@@ -159,6 +190,9 @@ JoinStrategyConfig IntegrationTestConfigLoader::parseStrategyConfig(
     }
     if (auto v = table["step_size_ms"].value<int64_t>()) {
         config.step_size_ms = *v;
+    }
+    if (auto v = table["time_interval_ms"].value<int64_t>()) {
+        config.time_interval_ms = *v;
     }
 
     // IVF 参数
@@ -212,17 +246,44 @@ JoinStrategyConfig IntegrationTestConfigLoader::parseStrategyConfig(
     }
 
     // ClusteredJoin 参数
+    if (auto v = table["clustered_multicast_k"].value<int64_t>()) {
+        config.clustered_multicast_k = static_cast<int>(*v);
+    }
     if (auto v = table["clustered_overlap_ratio"].value<double>()) {
         config.clustered_overlap_ratio = *v;
     }
     if (auto v = table["clustered_rebalance_threshold"].value<double>()) {
         config.clustered_rebalance_threshold = *v;
     }
-    if (auto v = table["clustered_border_replication"].value<bool>()) {
-        config.clustered_border_replication = *v;
-    }
+    // clustered_border_replication 已废弃，multicast 功能由 multicast_k 控制
     if (auto v = table["clustered_training_samples"].value<int64_t>()) {
         config.clustered_training_samples = static_cast<int>(*v);
+        // 同步到 training_samples 字段（用于 CentroidPartitioner）
+        config.training_samples = static_cast<size_t>(*v);
+    }
+    // ClusteredJoin 索引类型
+    if (auto v = table["clustered_index_type"].value<std::string>()) {
+        std::string type_str = *v;
+        std::transform(type_str.begin(), type_str.end(), type_str.begin(), ::tolower);
+        if (type_str == "bruteforce" || type_str == "brute_force") {
+            config.clustered_index_type = ClusteredIndexType::BRUTEFORCE;
+        } else if (type_str == "hnsw") {
+            config.clustered_index_type = ClusteredIndexType::HNSW;
+        } else {
+            config.clustered_index_type = ClusteredIndexType::IVF;  // 默认 IVF
+        }
+    }
+    // ClusteredJoin 多播开关
+    if (auto v = table["clustered_multicast_enabled"].value<bool>()) {
+        config.clustered_multicast_enabled = *v;
+    }
+    // ClusteredJoin 冷启动配置
+    if (auto v = table["clustered_cold_start_enabled"].value<bool>()) {
+        config.enable_cold_start = *v;
+    }
+    // ClusteredJoin 广播去重配置
+    if (auto v = table["clustered_broadcast_dedup"].value<bool>()) {
+        config.deduplicate_during_broadcast = *v;
     }
 
     // VSJoin 参数
@@ -293,6 +354,16 @@ IntegrationTestCase IntegrationTestConfigLoader::parseTestCase(
             tc.strategy.step_size_ms = common.strategy.step_size_ms;
         }
     }
+    // 继承 time_interval_ms（用于 IVF 动态参数计算）
+    if (common.strategy.time_interval_ms > 0 && tc.strategy.time_interval_ms == 10) {
+        if (!table["time_interval_ms"].value<int64_t>()) {
+            tc.strategy.time_interval_ms = common.strategy.time_interval_ms;
+        }
+    }
+    // 同时同步到 tc.time_interval_ms（用于数据生成）
+    if (tc.strategy.time_interval_ms != 10) {
+        tc.time_interval_ms = tc.strategy.time_interval_ms;
+    }
 
     // 数据配置
     if (auto dim = table["vector_dim"].value<int64_t>()) {
@@ -344,6 +415,26 @@ IntegrationTestCase IntegrationTestConfigLoader::parseTestCase(
     if (auto v = table["alpha"].value<double>()) {
         tc.alpha = *v;
     }
+    if (auto v = table["similarity_mode"].value<std::string>()) {
+        tc.similarity_mode = *v;
+    }
+    if (auto v = table["data_mode"].value<std::string>()) {
+        tc.data_mode = *v;
+    }
+
+    // 数据源：direct_load/dataset
+    if (auto v = table["data_source_type"].value<std::string>()) {
+        tc.data_source_type = *v;
+    }
+    if (auto v = table["data_source_file_path"].value<std::string>()) {
+        tc.data_source_file_path = resolvePath(*v);
+    }
+    if (auto v = table["data_source_expected_dim"].value<int64_t>()) {
+        tc.data_source_expected_dim = static_cast<int>(*v);
+    }
+    if (auto v = table["split_mode"].value<std::string>()) {
+        tc.split_mode = *v;
+    }
 
     // 验证配置
     if (auto v = table["expected_min_recall"].value<double>()) {
@@ -387,6 +478,17 @@ std::vector<IntegrationTestCase> IntegrationTestConfigLoader::loadFromFile(
         if (config.contains("common")) {
             if (auto* common_table = config["common"].as_table()) {
                 common = parseTestCase(*common_table, IntegrationTestCase{});
+            }
+        }
+
+        // 允许通过环境变量覆盖结果输出目录（便于脚本批量运行并隔离输出）
+        // scripts/run_integration_test.py 已设置该环境变量。
+        if (const char* out_dir = std::getenv("SAGEFLOW_TEST_OUTPUT_DIR")) {
+            if (std::strlen(out_dir) > 0) {
+                common.result_output_dir = resolvePath(std::string(out_dir));
+                SAGEFLOW_LOG_INFO("IntegrationTestConfig",
+                                  "Overriding result_output_dir via env SAGEFLOW_TEST_OUTPUT_DIR: {}",
+                                  common.result_output_dir);
             }
         }
 

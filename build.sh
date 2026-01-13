@@ -3,6 +3,14 @@ set -e
 
 BUILD_TYPE=${BUILD_TYPE:-Debug}
 
+# 导入 Conda 安装工具（如果可用）
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SAGE_ROOT="$(cd "$SCRIPT_DIR/../../../../../.." && pwd)"
+
+if [ -f "$SAGE_ROOT/tools/lib/conda_install_utils.sh" ]; then
+    source "$SAGE_ROOT/tools/lib/conda_install_utils.sh"
+fi
+
 echo "Building sageFlow with CMake (CMAKE_BUILD_TYPE=${BUILD_TYPE})..."
 
 # Function to check and fix libstdc++ version issue in conda environment
@@ -28,14 +36,26 @@ check_libstdcxx() {
             
             # Try to update libstdc++ in conda environment
             if command -v conda &> /dev/null; then
-                conda install -c conda-forge libstdcxx-ng -y || {
-                    echo "⚠️  无法自动更新libstdc++，将使用系统版本"
-                    # Set LD_LIBRARY_PATH to prefer system libstdc++
-                    if [[ -f "/usr/lib/x86_64-linux-gnu/libstdc++.so.6" ]]; then
-                        export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
-                        echo "   已设置LD_LIBRARY_PATH优先使用系统libstdc++"
-                    fi
-                }
+                # 使用统一的 conda_install_bypass 函数
+                if declare -f conda_install_bypass >/dev/null 2>&1; then
+                    conda_install_bypass libstdcxx-ng || {
+                        echo "⚠️  无法自动更新libstdc++，将使用系统版本"
+                        # Set LD_LIBRARY_PATH to prefer system libstdc++
+                        if [[ -f "/usr/lib/x86_64-linux-gnu/libstdc++.so.6" ]]; then
+                            export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+                            echo "   已设置LD_LIBRARY_PATH优先使用系统libstdc++"
+                        fi
+                    }
+                else
+                    # Fallback: 直接使用清华镜像
+                    conda install -y --override-channels -c https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge libstdcxx-ng || {
+                        echo "⚠️  无法自动更新libstdc++，将使用系统版本"
+                        if [[ -f "/usr/lib/x86_64-linux-gnu/libstdc++.so.6" ]]; then
+                            export LD_LIBRARY_PATH="/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}"
+                            echo "   已设置LD_LIBRARY_PATH优先使用系统libstdc++"
+                        fi
+                    }
+                fi
             fi
         fi
     fi

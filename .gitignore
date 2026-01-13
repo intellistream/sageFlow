@@ -43,6 +43,7 @@ profiles/
 
 # IDE and editor files
 .vscode/
+.cursor/
 .idea/
 *.swp
 *.swo
@@ -120,3 +121,4 @@ test/data/
 
 # Task documentation (internal use only)
 docs/tasks/
+wheelhouse/

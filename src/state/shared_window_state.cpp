@@ -71,6 +71,12 @@ void SharedWindowState::evictExpired(int64_t current_timestamp,
     // subtask_index 在共享状态中被忽略
     std::unique_lock lock(mutex_);
     
+    // 防止整数下溢：当 current_timestamp 是最小值时，不进行 evict
+    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    if (current_timestamp == kMinTimestamp) {
+        return;  // 避免下溢导致错误删除
+    }
+    
     // 计算过期阈值：timestamp < current_timestamp - multiplier * window_size
     int64_t expiry_threshold = current_timestamp - 
         static_cast<int64_t>(eviction_buffer_multiplier_ * window_size);
@@ -108,6 +114,50 @@ size_t SharedWindowState::size(size_t subtask_index) const {
     // subtask_index 在共享状态中被忽略
     std::shared_lock lock(mutex_);
     return shared_window_.size();
+}
+
+// ==================== 时间戳追踪接口实现 ====================
+
+void SharedWindowState::updateMaxSeenTimestamp(int64_t timestamp, size_t /*subtask_index*/) {
+    // 共享模式：使用单一全局时间戳
+    int64_t current_max = max_seen_timestamp_.load(std::memory_order_relaxed);
+    while (timestamp > current_max && 
+           !max_seen_timestamp_.compare_exchange_weak(
+               current_max, timestamp,
+               std::memory_order_release,
+               std::memory_order_relaxed)) {
+        // 重试直到成功或发现更大的值
+    }
+}
+
+int64_t SharedWindowState::getMaxSeenTimestamp(size_t /*subtask_index*/) const {
+    return max_seen_timestamp_.load(std::memory_order_acquire);
+}
+
+int64_t SharedWindowState::getSafeEvictTimestamp(size_t /*subtask_index*/, 
+                                                  const WindowState* other_state) const {
+    // 共享模式：需要取 this 和 other_state 的 min 值
+    // 确保两侧都已处理到某个时间点后才能安全 evict
+    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    
+    int64_t this_max = max_seen_timestamp_.load(std::memory_order_acquire);
+    
+    if (!other_state) {
+        return this_max;
+    }
+    
+    int64_t other_max = other_state->getMaxSeenTimestamp(0);
+    
+    // 处理初始状态
+    if (this_max == kMinTimestamp && other_max == kMinTimestamp) {
+        return kMinTimestamp;
+    } else if (this_max == kMinTimestamp) {
+        return other_max;
+    } else if (other_max == kMinTimestamp) {
+        return this_max;
+    } else {
+        return std::min(this_max, other_max);
+    }
 }
 
 } // namespace sageFlow

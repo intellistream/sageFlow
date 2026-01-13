@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
 #include <toml++/toml.h>
@@ -100,6 +101,64 @@ IndexStrategy parseIndexStrategy(const std::string& s) {
     if (lower == "shared") return IndexStrategy::SHARED;
     if (lower == "partitioned") return IndexStrategy::PARTITIONED;
     throw std::runtime_error("Unknown IndexStrategy: " + s);
+}
+
+// ==================== ClusteredIndexType 转换 ====================
+
+std::string toString(ClusteredIndexType cit) {
+    switch (cit) {
+        case ClusteredIndexType::BRUTEFORCE: return "bruteforce";
+        case ClusteredIndexType::IVF: return "ivf";
+        case ClusteredIndexType::HNSW: return "hnsw";
+        default: return "unknown";
+    }
+}
+
+ClusteredIndexType parseClusteredIndexType(const std::string& s) {
+    std::string lower = toLower(s);
+    
+    if (lower == "bruteforce" || lower == "brute_force") {
+        return ClusteredIndexType::BRUTEFORCE;
+    }
+    if (lower == "ivf") {
+        return ClusteredIndexType::IVF;
+    }
+    if (lower == "hnsw") {
+        return ClusteredIndexType::HNSW;
+    }
+    
+    // 默认返回 IVF，并记录警告
+    SAGEFLOW_LOG_WARN("Config", "Unknown clustered_index_type '{}', defaulting to IVF", s);
+    return ClusteredIndexType::IVF;
+}
+
+// ==================== SimilarityMode 转换 ====================
+
+std::string toString(SimilarityMode sm) {
+    switch (sm) {
+        case SimilarityMode::FIXED_ALPHA: return "fixed_alpha";
+        case SimilarityMode::ADAPTIVE_ALPHA: return "adaptive_alpha";
+        case SimilarityMode::NORMALIZED: return "normalized";
+        default: return "unknown";
+    }
+}
+
+SimilarityMode parseSimilarityMode(const std::string& s) {
+    std::string lower = toLower(s);
+    
+    if (lower == "fixed_alpha" || lower == "fixed" || lower == "fixedalpha") {
+        return SimilarityMode::FIXED_ALPHA;
+    }
+    if (lower == "adaptive_alpha" || lower == "adaptive" || lower == "adaptivealpha" || lower == "auto") {
+        return SimilarityMode::ADAPTIVE_ALPHA;
+    }
+    if (lower == "normalized" || lower == "normalize" || lower == "norm") {
+        return SimilarityMode::NORMALIZED;
+    }
+    
+    // 默认返回 FIXED_ALPHA
+    SAGEFLOW_LOG_WARN("Config", "Unknown similarity_mode '{}', defaulting to fixed_alpha", s);
+    return SimilarityMode::FIXED_ALPHA;
 }
 
 // ==================== JoinStrategyConfig 方法实现 ====================
@@ -206,6 +265,39 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
 
 void JoinStrategyConfig::inferDefaults() {
     switch (algorithm) {
+        case JoinAlgorithm::IVF: {
+            // IVF 默认走共享索引（RoundRobin + SharedWindowState）
+            partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            window_state_type = WindowStateType::SHARED;
+            index_strategy = IndexStrategy::SHARED;
+
+            // 关键：如果用户没有显式配置 IVF 参数（仍为默认 100/10），则根据窗口大小动态推断。
+            // 这与 JoinOperator 旧构造路径中的“基于 window_size/step_size 估计数据量”策略保持一致，
+            // 可避免在不同窗口配置下手动调 nprobes/nlist。
+            //
+            // 注意：只有在参数保持默认值时才覆盖，避免破坏用户在 TOML 中显式指定的配置。
+            if (ivf_nlist == 100 && ivf_nprobes == 10) {
+                const int64_t window_size = window_size_ms;
+                const int64_t step_size = step_size_ms;
+                const int64_t vector_count =
+                    (step_size > 0) ? (window_size / step_size) : window_size;
+
+                // nlist ~ 4 * sqrt(N)（N 为窗口内估计向量数）
+                int nlist = std::max(1, static_cast<int>(4.0 * std::sqrt(static_cast<double>(std::max<int64_t>(1, vector_count)))));
+                // nprobes ~ 30% nlist，偏向召回（流式 Join 更看重召回）
+                int nprobes = std::max(3, nlist * 30 / 100);
+                nprobes = std::min(nprobes, nlist);
+
+                ivf_nlist = nlist;
+                ivf_nprobes = nprobes;
+
+                SAGEFLOW_LOG_INFO("Config",
+                    "IVF defaults inferred from window: window={}ms step={}ms N≈{} -> nlist={} nprobes={}",
+                    window_size, step_size, vector_count, ivf_nlist, ivf_nprobes);
+            }
+            break;
+        }
+
         case JoinAlgorithm::VSJOIN:
             partition_strategy = PartitionStrategy::LSH;
             window_state_type = WindowStateType::PARTITIONED_VECTOR;
@@ -246,7 +338,6 @@ void JoinStrategyConfig::inferDefaults() {
             break;
             
         case JoinAlgorithm::BRUTEFORCE:
-        case JoinAlgorithm::IVF:
         case JoinAlgorithm::HNSW:
         default:
             // 默认使用共享索引策略
@@ -268,8 +359,19 @@ std::string JoinStrategyConfig::summary() const {
         << "  index: " << toString(index_strategy) << "\n"
         << "  similarity_threshold: " << similarity_threshold << "\n"
         << "  dimension: " << dimension << "\n"
-        << "  window: " << window_size_ms << "ms (step: " << step_size_ms << "ms)\n"
-        << "}";
+        << "  window: " << window_size_ms << "ms (step: " << step_size_ms << "ms)\n";
+    
+    // ClusteredJoin 特定参数
+    if (algorithm == JoinAlgorithm::CLUSTERED_JOIN) {
+        oss << "  -- ClusteredJoin --\n"
+            << "  clustered_index_type: " << toString(clustered_index_type) << "\n"
+            << "  clustered_multicast_k: " << clustered_multicast_k << "\n"
+            << "  clustered_overlap_ratio: " << clustered_overlap_ratio << "\n"
+            << "  clustered_multicast_enabled: " << clustered_multicast_enabled << "\n"
+            << "  clustered_training_samples: " << clustered_training_samples << "\n";
+    }
+    
+    oss << "}";
     return oss.str();
 }
 
@@ -288,6 +390,18 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     if (auto dim = node["dimension"].value<int64_t>()) {
         config.dimension = static_cast<int>(*dim);
+    }
+    
+    // 相似度计算配置
+    if (auto mode = node["similarity_mode"].value<std::string>()) {
+        config.similarity_mode = parseSimilarityMode(*mode);
+    }
+    if (auto alpha = node["similarity_alpha"].value<double>()) {
+        config.similarity_alpha = *alpha;
+    }
+    // 兼容旧配置：支持 "alpha" 作为 "similarity_alpha" 的别名
+    if (auto alpha = node["alpha"].value<double>()) {
+        config.similarity_alpha = *alpha;
     }
     
     // 分区配置
@@ -376,17 +490,27 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     
     // ClusteredJoin 参数
+    if (auto mk = node["clustered_multicast_k"].value<int64_t>()) {
+        config.clustered_multicast_k = static_cast<int>(*mk);
+    }
     if (auto or_ = node["clustered_overlap_ratio"].value<double>()) {
         config.clustered_overlap_ratio = *or_;
     }
     if (auto rt = node["clustered_rebalance_threshold"].value<double>()) {
         config.clustered_rebalance_threshold = *rt;
     }
-    if (auto br = node["clustered_border_replication"].value<bool>()) {
-        config.clustered_border_replication = *br;
-    }
     if (auto ts = node["clustered_training_samples"].value<int64_t>()) {
         config.clustered_training_samples = static_cast<int>(*ts);
+        // 同步到通用 training_samples 字段
+        config.training_samples = static_cast<size_t>(*ts);
+    }
+    // 新增：分区内索引类型
+    if (auto cit = node["clustered_index_type"].value<std::string>()) {
+        config.clustered_index_type = parseClusteredIndexType(*cit);
+    }
+    // 新增：是否启用多播
+    if (auto cme = node["clustered_multicast_enabled"].value<bool>()) {
+        config.clustered_multicast_enabled = *cme;
     }
     
     // HDR-Tree 参数

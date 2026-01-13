@@ -37,7 +37,7 @@ struct IntegrationTestCase {
     std::vector<int> data_sizes;       ///< 测试的数据规模列表
     std::vector<int> parallelism;      ///< 测试的并行度列表
 
-    // ==================== 数据生成配置 ====================
+    // ==================== 数据生成/数据源配置 ====================
     double positive_ratio = 0.10;      ///< 正样本比例（相似度 > threshold）
     double negative_ratio = 0.60;      ///< 负样本比例（相似度 < threshold - 0.1）
     int64_t time_interval_ms = 10;     ///< 记录间时间间隔（毫秒）
@@ -50,6 +50,27 @@ struct IntegrationTestCase {
     int negative_pairs = 500;          ///< 负样本对数量
     int random_tail = 2000;            ///< 随机尾部数据量
     double alpha = 0.1;                ///< 相似度计算的 alpha 参数
+    std::string similarity_mode = "fixed_alpha"; ///< 相似度模式：fixed_alpha/adaptive_alpha/normalized
+    
+    /// 数据源选择：
+    /// - "generator" (默认)：使用 TestDataGenerator 生成数据
+    /// - "dataset": 直接从数据集文件加载（支持 fvecs/json）
+    std::string data_source_type = "generator";
+    std::string data_source_file_path;      ///< 数据集文件路径（dataset 模式）
+    int data_source_expected_dim = 0;       ///< 期望维度（0=不校验）
+    
+    /// 数据切分模式（dataset/生成数据通用）：
+    /// - duplicate: 左右流相同
+    /// - half_split: 前半 -> 左，后半 -> 右
+    /// - interleaved: 偶数 -> 左，奇数 -> 右
+    std::string split_mode = "duplicate";
+    
+    // ==================== 数据源模式配置 ====================
+    /// 数据源模式：
+    /// - "duplicate": 复制所有向量到两个流（自连接，左右向量相同）
+    /// - "paired": 分割配对数据（左流=base向量，右流=perturbed向量，向量不同但相似）
+    /// paired 模式更适合测试 multicast_k 等分区策略的效果
+    std::string data_mode = "duplicate";
 
     // ==================== 验证配置 ====================
     double expected_min_recall = 0.0;      ///< 期望最小召回率
@@ -139,6 +160,22 @@ public:
     static bool isValidConfigFile(const std::string& config_path);
 
     /**
+     * @brief 设置配置文件路径（优先于默认路径和环境变量）
+     * @param path 配置文件路径
+     */
+    static void setConfigPath(const std::string& path);
+
+    /**
+     * @brief 从环境变量获取配置文件路径
+     * 
+     * 检查环境变量 SAGEFLOW_TEST_CONFIG_PATH，如果设置则使用该路径。
+     * 优先级：setConfigPath() > 环境变量 > 默认路径
+     * 
+     * @return 配置文件路径（如果环境变量未设置则返回空字符串）
+     */
+    static std::string getConfigPathFromEnv();
+
+    /**
      * @brief 获取默认集成测试配置文件路径
      * @return 默认配置文件路径
      */
@@ -193,6 +230,9 @@ private:
      * @return 整数向量
      */
     static std::vector<int> parseIntArray(const toml::array& arr);
+
+    /// 自定义配置文件路径（通过 setConfigPath 设置）
+    static std::string custom_config_path_;
 };
 
 }  // namespace test

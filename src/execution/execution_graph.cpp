@@ -88,9 +88,22 @@ void ExecutionGraph::createConnections() {
             auto result_partition = upstream_vertex->getResultPartition();
 
             // 从下游算子获取期望的分区器
+            // 每个 upstream vertex 需要独立的分区器实例（因为分区器可能有内部状态如轮询计数器）
             auto partitioner = downstream_op->getPreferredPartitioner(
-                0,  // dimension - 可以从配置获取
+                0,  // dimension - 从下游算子配置获取
                 static_cast<int>(downstream_info.parallelism));
+
+            // 日志记录分区器类型，便于调试
+            if (i == 0) {  // 只记录一次
+                if (partitioner) {
+                    SAGEFLOW_LOG_INFO("GRAPH", "Using {} partitioner for connection {} -> {} (slot={})",
+                                     partitioner->supportsMulticast() ? "multicast-capable" : "unicast",
+                                     upstream_op->name, downstream_op->name, slot);
+                } else {
+                    SAGEFLOW_LOG_DEBUG("GRAPH", "Using default RoundRobin partitioner for connection {} -> {} (slot={})",
+                                      upstream_op->name, downstream_op->name, slot);
+                }
+            }
 
             connection_strategy_.setupResultPartition(
                 result_partition,

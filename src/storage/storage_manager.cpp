@@ -144,7 +144,9 @@ auto sageFlow::StorageManager::topk(const VectorRecord& record, int k) const -> 
   return final_ids;
 }
 
-auto sageFlow::StorageManager::similarityJoinQuery(const VectorRecord &record, double join_similarity_threshold) const -> std::vector<uint64_t> {
+auto sageFlow::StorageManager::similarityJoinQuery(const VectorRecord &record,
+                                                   double join_similarity_threshold,
+                                                   double similarity_alpha) const -> std::vector<uint64_t> {
   if (engine_ == nullptr) {
     throw std::runtime_error("StorageManager::similarityJoinQuery: Compute engine is not set.");
   }
@@ -160,7 +162,7 @@ auto sageFlow::StorageManager::similarityJoinQuery(const VectorRecord &record, d
       }
 
       // 计算相似度
-      double similarity = engine_->Similarity(record.data_, stored_record_sptr->data_);
+      double similarity = engine_->Similarity(record.data_, stored_record_sptr->data_, similarity_alpha);
 
       // 步骤 3: 如果相似度满足条件，则添加到结果中
       if (similarity >= join_similarity_threshold) {

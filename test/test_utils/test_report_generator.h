@@ -110,6 +110,9 @@ struct TestResult {
     // ==================== 性能指标 ====================
     double throughput_records_per_sec = 0.0;
     double execution_time_ms = 0.0;
+    // 额外时间口径：用于区分“算法计算完成”与“Sink 追赶等待”
+    double join_time_ms = 0.0;      ///< Join emits stable 时间（并行 makespan）
+    double sink_wait_ms = 0.0;      ///< Sink catch-up 等待耗时
     double avg_query_latency_us = 0.0;
 
     // ==================== 计数 ====================

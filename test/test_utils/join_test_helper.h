@@ -82,6 +82,29 @@ public:
       std::shared_ptr<DataSourceBase> right_source,
       bool apply_uid_offset = false,
       size_t max_records = 0);
+
+  /**
+   * @brief Create paired join streams from TestDataGenerator
+   * 
+   * Unlike generateJoinStreamsFromGenerator which duplicates all vectors,
+   * this method properly splits the generator's paired data:
+   * - Left stream: base vectors (even indices)
+   * - Right stream: perturbed vectors (odd indices)
+   * 
+   * This is the correct mode for testing multicast_k effectiveness,
+   * as left and right vectors are different (but similar).
+   * 
+   * @param generator TestDataGenerator instance
+   * @param apply_uid_offset Whether to offset right UIDs (default: true)
+   * @param time_interval_ms Time interval between records (default: 0 uses generator's config)
+   * @return Pair of (left_records, right_records)
+   */
+  static std::pair<std::vector<std::unique_ptr<VectorRecord>>,
+                   std::vector<std::unique_ptr<VectorRecord>>>
+  generatePairedJoinStreams(
+      TestDataGenerator& generator,
+      bool apply_uid_offset = true,
+      int64_t time_interval_ms = 0);
 };
 
 }} // namespace sageFlow::test

@@ -7,7 +7,15 @@
 namespace sageFlow {
 
 PartitionedWindowState::PartitionedWindowState(size_t parallelism)
-    : partitions_(parallelism), expired_uids_(parallelism), mutexes_(parallelism) {}
+    : partitions_(parallelism)
+    , expired_uids_(parallelism)
+    , mutexes_(parallelism)
+    , max_seen_timestamps_(parallelism) {
+    // 初始化每个分区的时间戳为最小值
+    for (size_t i = 0; i < parallelism; ++i) {
+        max_seen_timestamps_[i].store(std::numeric_limits<int64_t>::min(), std::memory_order_relaxed);
+    }
+}
 
 void PartitionedWindowState::addRecord(std::unique_ptr<VectorRecord> record, 
                                        size_t subtask_index) {
@@ -103,6 +111,31 @@ std::vector<uint64_t> PartitionedWindowState::flushExpiredUids(size_t subtask_in
 size_t PartitionedWindowState::size(size_t subtask_index) const {
     std::shared_lock lock(mutexes_[subtask_index]);
     return partitions_[subtask_index].size();
+}
+
+// ==================== 时间戳追踪接口实现 ====================
+
+void PartitionedWindowState::updateMaxSeenTimestamp(int64_t timestamp, size_t subtask_index) {
+    // 使用 compare_exchange 确保只更新为更大的值
+    int64_t current_max = max_seen_timestamps_[subtask_index].load(std::memory_order_relaxed);
+    while (timestamp > current_max && 
+           !max_seen_timestamps_[subtask_index].compare_exchange_weak(
+               current_max, timestamp,
+               std::memory_order_release,
+               std::memory_order_relaxed)) {
+        // 重试直到成功或发现更大的值
+    }
+}
+
+int64_t PartitionedWindowState::getMaxSeenTimestamp(size_t subtask_index) const {
+    return max_seen_timestamps_[subtask_index].load(std::memory_order_acquire);
+}
+
+int64_t PartitionedWindowState::getSafeEvictTimestamp(size_t subtask_index, 
+                                                       const WindowState* /*other_state*/) const {
+    // 分区模式：直接返回该分区的 max_seen_ts，因为分区之间是隔离的
+    // other_state 参数在分区模式下不使用
+    return max_seen_timestamps_[subtask_index].load(std::memory_order_acquire);
 }
 
 } // namespace sageFlow

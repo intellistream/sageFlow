@@ -197,6 +197,20 @@ namespace sageFlow {
     JoinStrategyConfig strategy_config_;       // 策略配置
     bool use_strategy_config_ = false;         // 是否使用策略配置模式
     size_t parallelism_ = 1;                   // 并行度（从 RuntimeContext 获取）
+    
+    /**
+     * @brief 检查是否使用分区策略
+     * 
+     * 分区策略（Centroid/LSH）使用 PartitionedWindowState + 分区索引，
+     * 分区内无锁竞争，可以直接使用 IQ 逻辑。
+     * 
+     * @return true 表示使用分区策略
+     */
+    bool isPartitionedStrategy() const {
+        if (!use_strategy_config_) return false;
+        return strategy_config_.partition_strategy == PartitionStrategy::CENTROID ||
+               strategy_config_.partition_strategy == PartitionStrategy::LSH;
+    }
 
     // 线程安全的初始化标志
     std::once_flag init_flag_;
