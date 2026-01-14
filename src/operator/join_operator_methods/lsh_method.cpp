@@ -146,7 +146,9 @@ void LSHMethod::onRecordAdded(const VectorRecord& record, int slot) {
 
 std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t subtask_index) {
+    (void)subtask_index;  // current implementation keeps per-operator state; subtask index unused
     std::vector<std::unique_ptr<VectorRecord>> results;
     WindowState* target_state = (query_slot == 0) ? right_state_ : left_state_;
     if (!target_state) {
