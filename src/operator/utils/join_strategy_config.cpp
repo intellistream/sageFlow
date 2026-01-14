@@ -557,6 +557,102 @@ JoinStrategyConfig loadJoinStrategyConfig(const std::string& config_path) {
     return config;
 }
 
+// ==================== 从字符串方法名创建配置 ====================
+
+JoinStrategyConfig createJoinStrategyConfigFromMethodName(
+    const std::string& method_name,
+    double similarity_threshold,
+    int dimension,
+    int64_t window_size_ms,
+    int64_t step_size_ms) {
+    JoinStrategyConfig config;
+    
+    // 提取算法名称（移除 "_eager"/"_lazy" 后缀）
+    std::string algo = toLower(method_name);
+    if (algo.rfind("_eager") != std::string::npos) {
+        algo = algo.substr(0, algo.rfind("_eager"));
+    } else if (algo.rfind("_lazy") != std::string::npos) {
+        algo = algo.substr(0, algo.rfind("_lazy"));
+    }
+    
+    // 解析算法类型
+    config.algorithm = parseJoinAlgorithm(algo);
+    config.similarity_threshold = similarity_threshold;
+    config.dimension = dimension;
+    config.window_size_ms = window_size_ms;
+    config.step_size_ms = step_size_ms;
+    config.is_eager = true;  // 所有方法使用 Eager 模式
+    
+    // 根据算法类型设置默认参数（与旧构造函数逻辑保持一致）
+    switch (config.algorithm) {
+        case JoinAlgorithm::IVF:
+            // IVF 默认使用共享状态
+            config.window_state_type = WindowStateType::SHARED;
+            config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            config.index_strategy = IndexStrategy::SHARED;
+            config.ivf_rebuild_threshold = 2.0;  // 与原来构造函数中的默认值保持一致
+            // IVF 的 nlist 和 nprobes 会在 initializeWithStrategyConfig 中根据窗口大小动态计算
+            break;
+            
+        case JoinAlgorithm::BRUTEFORCE:
+            // BruteForce 使用共享状态
+            config.window_state_type = WindowStateType::SHARED;
+            config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            config.index_strategy = IndexStrategy::SHARED;
+            break;
+            
+        case JoinAlgorithm::HNSW:
+            // HNSW 使用共享状态
+            config.window_state_type = WindowStateType::SHARED;
+            config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            config.index_strategy = IndexStrategy::SHARED;
+            config.hnsw_m = 16;
+            config.hnsw_ef_construction = 200;
+            config.hnsw_ef_search = 100;
+            break;
+            
+        case JoinAlgorithm::HDR_TREE:
+            // HDRTree 推荐使用共享状态
+            config.window_state_type = WindowStateType::SHARED;
+            config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            config.index_strategy = IndexStrategy::SHARED;
+            config.hdr_projected_dim = 16;
+            config.hdr_pca_sample_size = 100;
+            config.hdr_max_node_size = 100;  // 与原来构造函数中的默认值保持一致
+            config.hdr_delta_buffer_size = 1000;  // 默认值
+            break;
+            
+        case JoinAlgorithm::LSH:
+            // LSH 使用分区状态
+            config.window_state_type = WindowStateType::PARTITIONED;
+            config.partition_strategy = PartitionStrategy::LSH;
+            config.index_strategy = IndexStrategy::PARTITIONED;
+            config.lsh_num_tables = 4;
+            config.lsh_num_hashes = 8;
+            config.lsh_seed = 42;
+            break;
+            
+        case JoinAlgorithm::CLUSTERED_JOIN:
+            // ClusteredJoin 必须使用分区状态和质心分区
+            config.window_state_type = WindowStateType::PARTITIONED;
+            config.partition_strategy = PartitionStrategy::CENTROID;
+            config.index_strategy = IndexStrategy::PARTITIONED;
+            config.num_partitions = 8;  // 默认值，运行时会被 parallelism 覆盖
+            config.clustered_overlap_ratio = 0.1;
+            config.clustered_rebalance_threshold = 0.3;
+            config.clustered_multicast_enabled = true;
+            config.clustered_index_type = ClusteredIndexType::BRUTEFORCE;
+            break;
+            
+        default:
+            // 其他算法使用默认值
+            config.inferDefaults();
+            break;
+    }
+    
+    return config;
+}
+
 JoinStrategyConfig loadJoinStrategyConfig(const std::string& config_path,
                                            const std::string& strategy_name) {
     JoinStrategyConfig config;
