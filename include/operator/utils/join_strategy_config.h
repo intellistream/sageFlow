@@ -253,6 +253,27 @@ JoinStrategyConfig loadJoinStrategyConfig(const std::string& config_path);
 JoinStrategyConfig loadJoinStrategyConfig(const std::string& config_path,
                                            const std::string& strategy_name);
 
+/**
+ * @brief 从字符串方法名和阈值创建 JoinStrategyConfig（用于统一初始化路径）
+ * 
+ * 将旧的字符串方法名（如 "bruteforce", "ivf", "clustered_join"）转换为 JoinStrategyConfig，
+ * 并设置合理的默认值。支持移除 "_eager"/"_lazy" 后缀。
+ * 
+ * @param method_name 方法名字符串（如 "bruteforce", "ivf", "clustered_join"）
+ * @param similarity_threshold 相似度阈值
+ * @param dimension 向量维度（如果为 0，则需要在后续设置）
+ * @param window_size_ms 窗口大小（毫秒，如果为 0，则需要在后续设置）
+ * @param step_size_ms 滑动步长（毫秒，如果为 0，则需要在后续设置）
+ * @return JoinStrategyConfig 配置对象
+ * @throws std::runtime_error 如果方法名无效
+ */
+JoinStrategyConfig createJoinStrategyConfigFromMethodName(
+    const std::string& method_name,
+    double similarity_threshold = 0.8,
+    int dimension = 0,
+    int64_t window_size_ms = 0,
+    int64_t step_size_ms = 0);
+
 // ==================== 枚举类型与字符串转换 ====================
 
 std::string toString(JoinAlgorithm algo);

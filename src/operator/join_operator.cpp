@@ -79,11 +79,11 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
                            bool enable_profiling,
                            const std::string& profile_output_path,
                            bool use_shared_state)
-    : Operator(OperatorType::JOIN), concurrency_manager_(concurrency_manager),
+    : Operator(OperatorType::JOIN), 
+      concurrency_manager_(concurrency_manager),
+      strategy_config_(),
       join_similarity_threshold_(join_similarity_threshold),
-      enable_profiling_(enable_profiling),
-      use_shared_state_(use_shared_state) {
-    // 注意：use_shared_state_ 可能在后面根据算法类型被覆盖
+      enable_profiling_(enable_profiling) {
     join_func_ = std::unique_ptr<JoinFunction>(dynamic_cast<JoinFunction*>(join_func.release()));
     if (!join_func_) {
         throw std::runtime_error("JoinOperator: join_func is not a JoinFunction");
@@ -98,199 +98,33 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
             ? "profiles/join_operator_profile.prof" 
             : profile_output_path;
         profiler_ = std::make_unique<PerformanceMonitor>(profile_path);
-        SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling enabled output={}", profile_path);
+        SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling enabled (string method), output={}", profile_path);
     }
 
-    std::string join_method_name = to_lower_copy(join_method_name_raw);
-
-    // 所有方法均使用 Eager 模式：每条记录到达时立即执行查询
-    // 移除了 lazy 支持，历史原因保留对 "_eager" 后缀的兼容
-    is_eager_ = true;
-
-    // 提取算法前缀（兼容旧的 "_eager"/"_lazy" 后缀格式）
-    std::string algo = join_method_name;
-    // 移除可能存在的后缀
-    if (algo.rfind("_eager") != std::string::npos) {
-        algo = algo.substr(0, algo.rfind("_eager"));
-    } else if (algo.rfind("_lazy") != std::string::npos) {
-        algo = algo.substr(0, algo.rfind("_lazy"));
-    }
-
-    if (algo == "ivf") {
-        index_kind_ = InternalIndexKind::IVF;
-        // IVF 使用共享状态，需要 SharedWindowState 以确保所有并行实例看到完整窗口
-        use_shared_state_ = true;
-        
-        // 计算 IVF 参数
-        // 注意：IVF 是为批处理设计的近似索引，在流式场景下有以下限制：
-        // 1. 聚类质心在数据量少时不准确
-        // 2. 新插入的向量可能被分配到错误的簇
-        // 3. 召回率依赖于 nprobes/nlist 比例
-        int64_t window_size = join_func_->getWindowSize();
-        int64_t step_size = join_func_->getStepSize();
-        int64_t vector_count = (step_size > 0) ? (window_size / step_size) : window_size;
-        int nlist = std::max(1, static_cast<int>(4.0 * std::sqrt(static_cast<double>(vector_count))));
-        // nprobes 设为 80%，牺牲性能换取高召回率
-        // 流式 Join 需要高召回率（>90%），所以使用高 nprobes/nlist 比例
-        int nprobes = std::max(3, nlist * 30 / 100);
-        
-        // IVF 需要使用索引加速，创建索引对
-        IVFParameters ivf_params{
-            .nlist = nlist,
-            .rebuild_threshold = 2.0,
-            .nprobes = nprobes
-        };
-        
-        if (createIndexPair(IndexType::IVF, "join_ivf", ivf_params)) {
-            use_index_ = true;
-            
-            // 创建 IVFMethod 配置
-            IVFMethod::Config ivf_config;
-            ivf_config.similarity_threshold = join_similarity_threshold_;
-            ivf_config.use_existing_index = true;  // 使用 ConcurrencyManager 中的索引
-            ivf_config.nlist = nlist;
-            ivf_config.nprobes = nprobes;
-            
-            join_method_ = std::make_unique<IVFMethod>(ivf_config);
-            SAGEFLOW_LOG_INFO("JOIN", "IVF mode enabled with index, nlist={} nprobes={}",
-                             nlist, nprobes);
-        } else {
-            // 索引创建失败，降级到 BruteForce
-            use_index_ = false;
-            join_method_ = std::make_unique<BruteForceBaseline>(join_similarity_threshold_);
-            SAGEFLOW_LOG_WARN("JOIN", "Failed to create IVF index pair, falling back to BruteForce");
-        }
-                         
-    } else if (algo == "bruteforce" || algo == "bf" ) {
-        index_kind_ = InternalIndexKind::BRUTEFORCE;
-        // BruteForce 使用共享状态
-        use_shared_state_ = true;
-        use_index_ = false;  // 新架构：使用 WindowState 而非外部索引
-        
-        // 创建 BruteForceBaseline - 直接从 WindowState 查找
-        join_method_ = std::make_unique<BruteForceBaseline>(join_similarity_threshold_);
-        SAGEFLOW_LOG_INFO("JOIN", "BruteForce mode enabled (WindowState-based)");
-        
+    // 统一初始化路径：将字符串方法名转换为 JoinStrategyConfig
+    // 所有组件（join_method_, WindowState, 索引）将在 open() 中通过 initializeWithStrategyConfig() 统一初始化
+    strategy_config_ = createJoinStrategyConfigFromMethodName(
+        join_method_name_raw,
+        join_similarity_threshold,
+        join_func_->getDim(),
+        join_func_->getWindowSize(),
+        join_func_->getStepSize());
     
-    } else if (algo == "hdrtree" || algo == "hdr_tree" || algo == "hdrforest") {
-        index_kind_ = InternalIndexKind::HDR_TREE;
-        // HDRTree 推荐使用 PartitionedWindowState
-        use_shared_state_ = true; 
-        
-        HDRForestParameters hdr_params;
-        hdr_params.n_clusters = 10;
-        hdr_params.f_sections = 5;
-        
-        if (createIndexPair(IndexType::HDRForest, "join_hdr", hdr_params)) {
-            use_index_ = true;
-            
-            HDRTreeMethod::Config hdr_config;
-            hdr_config.similarity_threshold = join_similarity_threshold_;
-            hdr_config.projected_dim = 16;
-            hdr_config.pca_sample_size = 100;
-            
-            join_method_ = std::make_unique<HDRTreeMethod>(
-                left_index_id_, right_index_id_, 
-                join_similarity_threshold_, 
-                concurrency_manager_, 
-                hdr_config);
-                
-            SAGEFLOW_LOG_INFO("JOIN", "HDRTree/Forest mode enabled");
-        } else {
-            use_index_ = false;
-            join_method_ = std::make_unique<BruteForceBaseline>(join_similarity_threshold_);
-            SAGEFLOW_LOG_WARN("JOIN", "Failed to create HDRTree index pair, falling back to BruteForce");
-        }
-    } else if (algo == "hnsw") {
-        // HNSW 模式
-        // HNSW 使用共享索引，需要 SharedWindowState 以确保所有并行实例看到完整窗口
-        use_shared_state_ = true;
-        // 计算 HNSW 参数
-        HNSWParameters hnsw_params{
-            .m = 16,
-            .ef_construction = 200,
-            .ef_search = 100
-        };
-        
-        if (createIndexPair(IndexType::HNSW, "join_hnsw", hnsw_params)) {
-            use_index_ = true;
-            HNSWJoinMethod::Config hnsw_config;
-            hnsw_config.m = hnsw_params.m;
-            hnsw_config.ef_construction = hnsw_params.ef_construction;
-            hnsw_config.ef_search = hnsw_params.ef_search;
-            join_method_ = std::make_unique<HNSWJoinMethod>(left_index_id_, right_index_id_,
-                                                            join_similarity_threshold_, concurrency_manager_,
-                                                            hnsw_config);
-            SAGEFLOW_LOG_INFO("JOIN", "HNSW mode enabled, m={} ef_construction={} ef_search={} is_eager={}",
-                             hnsw_params.m, hnsw_params.ef_construction, hnsw_params.ef_search, is_eager_);
-        } else {
-            index_kind_ = InternalIndexKind::NONE;
-            use_index_ = false;
-            join_method_ = std::make_unique<BruteForceBaseline>(
-              join_similarity_threshold_, SimilarityMode::FIXED_ALPHA, 2.0);
-            SAGEFLOW_LOG_WARN("JOIN", "Failed to create HNSW index pair, falling back to BruteForce");
-        }
-    } else if (algo == "clustered_join" || algo == "clusteredjoin" || algo == "clustered") {
-        // ClusteredJoin 模式：每个 subtask 独立索引 + CentroidPartitioner
-        // 使用 PartitionedWindowState，数据通过质心分区器路由
-        use_shared_state_ = false;
-        index_kind_ = InternalIndexKind::NONE;  // ClusteredJoinMethod 自己管理索引
-        use_index_ = false;  // 不使用共享索引
-        
-        // 设置默认的策略配置，以便 getPreferredPartitioner() 能返回正确的分区器
-        strategy_config_.algorithm = JoinAlgorithm::CLUSTERED_JOIN;
-        strategy_config_.partition_strategy = PartitionStrategy::CENTROID;  // 必须使用质心分区
-        strategy_config_.window_state_type = WindowStateType::PARTITIONED; // 必须使用分区状态
-        strategy_config_.index_strategy = IndexStrategy::PARTITIONED;       // 每个 subtask 独立索引
-        strategy_config_.similarity_threshold = join_similarity_threshold_;
-        strategy_config_.dimension = join_func_->getDim();
-        strategy_config_.window_size_ms = join_func_->getWindowSize();
-        strategy_config_.step_size_ms = join_func_->getStepSize();
-        // 使用默认的 clustered 配置参数
-        strategy_config_.num_partitions = 8;  // 默认8个分区
-        strategy_config_.clustered_overlap_ratio = 0.1;
-        strategy_config_.clustered_rebalance_threshold = 0.3;
-        strategy_config_.clustered_multicast_enabled = true;  // 启用边界向量多播
-        strategy_config_.clustered_index_type = ClusteredIndexType::BRUTEFORCE;  // 默认使用 bruteforce
-        use_strategy_config_ = true;  // 启用策略配置模式
-        
-        // 创建 ClusteredJoinMethod（实际初始化在 open() 中完成）
-        ClusteredJoinMethod::Config clustered_config;
-        clustered_config.similarity_threshold = join_similarity_threshold_;
-        clustered_config.dimension = join_func_->getDim();
-        clustered_config.window_size_ms = join_func_->getWindowSize();
-        clustered_config.num_partitions = strategy_config_.num_partitions;
-        clustered_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
-        // 默认使用 BruteForce 索引（高召回率）
-        clustered_config.index_type = ClusteredIndexType::BRUTEFORCE;
-        
-        join_method_ = std::make_unique<ClusteredJoinMethod>(clustered_config);
-        
-        SAGEFLOW_LOG_INFO("JOIN", "ClusteredJoin mode enabled: partitions={} overlap={:.2f} index_type=bruteforce",
-                         clustered_config.num_partitions, clustered_config.overlap_ratio);
-    } else if (algo == "lsh") {
-        // Hyperplane LSH: window-state only, no shared index
-        index_kind_ = InternalIndexKind::NONE;
-        use_shared_state_ = false;  // 与 inferDefaults 保持一致，使用分区窗口
-        use_index_ = false;
-
-        LSHMethod::Config lsh_cfg;
-        lsh_cfg.similarity_threshold = join_similarity_threshold_;
-        lsh_cfg.num_tables = 4;
-        lsh_cfg.num_hashes = 8;
-        lsh_cfg.dimension = join_func_->getDim();
-        lsh_cfg.seed = 42;
-        lsh_cfg.window_size_ms = join_func_->getWindowSize();
-
-        join_method_ = std::make_unique<LSHMethod>(lsh_cfg);
-        SAGEFLOW_LOG_INFO("JOIN", "LSH mode enabled (window-state buckets, partitioned state)");
-
-    } else {
-        index_kind_ = InternalIndexKind::NONE;
-        use_index_ = false;
-        join_method_ = std::make_unique<BruteForceBaseline>(
-          join_similarity_threshold_, SimilarityMode::FIXED_ALPHA, 2.0);
-    }
+    use_strategy_config_ = true;  // 启用策略配置模式，统一在 open() 中初始化
+    
+    // 设置 is_eager_（所有方法使用 Eager 模式）
+    is_eager_ = true;
+    index_kind_ = InternalIndexKind::NONE;
+    use_index_ = false;
+    
+    // 注意：use_shared_state_ 不再在构造函数中设置，而是由 strategy_config_.window_state_type 决定
+    // 在 initializeWithStrategyConfig() 中会根据配置设置 use_shared_state_
+    
+    SAGEFLOW_LOG_INFO("JOIN", "JoinOperator created with string method '{}' -> config: algorithm={} partition={} window_state={}",
+                     join_method_name_raw,
+                     toString(strategy_config_.algorithm),
+                     toString(strategy_config_.partition_strategy),
+                     toString(strategy_config_.window_state_type));
 }
 
 // ============================================================
@@ -1012,8 +846,7 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     // - 分区策略 or 单线程：无竞争，使用“无锁 IQ”（Insert -> Query）
     // - 共享状态 + 多线程：使用“带全局锁的 IQ”（写锁 Insert + 读锁 Query）
     //
-    // ⚠️ 重要：QIQ（Query-Insert-Query）在 shared + 多线程下会系统性丢召回（已用集成测试 A/B 复现）。
-    // 为避免误用，这里不再允许通过环境变量切换到 QIQ；若设置了该变量，将记录告警并忽略。
+    // 由于性能问题，QIQ方法暂时不使用，后续再考虑使用。
     const bool use_lockless_iq = isPartitionedStrategy() || (context.getParallelism() <= 1);
     bool force_qiq = false;
     if (!isPartitionedStrategy() && context.getParallelism() > 1) {
@@ -1196,14 +1029,12 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
     }
 
     // 1.2 IVF 动态参数
-    // 如果 IVF 参数保持默认 100/10，则根据窗口大小和向量到达间隔计算 nlist/nprobes。
+    // 根据窗口大小和向量到达间隔计算 nlist/nprobes。
     // 
     // 公式：N = window_size_ms / time_interval_ms（窗口内预期向量数）
     // nlist = 4 * sqrt(N)（经验公式）
-    // nprobes = 80% * nlist（保证高召回率）
-    if (strategy_config_.algorithm == JoinAlgorithm::IVF &&
-        strategy_config_.ivf_nlist == 100 &&
-        strategy_config_.ivf_nprobes == 10) {
+    // nprobes = 30% * nlist （保持召回率和性能平衡，如果有概率丢失召回而不是稳定丢失召回的情况不要随便调大参数）
+    if (strategy_config_.algorithm == JoinAlgorithm::IVF) {
         const int64_t window_size = strategy_config_.window_size_ms;
         const int64_t time_interval = strategy_config_.time_interval_ms;
         
@@ -1213,9 +1044,7 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
 
         // nlist 使用 4*sqrt(N)，但至少 32 个聚类以保证召回率
         int nlist = std::max(32, static_cast<int>(4.0 * std::sqrt(static_cast<double>(std::max<int64_t>(1, vector_count)))));
-        // nprobes 使用 nlist 的 100%（即搜索所有聚类），保证最高召回率
-        // 对于流式 Join 场景，召回率比性能更重要
-        int nprobes = nlist;
+        int nprobes = std::max(3, nlist * 30 / 100);
 
         SAGEFLOW_LOG_INFO("JOIN",
             "IVF dynamic params (strategy-config): window={}ms time_interval={}ms N≈{} -> nlist={} nprobes={}",
