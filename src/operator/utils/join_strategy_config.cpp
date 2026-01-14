@@ -331,10 +331,10 @@ void JoinStrategyConfig::inferDefaults() {
             break;
 
         case JoinAlgorithm::LSH:
-            // LSH 推荐使用基于哈希的分区与分区窗口，保证相似向量落同一分区
+            // LSH 使用基于哈希的分区与分区窗口，保证相似向量落同一分区
             partition_strategy = PartitionStrategy::LSH;
-            window_state_type = WindowStateType::PARTITIONED_VECTOR;
-            index_strategy = IndexStrategy::SHARED;  // 当前实现不依赖索引
+            window_state_type = WindowStateType::PARTITIONED;
+            index_strategy = IndexStrategy::PARTITIONED;  // LSH 不依赖外部索引，用分区模式
             break;
             
         case JoinAlgorithm::BRUTEFORCE:

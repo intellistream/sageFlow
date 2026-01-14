@@ -195,13 +195,14 @@ void JoinConfigValidator::checkPartitionWindowCompatibility(
             "resulting in reduced recall. Change window_state_type to SHARED.");
     }
 
-    // 规则2: LSH 需要 PARTITIONED_VECTOR
+    // 规则2: LSH 需要分区窗口状态（PARTITIONED 或 PARTITIONED_VECTOR）
     if (config.partition_strategy == PartitionStrategy::LSH &&
+        config.window_state_type != WindowStateType::PARTITIONED &&
         config.window_state_type != WindowStateType::PARTITIONED_VECTOR) {
         result.addError(
-            "LSH partition strategy requires PartitionedVectorState. "
+            "LSH partition strategy requires partitioned window state. "
             "Current: " + sageFlow::toString(config.window_state_type) + ". "
-            "LSH is designed for VSJoin which uses vector-space partitioned state.");
+            "LSH requires PARTITIONED or PARTITIONED_VECTOR window state.");
     }
 
     // 规则3: CENTROID 不兼容 SHARED
