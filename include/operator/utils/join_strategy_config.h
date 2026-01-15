@@ -37,8 +37,8 @@ enum class PartitionStrategy {
 enum class WindowStateType {
     SHARED,              ///< SharedWindowState（所有实例共享）
     PARTITIONED,         ///< PartitionedWindowState（每个 subtask 独立）
-    TWO_TIER,            ///< TwoTierWindowState（写友好层+紧凑层）
-    PARTITIONED_VECTOR   ///< PartitionedVectorState（向量空间分区）
+    TWO_TIER,            ///< TwoTierWindowState（写友好层+紧凑层,暂未正确实现）
+    PARTITIONED_VECTOR   ///< PartitionedVectorState（向量空间分区,暂未正确实现）
 };
 
 /**
