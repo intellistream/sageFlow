@@ -28,6 +28,16 @@ struct JoinBreakdown {
     uint64_t lock_wait_ns = 0;        ///< 等待锁耗时
     uint64_t apply_processing_ns = 0; ///< apply() 方法总耗时（实际测量值）
 
+    // 阶段计数
+    uint64_t window_insert_count = 0;   ///< 窗口插入次数
+    uint64_t index_op_count = 0;        ///< 索引插入/删除次数
+    uint64_t expire_count = 0;          ///< 过期记录数量
+    uint64_t candidate_fetch_count = 0; ///< 候选获取次数
+    uint64_t similarity_count = 0;      ///< 相似度比较次数
+    uint64_t join_function_count = 0;   ///< Join 函数执行次数
+    uint64_t emit_count = 0;            ///< emit 次数
+    uint64_t lock_wait_count = 0;       ///< 锁等待次数
+
     // 计数指标
     uint64_t total_records_left = 0;     ///< 左侧处理的记录数
     uint64_t total_records_right = 0;    ///< 右侧处理的记录数
@@ -35,6 +45,8 @@ struct JoinBreakdown {
     uint64_t apply_processing_count = 0; ///< apply() 调用次数
     uint64_t e2e_latency_ns = 0;         ///< 累计端到端延迟
     uint64_t e2e_latency_count = 0;      ///< 延迟测量次数
+    double e2e_latency_p95_us = 0.0;     ///< 端到端延迟 P95（微秒）
+    double e2e_latency_p99_us = 0.0;     ///< 端到端延迟 P99（微秒）
 
     /**
      * @brief 计算各阶段耗时之和（用于对比验证）

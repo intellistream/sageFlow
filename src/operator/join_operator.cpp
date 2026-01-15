@@ -337,12 +337,14 @@ auto JoinOperator::updateSideThreadSafe(
         MetricsTimer t_window_ins(JoinMetrics::instance().window_insert_ns);
         records.emplace_back(std::move(data_ptr));
     }
+    metrics_increment(JoinMetrics::instance().window_insert_count);
 
     if (use_index_ && concurrency_manager_ && data_for_index_insert && index_id_for_cc != -1) {
         MetricsTimer t_idx(JoinMetrics::instance().index_insert_ns);
         // lock.unlock();
         concurrency_manager_->insert(index_id_for_cc, std::move(data_for_index_insert));
         // lock.lock();
+        metrics_increment(JoinMetrics::instance().index_op_count);
     }
 
     auto& window = (slot == 0) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
@@ -372,11 +374,15 @@ auto JoinOperator::updateSideThreadSafe(
                 // lock.unlock();
                 concurrency_manager_->erase(index_id_for_cc, expired_uid);
                 // lock.lock();
+                metrics_increment(JoinMetrics::instance().index_op_count);
             }
         }
         SAGEFLOW_LOG_DEBUG("JOIN", "Expiration loop finished. current_size={} ", records.size());
     } catch (const std::exception& e) {
         SAGEFLOW_LOG_ERROR("JOIN", "Exception during expiration: what={} ", e.what());
+    }
+    if (expired_count > 0) {
+        metrics_increment(JoinMetrics::instance().expire_count, expired_count);
     }
     if (expired_count > 0) {
         if (slot == 0) {
@@ -418,6 +424,7 @@ auto JoinOperator::process(Response& input_data, int slot) -> std::optional<Resp
 auto JoinOperator::getCandidates(
     const std::unique_ptr<VectorRecord>& data_ptr, int slot) -> std::vector<std::unique_ptr<VectorRecord>> {
     MetricsTimer t_fetch(JoinMetrics::instance().candidate_fetch_ns);
+    metrics_increment(JoinMetrics::instance().candidate_fetch_count);
     // 所有方法均使用 Eager 模式：直接通过索引查询候选项
     return join_method_->ExecuteEager(*data_ptr, slot);
 }
@@ -426,6 +433,7 @@ auto JoinOperator::getCandidatesWithLocksHeld(
     const std::unique_ptr<VectorRecord>& data_ptr, int slot) -> std::vector<std::unique_ptr<VectorRecord>> {
     // This version assumes both window locks are already held by caller
     MetricsTimer t_fetch(JoinMetrics::instance().candidate_fetch_ns);
+    metrics_increment(JoinMetrics::instance().candidate_fetch_count);
     // 所有方法均使用 Eager 模式：直接通过索引查询候选项
     return join_method_->ExecuteEager(*data_ptr, slot);
 }
@@ -496,6 +504,7 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
         if (!isRecordFresh(cand, logical_lower_bound)) {
             continue;
         }
+        metrics_increment(JoinMetrics::instance().similarity_count);
         if (validateCandidateInWindow(cand, opposite_window, logical_lower_bound)) {
             std::unique_ptr<VectorRecord> left_copy;
             std::unique_ptr<VectorRecord> right_copy;
@@ -514,6 +523,7 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
             Response rhs{ResponseType::Record, std::move(right_copy)};
             {
                 MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
+                metrics_increment(JoinMetrics::instance().join_function_count);
                 try {
                     auto res = join_func_->Execute(lhs, rhs);
                     uint64_t result_uid = res.record_ ? res.record_->uid_ : 0;
@@ -590,6 +600,7 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> v
             Response out{ResponseType::Record, std::move(p.second)};
             collector.collect(std::make_unique<Response>(std::move(out)), p.first);
             metrics_increment(JoinMetrics::instance().total_emits);
+            metrics_increment(JoinMetrics::instance().emit_count);
             // 端到端延迟：从 apply 进入到对应结果发射的时长（按每条结果计）
             metrics_record_e2e_latency(apply_enter_ns);
         }
@@ -604,6 +615,7 @@ std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidatesFromState(
     size_t subtask_index) {
     
     MetricsTimer t_fetch(JoinMetrics::instance().candidate_fetch_ns);
+    metrics_increment(JoinMetrics::instance().candidate_fetch_count);
     
     // 所有方法均使用 Eager 模式：使用索引直接获取候选项
     // 注意：state 是对面的窗口状态（opposite_state），我们需要传递记录来源的 slot
@@ -647,11 +659,13 @@ auto JoinOperator::updateSideWithState(
         MetricsTimer t_window_ins(JoinMetrics::instance().window_insert_ns);
         state->addRecord(std::move(data_ptr), subtask_index);
     }
+    metrics_increment(JoinMetrics::instance().window_insert_count);
     
     // 插入索引
     if (use_index_ && concurrency_manager_ && data_for_index_insert && index_id_for_cc != -1) {
         MetricsTimer t_idx(JoinMetrics::instance().index_insert_ns);
         concurrency_manager_->insert(index_id_for_cc, std::move(data_for_index_insert));
+        metrics_increment(JoinMetrics::instance().index_op_count);
     }
     
     // 获取窗口配置
@@ -706,8 +720,13 @@ auto JoinOperator::updateSideWithState(
     }
     
     {
+        size_t before_size = state->size(subtask_index);
         MetricsTimer t_window_evict(JoinMetrics::instance().expire_ns);
         state->evictExpired(safe_evict_ts, join_func_->getWindowSize(), subtask_index);
+        size_t after_size = state->size(subtask_index);
+        if (before_size > after_size) {
+            metrics_increment(JoinMetrics::instance().expire_count, before_size - after_size);
+        }
     }
     
     // 检查是否需要批量删除 Index/Storage 中的过期记录
@@ -721,6 +740,7 @@ auto JoinOperator::updateSideWithState(
             // 批量从 Index/Storage 中删除
             for (uint64_t uid : expired_uids) {
                 concurrency_manager_->erase(index_id_for_cc, uid);
+                metrics_increment(JoinMetrics::instance().index_op_count);
             }
             
             SAGEFLOW_LOG_DEBUG("JOIN_STATE", 
@@ -766,6 +786,7 @@ void JoinOperator::executeJoinWithState(
         if (cand->timestamp_ < window_lower_bound || cand->timestamp_ > window_upper_bound) {
             continue;
         }
+        metrics_increment(JoinMetrics::instance().similarity_count);
         
         std::unique_ptr<VectorRecord> left_copy;
         std::unique_ptr<VectorRecord> right_copy;
@@ -785,6 +806,7 @@ void JoinOperator::executeJoinWithState(
             // 暂停 similarity_ns 计时，避免与 join_function_ns 重复计算
             t_similarity.pause();
             MetricsTimer t_joinF(JoinMetrics::instance().join_function_ns);
+            metrics_increment(JoinMetrics::instance().join_function_count);
             auto res = join_func_->Execute(lhs, rhs);
             t_joinF.stop();
             t_similarity.resume();
@@ -992,6 +1014,7 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
             Response out{ResponseType::Record, std::move(p.second)};
             collector.collect(std::make_unique<Response>(std::move(out)), p.first);
             metrics_increment(JoinMetrics::instance().total_emits);
+            metrics_increment(JoinMetrics::instance().emit_count);
             metrics_record_e2e_latency(apply_enter_ns);
         }
     }
