@@ -47,12 +47,22 @@ struct LocalJoinBreakdown {
     uint64_t emit_ns = 0;
     uint64_t lock_wait_ns = 0;
     uint64_t apply_processing_ns = 0;  ///< apply() 方法实际总耗时
+    uint64_t window_insert_count = 0;
+    uint64_t index_op_count = 0;
+    uint64_t expire_count = 0;
+    uint64_t candidate_fetch_count = 0;
+    uint64_t similarity_count = 0;
+    uint64_t join_function_count = 0;
+    uint64_t emit_count = 0;
+    uint64_t lock_wait_count = 0;
     uint64_t total_records_left = 0;
     uint64_t total_records_right = 0;
     uint64_t total_emits = 0;
     uint64_t apply_processing_count = 0;
     uint64_t e2e_latency_ns = 0;
     uint64_t e2e_latency_count = 0;
+    double e2e_latency_p95_us = 0.0;
+    double e2e_latency_p99_us = 0.0;
     
     /// 各阶段之和 + lock_wait（用于对比验证）
     [[nodiscard]] uint64_t sumWithLockWaitNs() const {
@@ -130,7 +140,7 @@ struct IntegrationTestResult {
             SAGEFLOW_LOG_INFO("IntegrationTest",
                 "[{}] Breakdown: window={}µs, index={}µs, expire={}µs, candidate={}µs, "
                 "sim={}µs, join_func={}µs, emit={}µs, lock={}µs | "
-                "records: L={}, R={}, emits={}",
+                "records: L={}, R={}, emits={}, p95={}µs, p99={}µs",
                 test_name,
                 breakdown.window_insert_ns / 1000,
                 breakdown.index_insert_ns / 1000,
@@ -142,7 +152,9 @@ struct IntegrationTestResult {
                 breakdown.lock_wait_ns / 1000,
                 breakdown.total_records_left,
                 breakdown.total_records_right,
-                breakdown.total_emits);
+                breakdown.total_emits,
+                breakdown.e2e_latency_p95_us,
+                breakdown.e2e_latency_p99_us);
         }
     }
 };
@@ -569,6 +581,15 @@ private:
         result.breakdown.emit_ns = metrics.emit_ns.load(std::memory_order_relaxed);
         result.breakdown.lock_wait_ns = metrics.lock_wait_ns.load(std::memory_order_relaxed);
         result.breakdown.apply_processing_ns = metrics.apply_processing_ns.load(std::memory_order_relaxed);
+
+        result.breakdown.window_insert_count = metrics.window_insert_count.load(std::memory_order_relaxed);
+        result.breakdown.index_op_count = metrics.index_op_count.load(std::memory_order_relaxed);
+        result.breakdown.expire_count = metrics.expire_count.load(std::memory_order_relaxed);
+        result.breakdown.candidate_fetch_count = metrics.candidate_fetch_count.load(std::memory_order_relaxed);
+        result.breakdown.similarity_count = metrics.similarity_count.load(std::memory_order_relaxed);
+        result.breakdown.join_function_count = metrics.join_function_count.load(std::memory_order_relaxed);
+        result.breakdown.emit_count = metrics.emit_count.load(std::memory_order_relaxed);
+        result.breakdown.lock_wait_count = metrics.lock_wait_count.load(std::memory_order_relaxed);
         
         // 复制计数指标
         result.breakdown.total_records_left = metrics.total_records_left.load(std::memory_order_relaxed);
@@ -577,6 +598,21 @@ private:
         result.breakdown.apply_processing_count = metrics.apply_processing_count.load(std::memory_order_relaxed);
         result.breakdown.e2e_latency_ns = metrics.e2e_latency_ns.load(std::memory_order_relaxed);
         result.breakdown.e2e_latency_count = metrics.e2e_latency_count.load(std::memory_order_relaxed);
+
+        auto samples = metrics.getE2ELatencySamples();
+        if (!samples.empty()) {
+            std::sort(samples.begin(), samples.end());
+            size_t p95pos = static_cast<size_t>(samples.size() * 0.95);
+            size_t p99pos = static_cast<size_t>(samples.size() * 0.99);
+            if (p95pos >= samples.size()) {
+                p95pos = samples.size() - 1;
+            }
+            if (p99pos >= samples.size()) {
+                p99pos = samples.size() - 1;
+            }
+            result.breakdown.e2e_latency_p95_us = static_cast<double>(samples[p95pos]) / 1000.0;
+            result.breakdown.e2e_latency_p99_us = static_cast<double>(samples[p99pos]) / 1000.0;
+        }
         
         SAGEFLOW_LOG_DEBUG("IntegrationTest", 
             "Breakdown: window_insert={}ns, index_insert={}ns, candidate_fetch={}ns, "
@@ -706,12 +742,22 @@ TestResult toTestResult(const IntegrationTestResult& r) {
     tr.breakdown.emit_ns = r.breakdown.emit_ns;
     tr.breakdown.lock_wait_ns = r.breakdown.lock_wait_ns;
     tr.breakdown.apply_processing_ns = r.breakdown.apply_processing_ns;
+    tr.breakdown.window_insert_count = r.breakdown.window_insert_count;
+    tr.breakdown.index_op_count = r.breakdown.index_op_count;
+    tr.breakdown.expire_count = r.breakdown.expire_count;
+    tr.breakdown.candidate_fetch_count = r.breakdown.candidate_fetch_count;
+    tr.breakdown.similarity_count = r.breakdown.similarity_count;
+    tr.breakdown.join_function_count = r.breakdown.join_function_count;
+    tr.breakdown.emit_count = r.breakdown.emit_count;
+    tr.breakdown.lock_wait_count = r.breakdown.lock_wait_count;
     tr.breakdown.total_records_left = r.breakdown.total_records_left;
     tr.breakdown.total_records_right = r.breakdown.total_records_right;
     tr.breakdown.total_emits = r.breakdown.total_emits;
     tr.breakdown.apply_processing_count = r.breakdown.apply_processing_count;
     tr.breakdown.e2e_latency_ns = r.breakdown.e2e_latency_ns;
     tr.breakdown.e2e_latency_count = r.breakdown.e2e_latency_count;
+    tr.breakdown.e2e_latency_p95_us = r.breakdown.e2e_latency_p95_us;
+    tr.breakdown.e2e_latency_p99_us = r.breakdown.e2e_latency_p99_us;
     
     return tr;
 }

@@ -7,6 +7,7 @@ SageFlow 测试结果可视化模块
   2. 算法吞吐量对比图 - 比较不同算法在不同并行度下的吞吐量
   3. 算法召回率对比图 - 比较不同算法的召回率
   4. 并行度扩展性图 - 分析吞吐量随并行度变化的扩展性
+  5. 端到端延迟分位数图 - P95/P99 延迟对比
 
 使用示例:
   python scripts/visualize_results.py --input-dir test/result/integration
@@ -584,6 +585,75 @@ def generate_scalability_chart(
 
 
 # ============================================================================
+# 端到端延迟分位数图
+# ============================================================================
+
+def generate_latency_percentile_chart(
+    results: Dict[str, Any],
+    output_path: str,
+    format: str = 'png'
+) -> bool:
+    """生成端到端延迟分位数图（P95/P99）
+
+    X轴: 算法名称 + 并行度
+    Y轴: 延迟（毫秒）
+    两组柱: P95 / P99
+    """
+    if not MATPLOTLIB_AVAILABLE:
+        return False
+
+    detailed = extract_detailed_results(results)
+    if not detailed:
+        print("No detailed results found for latency percentile chart")
+        return False
+
+    grouped = {}
+    for result in detailed:
+        algo = result.get('algorithm', 'unknown')
+        para = result.get('parallelism', 1)
+        breakdown = result.get('breakdown', {})
+        p95 = breakdown.get('e2e_latency_p95_us', 0)
+        p99 = breakdown.get('e2e_latency_p99_us', 0)
+        if p95 > 0 or p99 > 0:
+            grouped[(algo, para)] = (p95, p99)
+
+    if not grouped:
+        print("No latency percentile data found")
+        return False
+
+    sorted_keys = sorted(grouped.keys(), key=lambda x: (x[0], x[1]))
+    labels = [f"{algo}\np={para}" for algo, para in sorted_keys]
+
+    p95_ms = [grouped[k][0] / 1000.0 for k in sorted_keys]
+    p99_ms = [grouped[k][1] / 1000.0 for k in sorted_keys]
+
+    x = np.arange(len(labels))
+    width = 0.35
+
+    fig, ax = plt.subplots(figsize=(max(14, len(labels) * 1.2), 8))
+    ax.bar(x - width / 2, p95_ms, width, label='P95', color='#42A5F5', edgecolor='white', linewidth=0.5)
+    ax.bar(x + width / 2, p99_ms, width, label='P99', color='#EF5350', edgecolor='white', linewidth=0.5)
+
+    ax.set_ylabel('Latency (ms)', fontsize=12)
+    ax.set_xlabel('Algorithm / Parallelism', fontsize=12)
+    ax.set_title('End-to-End Latency Percentiles (P95/P99)', fontsize=14, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels, rotation=45, ha='right', fontsize=10)
+    ax.legend(loc='upper left', fontsize=10)
+    ax.yaxis.grid(True, linestyle='--', alpha=0.3)
+    ax.set_axisbelow(True)
+
+    plt.tight_layout()
+
+    full_path = f"{output_path}_latency_percentiles.{format}"
+    plt.savefig(full_path, format=format, bbox_inches='tight', facecolor='white')
+    plt.close()
+
+    print(f"Latency percentile chart saved to: {full_path}")
+    return True
+
+
+# ============================================================================
 # 综合仪表板
 # ============================================================================
 
@@ -826,6 +896,7 @@ def generate_charts(
         'throughput': generate_throughput_chart,
         'recall': generate_recall_comparison_chart,
         'scalability': generate_scalability_chart,
+        'latency': generate_latency_percentile_chart,
         'dashboard': generate_dashboard,
     }
     
@@ -889,7 +960,7 @@ Examples:
     parser.add_argument(
         '--charts', '-c',
         nargs='+',
-        choices=['breakdown', 'throughput', 'recall', 'scalability', 'dashboard', 'all'],
+        choices=['breakdown', 'throughput', 'recall', 'scalability', 'latency', 'dashboard', 'all'],
         default=['all'],
         help='Charts to generate (default: all)'
     )
