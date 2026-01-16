@@ -9,6 +9,7 @@
 #include "index/partitioned_index.h"
 #include "state/partitioned_vector_state.h"
 #include "state/two_tier_window_state.h"
+#include "coordination/workset_directory.h"
 
 #include <atomic>
 #include <chrono>
@@ -16,6 +17,7 @@
 #include <mutex>
 #include <string>
 #include <vector>
+#include <unordered_map>
 
 namespace sageFlow {
 
@@ -73,6 +75,7 @@ public:
     void forceAdapt();
     void setConcurrencyManager(const std::shared_ptr<ConcurrencyManager>& manager);
     void setWindowStates(WindowState* left_state, WindowState* right_state);
+    void setWorksetDirectory(std::shared_ptr<WorksetDirectory> dir);
     const S3JConfig& getConfig() const { return config_; }
     bool isInitialized() const { return initialized_; }
 
@@ -89,7 +92,12 @@ private:
     std::shared_ptr<AdaptivePartitioner> partitioner_;
     std::shared_ptr<AdaptiveIndexSelector> index_selector_;
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
+    std::shared_ptr<WorksetDirectory> workset_directory_;
     IndexType current_index_type_ = IndexType::IVF;
+    
+    // Per-Workset Load Tracking
+    std::unordered_map<uint64_t, std::atomic<size_t>> local_workset_loads_;
+    mutable std::mutex stats_mutex_;
     
     struct MetricsCollector {
         std::atomic<size_t> query_count{0};
@@ -108,25 +116,16 @@ private:
     
     int otherIndexId(int slot) const;
     void maybeAdapt();
-    bool switchIndex(IndexType new_type);
-    
-    std::vector<std::shared_ptr<const VectorRecord>> searchInPartition(
-        const VectorRecord& query, int slot, double threshold);
     
     std::vector<std::unique_ptr<VectorRecord>> searchInWindowState(
         const VectorRecord& query, int slot);
     
     double computeCosineSimilarity(const std::vector<float>& a, const std::vector<float>& b) const;
     std::vector<float> extractFloatVector(const VectorRecord& record) const;
-
-    // 获取原始浮点指针，避免拷贝
-    const float* getRawData(const VectorRecord& record) const;
-
-    // 正确声明 scanTierForMatches
+    
     void scanTierForMatches(const VectorRecord& query, 
                             TwoTierWindowState* tier, 
                             float threshold,
                             std::vector<std::unique_ptr<VectorRecord>>& results);
 };
-
-} // namespace sageFlow
+}  // namespace sageFlow

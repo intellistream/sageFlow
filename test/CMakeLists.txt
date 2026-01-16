@@ -133,6 +133,7 @@ endforeach()
 set(PERF_TEST_SPECS
     test_window_pipeline           Performance/test_window_pipeline.cpp       600 PERF
     test_join_datasource_modes     Performance/test_join_datasource_modes.cpp 900 PERF
+    test_s3j_benchmark             s3j_benchmark.cpp                          600 PERF
 )
 
 list(LENGTH PERF_TEST_SPECS _plen)
@@ -191,7 +192,7 @@ endif()
 # -----------------------------------------------------------------------------
 # 仅依赖已创建的测试可执行（未显式依赖 ctest 运行，方便 IDE 构建）
 set(ALL_UNIT_TARGETS test_join_bruteforce test_join_ivf test_partitioner test_compute_engine test_file_stream_source test_data_source test_data_persistence test_join_data_source)
-set(ALL_PERF_TARGETS test_window_pipeline test_join_datasource_modes IndexTest)
+set(ALL_PERF_TARGETS test_window_pipeline test_join_datasource_modes IndexTest test_s3j_benchmark)
 set(ALL_INTEG_TARGETS test_pipeline_basic test_pipeline_execution test_vsjoin_integration test_join_baseline_integration)
 
 add_custom_target(build_unit_tests DEPENDS ${ALL_UNIT_TARGETS})
