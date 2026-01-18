@@ -18,6 +18,7 @@ add_library(test_data_support
     test_utils/data_source/random_data_source.cpp
     test_utils/data_source/dataset_data_source.cpp
     test_utils/data_source/json_data_source.cpp
+    test_utils/data_source/skewed_data_source.cpp
     test_utils/data_writer/fvecs_writer.cpp
     test_utils/data_writer/json_writer.cpp
     test_utils/join_data_source.cpp

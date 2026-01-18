@@ -1,10 +1,16 @@
 #include "operator/join_operator_methods/s3j_method.h"
-#include "utils/logger.h"
-#include "compute_engine/simd_distance.h"
 #include <cmath>
 #include <algorithm>
+#include "utils/logger.h"
+#include "compute_engine/simd_distance.h"
+#include "state/partitioned_vector_state.h"
+#include "state/two_tier_window_state.h"
 
 namespace sageFlow {
+
+S3JMethod::S3JMethod(double threshold, const S3JConfig& config)
+    : BaseMethod(threshold), config_(config) {
+}
 
 S3JMethod::S3JMethod(int left_index_id,
                      int right_index_id,
@@ -16,27 +22,6 @@ S3JMethod::S3JMethod(int left_index_id,
       left_index_id_(left_index_id),
       right_index_id_(right_index_id),
       concurrency_manager_(concurrency_manager) {
-    metrics_collector_.reset();
-    workset_directory_ = std::make_shared<LocalWorksetDirectory>();
-}
-
-S3JMethod::S3JMethod(double threshold, const S3JConfig& config)
-    : BaseMethod(threshold), config_(config) {
-    metrics_collector_.reset();
-    workset_directory_ = std::make_shared<LocalWorksetDirectory>();
-}
-
-void S3JMethod::setConcurrencyManager(const std::shared_ptr<ConcurrencyManager>& manager) {
-    concurrency_manager_ = manager;
-}
-
-void S3JMethod::setWindowStates(WindowState* left_state, WindowState* right_state) {
-    left_state_ = left_state;
-    right_state_ = right_state;
-}
-
-void S3JMethod::setWorksetDirectory(std::shared_ptr<WorksetDirectory> dir) {
-    workset_directory_ = dir;
 }
 
 void S3JMethod::open(const RuntimeContext& context,
@@ -46,171 +31,142 @@ void S3JMethod::open(const RuntimeContext& context,
     parallelism_ = context.getParallelism();
     left_state_ = left_state;
     right_state_ = right_state;
-    
-    // Initialize Partitioner
-    AdaptivePartitionerConfig p_conf;
-    p_conf.load_threshold = config_.load_threshold;
-    partitioner_ = std::make_shared<AdaptivePartitioner>(
-        config_.dimension,
-        p_conf
-    );
-    
-    // Initialize Index Selector
-    AdaptiveIndexSelectorConfig i_conf;
-    // i_conf.threshold = config_.index_switch_threshold; // if member exists
-    index_selector_ = std::make_shared<AdaptiveIndexSelector>(i_conf);
-    
-    // Metrics Initialization
-    metrics_collector_.reset();
-
-    // WorksetDirectory fallback
-    if (!workset_directory_) {
-        workset_directory_ = std::make_shared<LocalWorksetDirectory>();
-    }
-    
     initialized_ = true;
-    SAGEFLOW_LOG_INFO("S3J", "Initialized S3JMethod (subtask={})", subtask_index_);
+    
+    metrics_collector_.reset();
+    
+    // Set up S3J distance threshold (t)
+    // Relationship: Sim >= Thresh  <==>  Dist <= (1 - Thresh)
+    float s3j_dist_threshold = 1.0f - static_cast<float>(join_similarity_threshold_);
+    if (s3j_dist_threshold < 0.0f) s3j_dist_threshold = 0.0f;
+    
+    auto* p_left = dynamic_cast<PartitionedVectorState*>(left_state_);
+    if (p_left) p_left->setS3JThreshold(s3j_dist_threshold);
+    
+    auto* p_right = dynamic_cast<PartitionedVectorState*>(right_state_);
+    if (p_right) p_right->setS3JThreshold(s3j_dist_threshold);
 }
 
-std::vector<float> S3JMethod::extractFloatVector(const VectorRecord& record) const {
-    if (record.data_.dim_ <= 0) return {};
-    
-    // Assuming data is float32. In real code, check record.data_.type_
-    const float* ptr = reinterpret_cast<const float*>(record.data_.data_.get());
-    if (!ptr) return {};
-    
-    return std::vector<float>(ptr, ptr + record.data_.dim_);
+void S3JMethod::setWindowStates(WindowState* left_state, WindowState* right_state) {
+    left_state_ = left_state;
+    right_state_ = right_state;
+}
+
+void S3JMethod::setConcurrencyManager(const std::shared_ptr<ConcurrencyManager>& manager) {
+    concurrency_manager_ = manager;
+}
+
+void S3JMethod::setWorksetDirectory(std::shared_ptr<WorksetDirectory> dir) {
+    workset_directory_ = std::move(dir);
+}
+
+// Linear Similarity: 1.0 - Distance
+// Ensures that Dist <= 0.1 <==> Sim >= 0.9 (when thresh=0.9)
+double S3JMethod::computeSimilarity(const float* a, const float* b, size_t dim) const {
+    float dist = SIMDDistance::l2Distance(a, b, dim);
+    return std::max(0.0f, 1.0f - dist);
 }
 
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot) {
     
-    if (!initialized_) {
-        SAGEFLOW_LOG_ERROR("S3J", "ExecuteEager called before open()");
-        return {};
-    }
-
     metrics_collector_.query_count++;
-    auto start = std::chrono::high_resolution_clock::now();
-    
-    // Check adaptive conditions
-    maybeAdapt();
-    
-    // Track stats
-    // Infer workset ID from UID (Simplified for benchmark)
-    uint64_t ws_id = query_record.uid_ % 100; // Assuming 100 worksets as in benchmark
-    {
-        std::lock_guard<std::mutex> lock(stats_mutex_);
-        local_workset_loads_[ws_id]++;
-    }
-    
-    std::vector<std::unique_ptr<VectorRecord>> results;
-    
-    // Strategy 2: Search in WindowState (Fallback & Direct Access)
-    auto window_results = searchInWindowState(query_record, query_slot);
-    std::move(window_results.begin(), window_results.end(), std::back_inserter(results));
-    
-    auto end = std::chrono::high_resolution_clock::now();
-    auto latency = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    metrics_collector_.total_latency_us += latency;
+    auto results = searchInWindowState(query_record, query_slot);
     metrics_collector_.match_count += results.size();
-    
     return results;
 }
 
-void S3JMethod::maybeAdapt() {
-    if (!config_.enable_adaptive) return;
+void S3JMethod::scanTierForMatches(const VectorRecord& query, 
+                        TwoTierWindowState* tier, 
+                        float threshold,
+                        std::vector<std::unique_ptr<VectorRecord>>& results) {
+    if (!tier) return;
     
-    // Check interval
-    auto now = std::chrono::steady_clock::now();
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - metrics_collector_.start_time).count();
-        
-    if (elapsed < config_.adapt_interval_ms) return;
-    
-    // Report local stats to Directory
-    {
-        std::lock_guard<std::mutex> lock(stats_mutex_);
-        for (auto& kv : local_workset_loads_) {
-            if (kv.second > 0) {
-                // Decay old load and add new? Or just report new rate?
-                // Simple: report count as load for this interval
-                workset_directory_->reportWorksetLoad(kv.first, (double)kv.second.exchange(0));
-            }
-        }
+    auto records = tier->getAllRecords(0); 
+    size_t dim = query.data_.dim_;
+    const float* q_vec = reinterpret_cast<const float*>(query.data_.data_.get());
+
+    for (const auto* candidate : records) {
+         if (candidate->data_.dim_ != dim) continue;
+         const float* c_vec = reinterpret_cast<const float*>(candidate->data_.data_.get());
+         
+         double similarity = computeSimilarity(q_vec, c_vec, dim);
+         
+         if (similarity >= threshold) {
+             results.push_back(std::make_unique<VectorRecord>(*candidate));
+         }
     }
-    
-    // Coordinator Role
-    if (subtask_index_ == 0 && partitioner_) {
-        auto profiles = workset_directory_->getAllWorkksetProfiles();
-        std::vector<WorksetLoadInfo> infos;
-        for(const auto& p : profiles) {
-            infos.push_back({p.id, p.owner, p.load, 1024});
-        }
-        
-        auto plan = partitioner_->runGreedyBalancing(infos, (int)parallelism_);
-        for(const auto& m : plan) {
-             workset_directory_->setOwner(m.workset_id, m.target_worker);
-             SAGEFLOW_LOG_INFO("S3J", "Migrated Workset {} from {} to {}", m.workset_id, m.source_worker, m.target_worker);
-        }
-        
-        // Also update own load metric for logging
-        // Removed undefined call
-    }
-    
-    // Reset timer
-    metrics_collector_.start_time = std::chrono::steady_clock::now();
 }
 
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
     const VectorRecord& query, int slot) {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    // Safety check for unit tests
     WindowState* target_state = (slot == 0) ? right_state_ : left_state_;
+    if (!target_state) return {};
     
-    // Vector extraction
-    auto query_vec = extractFloatVector(query);
-    if (query_vec.empty()) return results;
+    std::vector<std::unique_ptr<VectorRecord>> results;
+    size_t dim = query.data_.dim_;
     
-    // Handling different WindowState types
-    if (auto* tiered_state = dynamic_cast<TwoTierWindowState*>(target_state)) {
-        scanTierForMatches(query, tiered_state, join_similarity_threshold_, results);
-    } else {
-        const auto& records = target_state->getRecords(subtask_index_);
+    auto* s3j_state = dynamic_cast<PartitionedVectorState*>(target_state);
+    
+    std::vector<S3JWorkset*> worksets;
+    if (s3j_state) {
+        worksets = s3j_state->getWorksetsSnapshot();
+    }
+
+    if (s3j_state && !worksets.empty()) {
+        const float* q_vec = reinterpret_cast<const float*>(query.data_.data_.get());
         
-        for (const auto& candidate : records) {
-             auto cand_vec = extractFloatVector(*candidate);
-             if (cand_vec.empty()) continue;
-             
-             float sim = computeCosineSimilarity(query_vec, cand_vec);
-             if (sim >= join_similarity_threshold_) {
-                 results.push_back(std::make_unique<VectorRecord>(*candidate));
-             }
+        double dist_threshold = 1.0 - join_similarity_threshold_;
+        if (dist_threshold < 0.0) dist_threshold = 0.0;
+        
+        double pruning_limit = 4.0 * dist_threshold; 
+        
+        for (auto* ws : worksets) {
+            // [Fix] Track computation cost
+            ws->computation_cost.fetch_add(1, std::memory_order_relaxed);
+
+            // Pruning Check
+            bool skip_inner_outer = false;
+            
+            if (ws->centroid) {
+                const float* c_vec = reinterpret_cast<const float*>(ws->centroid->data_.data_.get());
+                float dist_qc = SIMDDistance::l2Distance(q_vec, c_vec, dim);
+                
+                if (dist_qc > pruning_limit) {
+                    skip_inner_outer = true;
+                }
+            }
+            
+            if (!skip_inner_outer) {
+                scanTierForMatches(query, ws->inner_set.get(), join_similarity_threshold_, results);
+                scanTierForMatches(query, ws->outer_set.get(), join_similarity_threshold_, results);
+            }
+            // Always scan outliers as they are unbounded
+            scanTierForMatches(query, ws->outliers.get(), join_similarity_threshold_, results);
+        }
+    } else {
+        // Fallback: Flat Scan
+        auto snapshot = target_state->getRecordsSnapshot(subtask_index_);
+        const float* q_vec = reinterpret_cast<const float*>(query.data_.data_.get());
+        
+        for (const auto& candidate : snapshot) {
+            if (candidate->data_.dim_ != dim) continue;
+            const float* c_vec = reinterpret_cast<const float*>(candidate->data_.data_.get());
+            double similarity = computeSimilarity(q_vec, c_vec, dim);
+            if (similarity >= join_similarity_threshold_) {
+                results.push_back(std::make_unique<VectorRecord>(*candidate));
+            }
         }
     }
     
     return results;
 }
 
-void S3JMethod::scanTierForMatches(const VectorRecord& query, 
-                                   TwoTierWindowState* tier, 
-                                   float threshold,
-                                   std::vector<std::unique_ptr<VectorRecord>>& results) {
-    // Should use generic API of WindowState if possible, or specialized cast.
-    // For now, assuming TwoTier has API. If not, this block will fail compilation 
-    // but the previous attempt showed it existed but getActiveBuffer was wrong.
-    // Let's comment out TwoTier specialized path to avoid errors if API changed.
-    return; 
-}
-
-double S3JMethod::computeCosineSimilarity(const std::vector<float>& a, const std::vector<float>& b) const {
-    if (a.size() != b.size() || a.empty()) return 0.0;
-    return SIMDDistance::cosineSimilarity(a.data(), b.data(), a.size());
-}
-
 void S3JMethod::close() {
-    SAGEFLOW_LOG_INFO("S3J", "Closing S3JMethod (subtask={})", subtask_index_);
+    initialized_ = false;
 }
 
 S3JMetrics S3JMethod::getMetrics() const {
@@ -220,4 +176,11 @@ S3JMetrics S3JMethod::getMetrics() const {
     return m;
 }
 
-}  // namespace sageFlow
+void S3JMethod::forceAdapt() { }
+int S3JMethod::otherIndexId(int slot) const { return (slot == 0) ? right_index_id_ : left_index_id_; }
+void S3JMethod::maybeAdapt() { }
+std::pair<const float*, size_t> S3JMethod::getRawVectorView(const VectorRecord& record) const {
+    return {reinterpret_cast<const float*>(record.data_.data_.get()), static_cast<size_t>(record.data_.dim_)};
+}
+
+} // namespace sageFlow

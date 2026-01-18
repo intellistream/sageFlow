@@ -90,6 +90,12 @@ struct DataSourceModeConfig {
   int data_source_expected_dim{128};
   bool data_source_loop{true};
 
+  // Skewed params
+  int ds_num_clusters{100};
+  double ds_zipf_skew{1.0};
+  double ds_cluster_spread{0.05};
+
+
   // Storage config (for generate_save_load mode)
   std::string storage_format;  // "fvecs", "json"
   std::string storage_file_path;
@@ -159,6 +165,11 @@ static std::vector<DataSourceModeConfig> loadDataSourceModeConfigs() {
     mode_config.data_source_type = ds_type;
     mode_config.data_source_file_path = DynamicConfigManager::resolveProjectRelativePath(
         config.get<std::string>("data_source.file_path", ""));
+
+    mode_config.ds_num_clusters = config.get<int>("data_source.num_clusters", 100);
+    mode_config.ds_zipf_skew = config.get<double>("data_source.zipf_skew", 1.0);
+    mode_config.ds_cluster_spread = config.get<double>("data_source.cluster_spread", 0.05);
+
 
     if (ds_type == "dataset") {
       mode_config.data_source_expected_dim = config.get<int>("data_source.expected_dim", 128);
@@ -483,7 +494,16 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
       gen_config.negative_pairs = neg_pairs;
       gen_config.random_tail = tail;
 
-      TestDataGenerator generator(gen_config);
+      DynamicConfig ds_conf;
+      ds_conf.set("type", mode_config.data_source_type);
+      ds_conf.set("vector_dim", mode_config.vector_dim);
+      ds_conf.set("seed", (int)mode_config.seed);
+      ds_conf.set("num_clusters", mode_config.ds_num_clusters);
+      ds_conf.set("zipf_skew", mode_config.ds_zipf_skew);
+      ds_conf.set("cluster_spread", mode_config.ds_cluster_spread);
+      ds_conf.set("max_vectors", -1);
+
+      auto generator = TestDataGenerator::createFromConfig(gen_config, &ds_conf);
       auto [records, _] = generator.generateData();
 
       // Save to file
@@ -566,7 +586,16 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
     gen_config.negative_pairs = neg_pairs;
     gen_config.random_tail = tail;
 
-    TestDataGenerator generator(gen_config);
+    DynamicConfig ds_conf;
+      ds_conf.set("type", mode_config.data_source_type);
+      ds_conf.set("vector_dim", mode_config.vector_dim);
+      ds_conf.set("seed", (int)mode_config.seed);
+      ds_conf.set("num_clusters", mode_config.ds_num_clusters);
+      ds_conf.set("zipf_skew", mode_config.ds_zipf_skew);
+      ds_conf.set("cluster_spread", mode_config.ds_cluster_spread);
+      ds_conf.set("max_vectors", -1);
+
+      auto generator = TestDataGenerator::createFromConfig(gen_config, &ds_conf);
     auto [records, _] = generator.generateData();
     base_records = std::move(records);
     SAGEFLOW_LOG_INFO("TEST", "[MODE3] Generated {} records directly", base_records.size());

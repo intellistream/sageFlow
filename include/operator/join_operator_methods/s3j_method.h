@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <span>
 
 namespace sageFlow {
 
@@ -120,9 +121,14 @@ private:
     std::vector<std::unique_ptr<VectorRecord>> searchInWindowState(
         const VectorRecord& query, int slot);
     
-    double computeCosineSimilarity(const std::vector<float>& a, const std::vector<float>& b) const;
-    std::vector<float> extractFloatVector(const VectorRecord& record) const;
+    // Zero-Copy Optimization:
+    // Using pair<ptr, size> to avoid copying float vectors
+    // Fallback to std::vector if using older C++ where span isn't available, but we can use raw ptr
+    std::pair<const float*, size_t> getRawVectorView(const VectorRecord& record) const;
     
+    // SIMD-optimized distance with raw pointers
+    double computeSimilarity(const float* a, const float* b, size_t dim) const;
+
     void scanTierForMatches(const VectorRecord& query, 
                             TwoTierWindowState* tier, 
                             float threshold,

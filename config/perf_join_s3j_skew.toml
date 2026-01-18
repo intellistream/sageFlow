@@ -1,0 +1,16 @@
+[[performance_test]]
+name = "s3j_skew_benchmark"
+mode = "generate_direct_use"
+methods = ["s3j"]
+sizes = [2000]
+parallelism = [1]
+window_time_ms = [5000]
+similarity_threshold = 0.8
+vector_dim = 128
+seed = 42
+
+[performance_test.data_source]
+type = "skewed"
+num_clusters = 50
+zipf_skew = 1.2
+cluster_spread = 0.05

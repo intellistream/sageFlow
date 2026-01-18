@@ -7,6 +7,7 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/join_operator_methods/hdr_tree_method.h"
+#include "operator/join_operator_methods/s3j_method.h"
 #include "operator/join_metrics.h"
 #include "operator/utils/join_strategy_factory.h"
 #include "operator/utils/join_config_validator.h"
@@ -230,6 +231,20 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
               -1, -1, join_similarity_threshold_, concurrency_manager_);
             SAGEFLOW_LOG_WARN("JOIN", "Failed to create HNSW index pair, falling back to BruteForce");
         }
+    } else if (algo == "s3j") {
+        // Correctness Fallback: Use Shared State to ensure 100% recall regardless of RoundRobin partitioning
+        use_shared_state_ = true; 
+        index_kind_ = InternalIndexKind::NONE;
+        use_index_ = false;
+        
+        S3JConfig s3j_config;
+        s3j_config.dimension = 128; // Default, will assume aligned with data
+        s3j_config.load_threshold = 0.3;
+        s3j_config.enable_adaptive = true;
+        s3j_config.adapt_interval_ms = 1000;
+        
+        join_method_ = std::make_unique<S3JMethod>(join_similarity_threshold_, s3j_config);
+        SAGEFLOW_LOG_INFO("JOIN", "S3J mode enabled (via legacy constructor) with SharedState default");
     } else {
         index_kind_ = InternalIndexKind::NONE;
         use_index_ = false;
@@ -383,6 +398,14 @@ void JoinOperator::open(const RuntimeContext& context) {
           ivf->open(context, left_state_.get(), right_state_.get(), concurrency_manager_.get());
           SAGEFLOW_LOG_INFO("JOIN", "IVFMethod initialized with ConcurrencyManager index, left_idx={} right_idx={}",
                            left_index_id_, right_index_id_);
+      }
+      // S3J Method Initialization (Legacy path)
+      else if (auto* s3j = dynamic_cast<S3JMethod*>(join_method_.get())) {
+          s3j->open(context, left_state_.get(), right_state_.get());
+          if (concurrency_manager_) {
+              s3j->setConcurrencyManager(concurrency_manager_);
+          }
+          SAGEFLOW_LOG_INFO("JOIN", "S3JMethod initialized with WindowState");
       }
   }
   
@@ -1086,6 +1109,13 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
         else if (auto* hnsw = dynamic_cast<HNSWJoinMethod*>(join_method_.get())) {
             use_index_ = true;
             SAGEFLOW_LOG_INFO("JOIN", "HNSWJoinMethod initialized via strategy config");
+        }
+        else if (auto* s3j = dynamic_cast<S3JMethod*>(join_method_.get())) {
+            s3j->open(context, left_state_.get(), right_state_.get());
+            if (concurrency_manager_) {
+                s3j->setConcurrencyManager(concurrency_manager_);
+            }
+            SAGEFLOW_LOG_INFO("JOIN", "S3JMethod initialized via strategy config");
         }
         // VSJoin 将通过 VSJoinMethod 处理，不再需要特殊初始化
         // 参考: include/operator/join_operator_methods/vsjoin_method.h
