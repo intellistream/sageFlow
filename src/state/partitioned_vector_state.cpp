@@ -607,9 +607,7 @@ std::vector<uint64_t> PartitionedVectorState::collectEvictedUids(
     return {};
 }
 
-// =============================================================================
 // S3J Adaptive Components Implementation
-// =============================================================================
 
 void PartitionedVectorState::createWorkset(uint64_t workset_id, std::unique_ptr<VectorRecord> centroid) {
     std::unique_lock lock(workset_map_mutex_);
@@ -646,16 +644,13 @@ std::pair<S3JWorkset*, float> PartitionedVectorState::findNearestWorkset(const V
     const float* rec_ptr = reinterpret_cast<const float*>(record.data_.data_.get());
     size_t dim = record.data_.dim_;
     
-    if (!rec_ptr || dim == 0) {
         return {nullptr, min_dist};
     }
 
     for (const auto& [id, workset] : s3j_worksets_) {
-        if (!workset || !workset->centroid) continue;
         
         //  使用高性能 SIMD 库计算距离
         const float* cen_ptr = reinterpret_cast<const float*>(workset->centroid->data_.data_.get());
-        if (!cen_ptr) continue;
         
         // 调用 SIMDDistance::l2Distance
         float dist = SIMDDistance::l2Distance(rec_ptr, cen_ptr, dim);
@@ -682,6 +677,46 @@ std::vector<S3JWorkset*> PartitionedVectorState::getWorksetsSnapshot() const {
     }
     
     return snapshot;
+}
+
+
+void PartitionedVectorState::updateMaxSeenTimestamp(int64_t timestamp, size_t /*subtask_index*/) {
+    // PartitionedVectorState 使用全局时间戳（跨所有分区）
+    int64_t current_max = max_seen_timestamp_.load(std::memory_order_relaxed);
+    while (timestamp > current_max && 
+               current_max, timestamp,
+               std::memory_order_release,
+               std::memory_order_relaxed)) {
+        // 重试直到成功或发现更大的值
+    }
+}
+
+int64_t PartitionedVectorState::getMaxSeenTimestamp(size_t /*subtask_index*/) const {
+    return max_seen_timestamp_.load(std::memory_order_acquire);
+}
+
+int64_t PartitionedVectorState::getSafeEvictTimestamp(size_t /*subtask_index*/, 
+                                                       const WindowState* other_state) const {
+    // PartitionedVectorState 作为整体使用，取 min(this_max, other_max)
+    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    
+    int64_t this_max = max_seen_timestamp_.load(std::memory_order_acquire);
+    
+        return this_max;
+    }
+    
+    int64_t other_max = other_state->getMaxSeenTimestamp(0);
+    
+    // 处理初始状态
+    if (this_max == kMinTimestamp && other_max == kMinTimestamp) {
+        return kMinTimestamp;
+    } else if (this_max == kMinTimestamp) {
+        return other_max;
+    } else if (other_max == kMinTimestamp) {
+        return this_max;
+    } else {
+        return std::min(this_max, other_max);
+    }
 }
 
 } // namespace sageFlow

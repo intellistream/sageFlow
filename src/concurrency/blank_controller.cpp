@@ -41,7 +41,8 @@ auto sageFlow::BlankController::query(const VectorRecord& record, int k)
 }
 
 auto sageFlow::BlankController::query_for_join(const VectorRecord& record,
-                                            double join_similarity_threshold) -> std::vector<std::shared_ptr<const VectorRecord>> {
-  const auto uids  = index_->query_for_join(record, join_similarity_threshold);
+                                            double join_similarity_threshold,
+                                            double similarity_alpha) -> std::vector<std::shared_ptr<const VectorRecord>> {
+  const auto uids  = index_->query_for_join(record, join_similarity_threshold, similarity_alpha);
   return storage_manager_->getVectorsByUids(uids);
 }

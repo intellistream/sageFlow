@@ -144,9 +144,11 @@ std::vector<uint64_t> PartitionedIndex::query(const VectorRecord& record, int k)
   return queryMultiPartition(record, k, num_partitions_);
 }
 
-std::vector<uint64_t> PartitionedIndex::query_for_join(const VectorRecord& record, double join_similarity_threshold) {
+std::vector<uint64_t> PartitionedIndex::query_for_join(const VectorRecord& record,
+                                                       double join_similarity_threshold,
+                                                       double similarity_alpha) {
   // 默认查询所有分区并合并结果
-  return queryMultiPartitionForJoin(record, join_similarity_threshold, num_partitions_);
+  return queryMultiPartitionForJoin(record, join_similarity_threshold, similarity_alpha, num_partitions_);
 }
 
 std::vector<uint64_t> PartitionedIndex::queryPartition(size_t partition_id, const VectorRecord& query, int k) {
@@ -160,14 +162,15 @@ std::vector<uint64_t> PartitionedIndex::queryPartition(size_t partition_id, cons
 }
 
 std::vector<uint64_t> PartitionedIndex::queryPartitionForJoin(size_t partition_id, const VectorRecord& query,
-                                                               double threshold) {
+                                                               double threshold,
+                                                               double similarity_alpha) {
   if (partition_id >= num_partitions_) {
     SAGEFLOW_LOG_WARN("INDEX", "PartitionedIndex::queryPartitionForJoin - invalid partition_id: {}", partition_id);
     return {};
   }
 
   std::shared_lock<std::shared_mutex> lock(partition_mutexes_[partition_id]);
-  return partition_indexes_[partition_id]->query_for_join(query, threshold);
+  return partition_indexes_[partition_id]->query_for_join(query, threshold, similarity_alpha);
 }
 
 std::vector<uint64_t> PartitionedIndex::queryMultiPartition(const VectorRecord& query, int k, size_t num_probes) {
@@ -192,7 +195,9 @@ std::vector<uint64_t> PartitionedIndex::queryMultiPartition(const VectorRecord& 
   return mergeResults(results_per_partition, query, k);
 }
 
-std::vector<uint64_t> PartitionedIndex::queryMultiPartitionForJoin(const VectorRecord& query, double threshold,
+std::vector<uint64_t> PartitionedIndex::queryMultiPartitionForJoin(const VectorRecord& query,
+                                                                    double threshold,
+                                                                    double similarity_alpha,
                                                                     size_t num_probes) {
   // 限制探测分区数
   num_probes = std::min(num_probes, num_partitions_);
@@ -205,7 +210,7 @@ std::vector<uint64_t> PartitionedIndex::queryMultiPartitionForJoin(const VectorR
   results_per_partition.reserve(probe_order.size());
 
   for (size_t partition_id : probe_order) {
-    auto results = queryPartitionForJoin(partition_id, query, threshold);
+    auto results = queryPartitionForJoin(partition_id, query, threshold, similarity_alpha);
     if (!results.empty()) {
       results_per_partition.push_back(std::move(results));
     }

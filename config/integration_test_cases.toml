@@ -78,6 +78,8 @@ window_state_type = "shared"
 index_strategy = "shared"
 data_sizes = [500]
 window_size_ms = 1000
+# IVF 参数由动态计算：N = window_size/time_interval = 1000/10 = 100
+# nlist = 4*sqrt(100) = 40, nprobes = 40*80% = 32
 parallelism = [1, 2, 4, 8, 16]
 expected_min_recall = 0.95
 expected_min_precision = 1.0
@@ -165,6 +167,81 @@ enabled = false
 
 # ==================== ClusteredJoin 测试 ====================
 # VectraFlow-style clustered join
+
+# BruteForce 模式 - 用于验证正确性 (Ground Truth)
+[[test_case]]
+name = "clustered_bruteforce_baseline"
+description = "ClusteredJoin with BruteForce for correctness verification"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4          # 必须等于最大 parallelism
+clustered_multicast_k = 1   # 禁用多播，测试 unicast 模式
+clustered_overlap_ratio = 0.0
+clustered_rebalance_threshold = 0.3
+clustered_training_samples = 50
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = false
+# 冷启动参数
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [100]
+parallelism = [4]           # 仅测试 p=4（必须等于 num_partitions）
+expected_min_recall = 0.70  # unicast 模式预期召回率较低
+expected_min_precision = 0.95
+enabled = false
+
+# IVF 模式 - 默认推荐配置
+[[test_case]]
+name = "clustered_ivf_standard"
+description = "ClusteredJoin with IVF index (recommended)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8          # 必须等于最大 parallelism
+clustered_multicast_k = 0   # 0=使用overlap_ratio阈值判定
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_training_samples = 200
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 5
+# 冷启动参数
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [500, 1000, 2000]
+parallelism = [8]           # 仅测试 p=8（必须等于 num_partitions）
+expected_min_recall = 0.85
+enabled = false
+
+# 无多播模式 - 预期较低召回率
+[[test_case]]
+name = "clustered_no_multicast"
+description = "ClusteredJoin without multicast (lower recall expected)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4          # 必须等于最大 parallelism
+clustered_multicast_k = 1   # 1=仅主分区，无多播
+clustered_overlap_ratio = 0.0
+clustered_training_samples = 50
+clustered_index_type = "ivf"
+clustered_multicast_enabled = false
+ivf_nlist = 50
+ivf_nprobes = 5
+# 冷启动参数
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [500]
+parallelism = [4]           # 仅测试 p=4（必须等于 num_partitions）
+expected_min_recall = 0.70
+enabled = false
+
+# 兼容旧配置的测试用例
 [[test_case]]
 name = "clustered_join_standard"
 description = "VectraFlow-style clustered join with centroid partitioning"
@@ -173,10 +250,14 @@ partition_strategy = "centroid"
 window_state_type = "partitioned"
 index_strategy = "partitioned"
 num_partitions = 8
+clustered_multicast_k = 0
 clustered_overlap_ratio = 0.1
 clustered_rebalance_threshold = 0.3
-clustered_border_replication = true
-clustered_training_samples = 500
+clustered_training_samples = 50
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 5
 data_sizes = [500, 1000]
 parallelism = [2, 4]
 expected_min_recall = 0.80
@@ -190,9 +271,13 @@ partition_strategy = "centroid"
 window_state_type = "partitioned"
 index_strategy = "partitioned"
 num_partitions = 8
+clustered_multicast_k = 1  # 1=仅主分区
 clustered_overlap_ratio = 0.0
-clustered_border_replication = false
-clustered_training_samples = 500
+clustered_training_samples = 50
+clustered_index_type = "ivf"
+clustered_multicast_enabled = false
+ivf_nlist = 50
+ivf_nprobes = 5
 data_sizes = [500]
 parallelism = [2, 4]
 expected_min_recall = 0.70
@@ -206,12 +291,209 @@ partition_strategy = "centroid"
 window_state_type = "partitioned"
 index_strategy = "partitioned"
 num_partitions = 4
+clustered_multicast_k = 0  # 使用 overlap_ratio
 clustered_overlap_ratio = 0.2
-clustered_border_replication = true
-clustered_training_samples = 500
+clustered_training_samples = 50
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 5
 data_sizes = [500]
 parallelism = [2, 4]
 expected_min_recall = 0.88
+enabled = false
+
+# 无冷启动对比测试
+[[test_case]]
+name = "clustered_no_cold_start_compare"
+description = "ClusteredJoin without cold-start for comparison"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0  # 使用 overlap_ratio
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 0
+clustered_cold_start_enabled = false
+clustered_broadcast_dedup = false
+data_sizes = [500]
+parallelism = [4]
+expected_min_recall = 0.70
+enabled = false
+
+# 多并行度冷启动扩展测试
+[[test_case]]
+name = "clustered_cold_start_scaling"
+description = "ClusteredJoin cold-start scalability test"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0  # 使用 overlap_ratio
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 50
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [1, 2, 4, 8, 16]
+expected_min_recall = 0.90
+enabled = false
+
+# ==================== K-值扫描测试 ====================
+# 测试不同 k 值对召回率和性能的影响
+# 
+# **关键修复**：num_partitions 必须等于 parallelism
+# 原因：CentroidPartitioner 使用 `partition_idx % num_channels` 映射
+# 如果 num_partitions > parallelism，会导致召回率下降
+# 例如：8 个分区 → 4 个线程时，k=1 会丢失同线程内其他分区的匹配
+#
+# 理论预期（num_partitions=parallelism=4）：
+# - k=0（overlap_ratio 阈值模式）：召回率取决于阈值（~85-95%）
+# - k=1（仅主分区）：召回率最低（~60-70%）
+# - k=2（最近2个分区）：召回率中等（~75-85%）
+# - k=3（最近3个分区）：召回率较高（~88-92%）
+# - k=4（最近4个分区）：召回率最高（~95%+，几乎全覆盖）
+
+[[test_case]]
+name = "clustered_k_sweep_k0"
+description = "ClusteredJoin with k=0 (overlap_ratio threshold mode)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4                  # 必须等于 parallelism！
+clustered_multicast_k = 0           # 0=使用 overlap_ratio 阈值
+clustered_overlap_ratio = 0.1       # 10% 距离阈值
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [500]
+parallelism = [4]
+expected_min_recall = 0.85
+enabled = false
+
+[[test_case]]
+name = "clustered_k_sweep_k1"
+description = "ClusteredJoin with k=1 (unicast)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4                  # 必须等于 parallelism！
+clustered_multicast_k = 1           # 仅主分区
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200   # 增加训练样本
+training_samples = 200             # 添加通用字段确保加载
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [500]
+parallelism = [4]
+expected_min_recall = 0.60
+enabled = true
+
+[[test_case]]
+name = "clustered_k_sweep_k2"
+description = "ClusteredJoin with k=2"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4                  # 必须等于 parallelism！
+clustered_multicast_k = 2           # 最近2个分区
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [500]
+parallelism = [4]
+expected_min_recall = 0.75
+enabled = false
+
+[[test_case]]
+name = "clustered_k_sweep_k3"
+description = "ClusteredJoin with k=3"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4                  # 必须等于 parallelism！
+clustered_multicast_k = 3           # 最近3个分区
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [500]
+parallelism = [4]
+expected_min_recall = 0.88
+enabled = false
+
+[[test_case]]
+name = "clustered_k_sweep_k4"
+description = "ClusteredJoin with k=4 (full coverage)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4                  # 必须等于 parallelism！
+clustered_multicast_k = 4           # 所有4个分区（全覆盖）
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [500]
+parallelism = [4]
+expected_min_recall = 0.95
+enabled = true
+
+# ==================== 无冷启动对比测试（调试用）====================
+[[test_case]]
+name = "clustered_k_sweep_k1_no_cold_start"
+description = "ClusteredJoin with k=1 (NO cold-start for debugging)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 10     # 最小值
+clustered_cold_start_enabled = false
+clustered_broadcast_dedup = false
+data_sizes = [1000]
+parallelism = [4]
+expected_min_recall = 0.40
+enabled = false
+
+[[test_case]]
+name = "clustered_k_sweep_k4_no_cold_start"
+description = "ClusteredJoin with k=4 (NO cold-start for debugging)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 4
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 10     # 最小值
+clustered_cold_start_enabled = false
+clustered_broadcast_dedup = false
+data_sizes = [1000]
+parallelism = [4]
+expected_min_recall = 0.85
 enabled = false
 
 # ==================== S3J 测试 ====================
@@ -368,3 +650,549 @@ two_tier_enable_boundary_tracking = true
 data_sizes = [500]
 parallelism = [2, 4]
 expected_min_recall = 0.80
+# ==================== ClusteredJoin 并行度性能测试 ====================
+# 测试 ClusteredJoin 在不同并行度下的性能表现
+# 数据大小: 1000, 窗口大小: 1000ms (数据大小的1/10, step_size=10ms)
+# 注意：每个并行度需要单独配置，因为 num_partitions 必须等于 parallelism
+
+[[test_case]]
+name = "clustered_perf_p1"
+description = "ClusteredJoin performance test with parallelism=1"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 1
+clustered_multicast_k = 1           # p=1 时实际无多播
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000               # 窗口大小: 数据大小的1/10
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [1]
+expected_min_recall = 0.90
+enabled = true
+
+[[test_case]]
+name = "clustered_perf_p2"
+description = "ClusteredJoin performance test with parallelism=2"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 2
+clustered_multicast_k = 2           # 覆盖所有分区
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 200
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [2]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "clustered_perf_p4"
+description = "ClusteredJoin performance test with parallelism=4"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 4           # 覆盖所有分区以保证召回率
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 2000   # 设为足够大的值，让所有数据在广播模式处理
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [4]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "clustered_perf_p8"
+description = "ClusteredJoin performance test with parallelism=8"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 8           # 覆盖所有分区以保证召回率
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 2000   # 全数据在广播模式处理
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.85
+enabled = true
+
+[[test_case]]
+name = "clustered_perf_p16"
+description = "ClusteredJoin performance test with parallelism=16"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 16          # 覆盖所有分区以保证召回率
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 2000   # 全数据在广播模式处理
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.75
+enabled = true
+
+# ==================== Multicast-K 扫描测试（p=16）====================
+# 测试 multicast_k 对召回率和性能的影响
+# 数据: 2400 left + 2400 right, 窗口: 100 向量
+# training_samples=100 (窗口大小), 确保大部分数据在 MULTICAST 模式处理
+
+[[test_case]]
+name = "multicast_k_scan_k1"
+description = "p=32, k=1 (unicast only)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 1
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "multicast_k_scan_k2"
+description = "p=32, k=2"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 2
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "multicast_k_scan_k4"
+description = "p=32, k=4 - increased partitions to avoid clustering bias"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 4
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [32]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "multicast_k_scan_k8"
+description = "p=32, k=8 - increased partitions to avoid clustering bias"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 8
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 500
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [32]
+expected_min_recall = 0.20
+enabled = true
+
+[[test_case]]
+name = "multicast_k_scan_k12"
+description = "p=32, k=12"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 12
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.60
+enabled = true
+
+[[test_case]]
+name = "multicast_k_scan_k16"
+description = "p=32, k=16 (full coverage)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 32
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.85
+enabled = true
+
+# ==================== p=8 Multicast-K 扫描测试 ====================
+# 测试 parallelism=8 时不同 multicast_k 对召回率和延迟的影响
+# num_partitions 必须等于 parallelism
+
+[[test_case]]
+name = "p8_multicast_k0"
+description = "p=8, k=0 (overlap_ratio threshold mode)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "p8_multicast_k1"
+description = "p=8, k=1 (unicast only)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 1
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "p8_multicast_k2"
+description = "p=8, k=2"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 2
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.20
+enabled = true
+
+[[test_case]]
+name = "p8_multicast_k3"
+description = "p=8, k=3"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 3
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.25
+enabled = true
+
+[[test_case]]
+name = "p8_multicast_k4"
+description = "p=8, k=4"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 4
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.30
+enabled = true
+
+[[test_case]]
+name = "p8_multicast_k6"
+description = "p=8, k=6"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 6
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.50
+enabled = true
+
+[[test_case]]
+name = "p8_multicast_k8"
+description = "p=8, k=8 (full coverage)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 8
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [8]
+expected_min_recall = 0.90
+enabled = true
+
+# ==================== Overlap Ratio 扫描测试（k=0 模式）====================
+# 测试不同 overlap_ratio 对召回率的影响
+# k=0 表示使用 overlap_ratio 阈值动态决定多播分区数
+
+[[test_case]]
+name = "overlap_ratio_001"
+description = "k=0 with overlap_ratio=0.01 (very strict)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.01
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "overlap_ratio_002"
+description = "k=0 with overlap_ratio=0.02"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.02
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "overlap_ratio_005"
+description = "k=0 with overlap_ratio=0.05"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.05
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "overlap_ratio_010"
+description = "k=0 with overlap_ratio=0.1 (default)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+[[test_case]]
+name = "overlap_ratio_020"
+description = "k=0 with overlap_ratio=0.2 (relaxed)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.2
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = true
+
+# 保留原来的 k=0 测试（重命名避免冲突）
+[[test_case]]
+name = "multicast_k_scan_k0"
+description = "p=16, k=0 (overlap_ratio threshold mode)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [1000]
+parallelism = [16]
+expected_min_recall = 0.10
+enabled = false

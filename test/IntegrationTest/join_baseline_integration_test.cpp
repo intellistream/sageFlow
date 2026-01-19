@@ -20,6 +20,7 @@
 #include "test_utils/join_integration_pipeline_helper.h"
 #include "test_utils/test_data_generator.h"
 #include "test_utils/test_data_adapter.h"
+#include "test_utils/data_source/dataset_data_source.h"
 #include "test_utils/join_test_helper.h"
 #include "test_utils/test_report_generator.h"
 #include "operator/utils/join_config_validator.h"
@@ -46,12 +47,22 @@ struct LocalJoinBreakdown {
     uint64_t emit_ns = 0;
     uint64_t lock_wait_ns = 0;
     uint64_t apply_processing_ns = 0;  ///< apply() 方法实际总耗时
+    uint64_t window_insert_count = 0;
+    uint64_t index_op_count = 0;
+    uint64_t expire_count = 0;
+    uint64_t candidate_fetch_count = 0;
+    uint64_t similarity_count = 0;
+    uint64_t join_function_count = 0;
+    uint64_t emit_count = 0;
+    uint64_t lock_wait_count = 0;
     uint64_t total_records_left = 0;
     uint64_t total_records_right = 0;
     uint64_t total_emits = 0;
     uint64_t apply_processing_count = 0;
     uint64_t e2e_latency_ns = 0;
     uint64_t e2e_latency_count = 0;
+    double e2e_latency_p95_us = 0.0;
+    double e2e_latency_p99_us = 0.0;
     
     /// 各阶段之和 + lock_wait（用于对比验证）
     [[nodiscard]] uint64_t sumWithLockWaitNs() const {
@@ -91,9 +102,17 @@ struct IntegrationTestResult {
     int64_t true_positives = 0;
     int64_t false_positives = 0;
     int64_t false_negatives = 0;
+    int64_t dedup_count = 0;  // Sink 去重拦截的数量
+
+    // Join/Sink emits 诊断（用于解释 multicast/overlap 带来的时间异常）
+    uint64_t total_emits = 0;       // Join 总 emits（包含重复）
+    uint64_t sink_processed = 0;    // Sink 处理的唯一输出数
+    uint64_t sink_dedup = 0;        // Sink 去重拦截的输出数
     
     // 时间
     double execution_time_ms = 0.0;
+    double join_time_ms = 0.0;      // Join 算法完成时间（emits stable）
+    double sink_wait_ms = 0.0;      // Sink 追赶等待时间
     double throughput_records_per_sec = 0.0;
     
     // Breakdown 分析
@@ -106,16 +125,22 @@ struct IntegrationTestResult {
     void print() const {
         SAGEFLOW_LOG_INFO("IntegrationTest",
             "[{}] Algorithm={}, Size={}, Para={}, Recall={:.4f}, Precision={:.4f}, "
-            "Expected={}, Actual={}, TP={}, Time={:.2f}ms, {}",
+            "Expected={}, Actual={}, TP={}, Dedup={}, Time={:.2f}ms, {}",
             test_name, toString(algorithm), data_size, parallelism,
-            recall, precision, expected_count, actual_count, true_positives,
+            recall, precision, expected_count, actual_count, true_positives, dedup_count,
             execution_time_ms, passed ? "PASSED" : ("FAILED: " + failure_reason));
+        SAGEFLOW_LOG_INFO("IntegrationTest",
+            "[{}] Time breakdown (ms): join_time={:.2f} sink_wait={:.2f} total={:.2f}",
+            test_name, join_time_ms, sink_wait_ms, execution_time_ms);
+        SAGEFLOW_LOG_INFO("IntegrationTest",
+            "[{}] Emits: total_emits={} sink_processed={} sink_dedup={}",
+            test_name, total_emits, sink_processed, sink_dedup);
         
         if (breakdown.hasData()) {
             SAGEFLOW_LOG_INFO("IntegrationTest",
                 "[{}] Breakdown: window={}µs, index={}µs, expire={}µs, candidate={}µs, "
                 "sim={}µs, join_func={}µs, emit={}µs, lock={}µs | "
-                "records: L={}, R={}, emits={}",
+                "records: L={}, R={}, emits={}, p95={}µs, p99={}µs",
                 test_name,
                 breakdown.window_insert_ns / 1000,
                 breakdown.index_insert_ns / 1000,
@@ -127,7 +152,9 @@ struct IntegrationTestResult {
                 breakdown.lock_wait_ns / 1000,
                 breakdown.total_records_left,
                 breakdown.total_records_right,
-                breakdown.total_emits);
+                breakdown.total_emits,
+                breakdown.e2e_latency_p95_us,
+                breakdown.e2e_latency_p99_us);
         }
     }
 };
@@ -202,7 +229,9 @@ inline void saveTestResults(
     ofs << "test_name,algorithm,data_size,parallelism,"
         << "recall,precision,f1_score,"
         << "expected_count,actual_count,true_positives,false_positives,false_negatives,"
-        << "execution_time_ms,throughput_rps,passed,failure_reason\n";
+        << "execution_time_ms,join_time_ms,sink_wait_ms,"
+        << "total_emits,sink_processed,sink_dedup,"
+        << "throughput_rps,passed,failure_reason\n";
     
     // 写入结果
     for (const auto& r : results) {
@@ -219,6 +248,11 @@ inline void saveTestResults(
             << r.false_positives << ","
             << r.false_negatives << ","
             << std::fixed << std::setprecision(2) << r.execution_time_ms << ","
+            << std::fixed << std::setprecision(2) << r.join_time_ms << ","
+            << std::fixed << std::setprecision(2) << r.sink_wait_ms << ","
+            << r.total_emits << ","
+            << r.sink_processed << ","
+            << r.sink_dedup << ","
             << std::fixed << std::setprecision(2) << r.throughput_records_per_sec << ","
             << (r.passed ? "true" : "false") << ","
             << "\"" << r.failure_reason << "\"\n";
@@ -281,6 +315,81 @@ protected:
         result.parallelism = parallelism;
         
         try {
+            // 注意：JoinFunction 的 combined_id 编码使用 kModuloBase=1'000'000，
+            // 右侧 UID 必须 < kModuloBase 才能在 (right_uid % kModuloBase) 下保持可逆。
+            // JoinDataSourceConfig 的默认 right_uid_offset=500'000 也遵循该约束。
+            constexpr uint64_t kRightUidOffset = 500000ULL;
+            std::vector<std::unique_ptr<VectorRecord>> left_stream;
+            std::vector<std::unique_ptr<VectorRecord>> right_stream;
+
+            // 如果配置为 dataset 直读，则优先使用数据集
+            if (test_case_.data_source_type == "dataset") {
+                DatasetDataSource::Config ds_config;
+                ds_config.file_path = test_case_.data_source_file_path;
+                ds_config.expected_dim = test_case_.data_source_expected_dim > 0
+                    ? test_case_.data_source_expected_dim
+                    : -1;
+                ds_config.loop = false;
+
+                auto ds = std::make_shared<DatasetDataSource>(ds_config);
+                const auto& vectors = ds->getAllVectors();
+                if (vectors.empty()) {
+                    throw std::runtime_error("Dataset is empty: " + ds_config.file_path);
+                }
+
+                size_t total = std::min(static_cast<size_t>(data_size), vectors.size());
+                if (total == 0) {
+                    throw std::runtime_error("Dataset records < data_size, nothing to run");
+                }
+
+                if (test_case_.vector_dim == 128 && !vectors.empty()) {
+                    test_case_.vector_dim = static_cast<int>(vectors[0].size());
+                }
+
+                std::vector<std::vector<float>> left_vectors_raw;
+                std::vector<std::vector<float>> right_vectors_raw;
+                left_vectors_raw.reserve(total);
+                right_vectors_raw.reserve(total);
+
+                if (test_case_.split_mode == "half_split") {
+                    size_t mid = total / 2;
+                    for (size_t i = 0; i < mid; ++i) left_vectors_raw.push_back(vectors[i]);
+                    for (size_t i = mid; i < total; ++i) right_vectors_raw.push_back(vectors[i]);
+                } else if (test_case_.split_mode == "interleaved") {
+                    for (size_t i = 0; i < total; ++i) {
+                        if (i % 2 == 0) {
+                            left_vectors_raw.push_back(vectors[i]);
+                        } else {
+                            right_vectors_raw.push_back(vectors[i]);
+                        }
+                    }
+                } else {  // duplicate
+                    for (size_t i = 0; i < total; ++i) {
+                        left_vectors_raw.push_back(vectors[i]);
+                        right_vectors_raw.push_back(vectors[i]);
+                    }
+                }
+
+                auto makeRecords = [&](const std::vector<std::vector<float>>& vecs,
+                                       uint64_t uid_offset) {
+                    std::vector<std::unique_ptr<VectorRecord>> out;
+                    out.reserve(vecs.size());
+                    for (size_t i = 0; i < vecs.size(); ++i) {
+                        int64_t ts = test_case_.base_timestamp +
+                                     static_cast<int64_t>(i) * test_case_.time_interval_ms;
+                        out.push_back(createVectorRecord(uid_offset + i, ts, vecs[i]));
+                    }
+                    return out;
+                };
+
+                left_stream = makeRecords(left_vectors_raw, 0);
+                right_stream = makeRecords(right_vectors_raw, kRightUidOffset);
+
+                SAGEFLOW_LOG_INFO("IntegrationTest",
+                    "[{}] Using DATASET mode ({}) split_mode={} left={} right={}",
+                    test_case_.name, ds_config.file_path, test_case_.split_mode,
+                    left_stream.size(), right_stream.size());
+            } else {
             // 1. 配置数据生成器
             // 使用更大的数据量以正确评估并行性能
             // 根据 data_size 参数动态调整，确保足够的计算密度
@@ -311,41 +420,51 @@ protected:
             generator.generateData();  // 初始化生成器内部状态
             
             // 3. 使用 JoinTestHelper 分割数据并计算真正的预期匹配
-            // generateJoinStreamsFromGenerator 会复制向量到左右流
-            auto [left_stream, right_stream] = JoinTestHelper::generateJoinStreamsFromGenerator(
-                generator, true /* apply_uid_offset */);
+            // 根据 data_mode 选择数据分割方式：
+            // - "duplicate": 复制向量到两个流（自连接，左右向量相同）
+            // - "paired": 分割配对数据（左流=base，右流=perturbed，向量不同）
+            if (test_case_.data_mode == "paired") {
+                auto streams = JoinTestHelper::generatePairedJoinStreams(
+                    generator, true /* apply_uid_offset */);
+                left_stream = std::move(streams.first);
+                right_stream = std::move(streams.second);
+                SAGEFLOW_LOG_INFO("IntegrationTest",
+                    "[{}] Using PAIRED mode - left=base vectors, right=perturbed vectors",
+                    test_case_.name);
+            } else {
+                auto streams = JoinTestHelper::generateJoinStreamsFromGenerator(
+                    generator, true /* apply_uid_offset */);
+                left_stream = std::move(streams.first);
+                right_stream = std::move(streams.second);
+                SAGEFLOW_LOG_INFO("IntegrationTest",
+                    "[{}] Using DUPLICATE mode - same vectors in both streams",
+                    test_case_.name);
+            }
             
             SAGEFLOW_LOG_INFO("IntegrationTest",
                 "[{}] Split into left={} records, right={} records",
                 test_case_.name, left_stream.size(), right_stream.size());
-            
-            // 4. 计算 Ground Truth：
-            //    由于 left 和 right 流是相同向量的复制（带UID偏移），
-            //    需要计算所有 (left_i, right_j) 对，其中:
-            //    - similarity(vectors[i], vectors[j]) >= threshold
-            //    - |timestamp[i] - timestamp[j]| <= window_size
-            //    
-            //    使用与 ComputeEngine::Similarity 相同的相似度公式：exp(-alpha * L2_distance)
+            } // end generator/dataset branch
+
+            // 4. 计算 Ground Truth
             std::unordered_set<std::pair<uint64_t, uint64_t>, PairHash> expected_matches;
-            
+
             const double threshold = test_case_.strategy.similarity_threshold;
             const int64_t window_size = test_case_.strategy.window_size_ms;
             const double alpha = test_case_.alpha;
-            
-            // 提取向量数据用于相似度计算
+
             std::vector<std::vector<float>> left_vectors;
             std::vector<std::vector<float>> right_vectors;
             left_vectors.reserve(left_stream.size());
             right_vectors.reserve(right_stream.size());
-            
+
             for (const auto& rec : left_stream) {
                 left_vectors.push_back(extractFloatVector(*rec));
             }
             for (const auto& rec : right_stream) {
                 right_vectors.push_back(extractFloatVector(*rec));
             }
-            
-            // 计算所有满足条件的配对
+
             auto computeSimilarity = [alpha](const std::vector<float>& a, 
                                              const std::vector<float>& b) -> double {
                 double sum_sq = 0.0;
@@ -356,23 +475,21 @@ protected:
                 double dist = std::sqrt(sum_sq);
                 return std::exp(-alpha * dist);
             };
-            
+
             for (size_t i = 0; i < left_stream.size(); ++i) {
                 for (size_t j = 0; j < right_stream.size(); ++j) {
-                    // 检查时间窗口
                     if (std::abs(left_stream[i]->timestamp_ - right_stream[j]->timestamp_) 
                         > window_size) {
                         continue;
                     }
-                    
-                    // 计算相似度
+
                     double sim = computeSimilarity(left_vectors[i], right_vectors[j]);
                     if (sim >= threshold) {
                         expected_matches.insert({left_stream[i]->uid_, right_stream[j]->uid_});
                     }
                 }
             }
-            
+
             result.expected_count = static_cast<int64_t>(expected_matches.size());
             
             SAGEFLOW_LOG_INFO("IntegrationTest",
@@ -382,6 +499,7 @@ protected:
             // 5. 配置 Pipeline
             JoinStrategyConfig strategy = test_case_.strategy;
             strategy.dimension = test_case_.vector_dim;
+            strategy.similarity_alpha = test_case_.alpha;  // 同步 alpha 参数
             
             // 6. 创建并执行 Pipeline
             auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
@@ -409,8 +527,16 @@ protected:
                 result.failure_reason = "Pipeline execution failed: " + exec_result.error_message;
                 return result;
             }
+
+            // 算法口径 + Sink 追赶等待：来自 PipelineHelper 的等待策略（更贴近真实 makespan）
+            result.join_time_ms = exec_result.join_time_ms;
+            result.sink_wait_ms = exec_result.sink_wait_ms;
+            result.total_emits = exec_result.total_emits;
+            result.sink_processed = exec_result.sink_processed;
+            result.sink_dedup = exec_result.sink_dedup;
             
             result.actual_count = static_cast<int64_t>(exec_result.matches.size());
+            result.dedup_count = exec_result.dedup_count;
             
             // 7. 计算召回率/精确率
             computeMetrics(expected_matches, exec_result.matches, result);
@@ -455,6 +581,15 @@ private:
         result.breakdown.emit_ns = metrics.emit_ns.load(std::memory_order_relaxed);
         result.breakdown.lock_wait_ns = metrics.lock_wait_ns.load(std::memory_order_relaxed);
         result.breakdown.apply_processing_ns = metrics.apply_processing_ns.load(std::memory_order_relaxed);
+
+        result.breakdown.window_insert_count = metrics.window_insert_count.load(std::memory_order_relaxed);
+        result.breakdown.index_op_count = metrics.index_op_count.load(std::memory_order_relaxed);
+        result.breakdown.expire_count = metrics.expire_count.load(std::memory_order_relaxed);
+        result.breakdown.candidate_fetch_count = metrics.candidate_fetch_count.load(std::memory_order_relaxed);
+        result.breakdown.similarity_count = metrics.similarity_count.load(std::memory_order_relaxed);
+        result.breakdown.join_function_count = metrics.join_function_count.load(std::memory_order_relaxed);
+        result.breakdown.emit_count = metrics.emit_count.load(std::memory_order_relaxed);
+        result.breakdown.lock_wait_count = metrics.lock_wait_count.load(std::memory_order_relaxed);
         
         // 复制计数指标
         result.breakdown.total_records_left = metrics.total_records_left.load(std::memory_order_relaxed);
@@ -463,6 +598,21 @@ private:
         result.breakdown.apply_processing_count = metrics.apply_processing_count.load(std::memory_order_relaxed);
         result.breakdown.e2e_latency_ns = metrics.e2e_latency_ns.load(std::memory_order_relaxed);
         result.breakdown.e2e_latency_count = metrics.e2e_latency_count.load(std::memory_order_relaxed);
+
+        auto samples = metrics.getE2ELatencySamples();
+        if (!samples.empty()) {
+            std::sort(samples.begin(), samples.end());
+            size_t p95pos = static_cast<size_t>(samples.size() * 0.95);
+            size_t p99pos = static_cast<size_t>(samples.size() * 0.99);
+            if (p95pos >= samples.size()) {
+                p95pos = samples.size() - 1;
+            }
+            if (p99pos >= samples.size()) {
+                p99pos = samples.size() - 1;
+            }
+            result.breakdown.e2e_latency_p95_us = static_cast<double>(samples[p95pos]) / 1000.0;
+            result.breakdown.e2e_latency_p99_us = static_cast<double>(samples[p99pos]) / 1000.0;
+        }
         
         SAGEFLOW_LOG_DEBUG("IntegrationTest", 
             "Breakdown: window_insert={}ns, index_insert={}ns, candidate_fetch={}ns, "
@@ -571,6 +721,8 @@ TestResult toTestResult(const IntegrationTestResult& r) {
     tr.precision = r.precision;
     tr.f1_score = r.f1_score;
     tr.execution_time_ms = r.execution_time_ms;
+            tr.join_time_ms = r.join_time_ms;
+            tr.sink_wait_ms = r.sink_wait_ms;
     tr.throughput_records_per_sec = r.throughput_records_per_sec;
     tr.expected_matches = r.expected_count;
     tr.actual_matches = r.actual_count;
@@ -590,12 +742,22 @@ TestResult toTestResult(const IntegrationTestResult& r) {
     tr.breakdown.emit_ns = r.breakdown.emit_ns;
     tr.breakdown.lock_wait_ns = r.breakdown.lock_wait_ns;
     tr.breakdown.apply_processing_ns = r.breakdown.apply_processing_ns;
+    tr.breakdown.window_insert_count = r.breakdown.window_insert_count;
+    tr.breakdown.index_op_count = r.breakdown.index_op_count;
+    tr.breakdown.expire_count = r.breakdown.expire_count;
+    tr.breakdown.candidate_fetch_count = r.breakdown.candidate_fetch_count;
+    tr.breakdown.similarity_count = r.breakdown.similarity_count;
+    tr.breakdown.join_function_count = r.breakdown.join_function_count;
+    tr.breakdown.emit_count = r.breakdown.emit_count;
+    tr.breakdown.lock_wait_count = r.breakdown.lock_wait_count;
     tr.breakdown.total_records_left = r.breakdown.total_records_left;
     tr.breakdown.total_records_right = r.breakdown.total_records_right;
     tr.breakdown.total_emits = r.breakdown.total_emits;
     tr.breakdown.apply_processing_count = r.breakdown.apply_processing_count;
     tr.breakdown.e2e_latency_ns = r.breakdown.e2e_latency_ns;
     tr.breakdown.e2e_latency_count = r.breakdown.e2e_latency_count;
+    tr.breakdown.e2e_latency_p95_us = r.breakdown.e2e_latency_p95_us;
+    tr.breakdown.e2e_latency_p99_us = r.breakdown.e2e_latency_p99_us;
     
     return tr;
 }
@@ -774,6 +936,7 @@ TEST_F(BruteForceGroundTruthTest, MustHavePerfectRecall) {
     
     JoinStrategyConfig strategy = tc.strategy;
     strategy.dimension = tc.vector_dim;
+    strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
     
     auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
         std::move(left_stream),
@@ -857,6 +1020,7 @@ TEST_F(CrossAlgorithmComparisonTest, ApproximateAlgorithmsMeetRecallRequirements
         
         JoinStrategyConfig strategy = tc.strategy;
         strategy.dimension = tc.vector_dim;
+        strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
         
         auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
             std::move(left_stream),
@@ -943,6 +1107,7 @@ TEST_F(LargeScaleIntegrationTest, LargeDatasetExecution) {
         gen_config.negative_pairs = kNegativePairs;
         gen_config.random_tail = kRandomTail;
         gen_config.similarity_threshold = tc.strategy.similarity_threshold;
+        gen_config.alpha = tc.alpha;  // 同步 alpha 参数
         gen_config.seed = tc.seed;
         gen_config.base_timestamp = tc.base_timestamp;
         gen_config.time_interval = tc.time_interval_ms;
@@ -957,6 +1122,7 @@ TEST_F(LargeScaleIntegrationTest, LargeDatasetExecution) {
         
         JoinStrategyConfig strategy = tc.strategy;
         strategy.dimension = tc.vector_dim;
+        strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
         
         // 使用最大并行度
         int max_para = *std::max_element(tc.parallelism.begin(), tc.parallelism.end());

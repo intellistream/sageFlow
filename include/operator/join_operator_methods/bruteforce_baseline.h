@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include "operator/join_operator_methods/base_method.h"
+#include "operator/utils/join_strategy_config.h"
 #include "state/window_state.h"
 #include "execution/runtime_context.h"
 
@@ -29,10 +30,22 @@ namespace sageFlow {
 class BruteForceBaseline final : public BaseMethod {
 public:
     /**
-     * @brief 构造函数
+     * @brief 构造函数（兼容旧接口）
      * @param threshold 相似度阈值，范围 [0.0, 1.0]
+     * 
+     * 使用默认的 FIXED_ALPHA 模式和 alpha=0.1
      */
     explicit BruteForceBaseline(double threshold);
+    
+    /**
+     * @brief 构造函数（完整配置）
+     * @param threshold 相似度阈值，范围 [0.0, 1.0]
+     * @param similarity_mode 相似度计算模式
+     * @param similarity_alpha alpha 参数值
+     */
+    BruteForceBaseline(double threshold, 
+                       SimilarityMode similarity_mode,
+                       double similarity_alpha);
     
     ~BruteForceBaseline() override = default;
     
@@ -67,11 +80,13 @@ public:
      * 
      * @param query_record 查询向量记录
      * @param query_slot 查询来源槽位 (0=左流, 1=右流)
+     * @param subtask_index 当前执行的 subtask 索引
      * @return 匹配结果列表（记录副本）
      */
     std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
         const VectorRecord& query_record,
-        int query_slot) override;
+        int query_slot,
+        size_t subtask_index = 0) override;
     
     /**
      * @brief 关闭方法，释放资源
@@ -95,6 +110,24 @@ public:
      * @return true 如果已调用 open()
      */
     bool isInitialized() const { return initialized_; }
+    
+    /**
+     * @brief 获取当前 alpha 值
+     * @return alpha 参数值
+     */
+    double getAlpha() const { return similarity_alpha_; }
+    
+    /**
+     * @brief 设置 alpha 值（用于自适应模式）
+     * @param alpha 新的 alpha 值
+     */
+    void setAlpha(double alpha) { similarity_alpha_ = alpha; }
+    
+    /**
+     * @brief 获取相似度计算模式
+     * @return 当前相似度计算模式
+     */
+    SimilarityMode getSimilarityMode() const { return similarity_mode_; }
 
 private:
     // 左右流的窗口状态（非拥有）
@@ -107,6 +140,10 @@ private:
     
     // 初始化标志
     bool initialized_ = false;
+    
+    // 相似度计算配置
+    SimilarityMode similarity_mode_ = SimilarityMode::FIXED_ALPHA;
+    double similarity_alpha_ = 0.1;
     
     /**
      * @brief 计算两个向量的相似度

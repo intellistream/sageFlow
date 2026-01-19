@@ -214,7 +214,8 @@ void VSJoinMethod::evictExpired(int64_t current_timestamp, int64_t window_size,
 
 std::vector<std::unique_ptr<VectorRecord>> VSJoinMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t /*subtask_index*/) {
     
     std::vector<std::unique_ptr<VectorRecord>> results;
     

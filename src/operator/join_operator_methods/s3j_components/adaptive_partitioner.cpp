@@ -197,10 +197,7 @@ void AdaptivePartitioner::updateStats(size_t partition, int64_t latency_us, size
         size_t old_size = partition_stats_.size();
         size_t new_size = partition + 1;
         // 直接扩展 vector，添加默认构造的元素
-        partition_stats_.reserve(new_size);
-        for (size_t i = old_size; i < new_size; ++i) {
-            partition_stats_.emplace_back();
-        }
+        partition_stats_.resize(new_size);
     }
     
     partition_stats_[partition].count.fetch_add(1, std::memory_order_relaxed);

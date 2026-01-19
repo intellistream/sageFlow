@@ -1,0 +1,89 @@
+# Pre-commit hooks configuration for C++ submodule
+# Installation:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Usage:
+#   pre-commit run --all-files
+#   git commit --no-verify  # Skip hooks temporarily
+
+default_language_version:
+  python: python3.11
+
+repos:
+  # General file checks
+- repo: https://github.com/pre-commit/pre-commit-hooks
+  rev: v6.0.0
+  hooks:
+  - id: trailing-whitespace
+  - id: end-of-file-fixer
+  - id: check-yaml
+    args: [--unsafe]
+  - id: check-json
+  - id: check-toml
+  - id: check-added-large-files
+    args: ['--maxkb=1000']
+  - id: check-merge-conflict
+  - id: check-case-conflict
+  - id: mixed-line-ending
+    args: [--fix=lf]
+  - id: detect-private-key
+
+  # C++: clang-format (code formatting)
+- repo: https://github.com/pre-commit/mirrors-clang-format
+  rev: v19.1.6
+  hooks:
+  - id: clang-format
+    types_or: [c++, c]
+    args: ['-i']
+
+  # CMake: cmake-format
+- repo: https://github.com/cheshirekow/cmake-format-precommit
+  rev: v0.6.13
+  hooks:
+  - id: cmake-format
+    args: [--in-place]
+  - id: cmake-lint
+    args: [--disabled-codes=C0103,C0301]
+
+  # Python (for pybind11 bindings and test scripts)
+- repo: https://github.com/astral-sh/ruff-pre-commit
+  rev: v0.14.2
+  hooks:
+  - id: ruff
+    args: [--fix]
+    types_or: [python, pyi]
+  - id: ruff-format
+    types_or: [python, pyi]
+
+  # Shell scripts
+- repo: https://github.com/shellcheck-py/shellcheck-py
+  rev: v0.10.0.1
+  hooks:
+  - id: shellcheck
+    args: [--severity=warning]
+
+  # YAML formatting
+- repo: https://github.com/macisamuele/language-formatters-pre-commit-hooks
+  rev: v2.15.0
+  hooks:
+  - id: pretty-format-yaml
+    args: [--autofix, --indent, '2']
+
+  # Markdown formatting
+- repo: https://github.com/executablebooks/mdformat
+  rev: 0.7.21
+  hooks:
+  - id: mdformat
+    args: [--wrap, '100']
+    additional_dependencies:
+    - mdformat-gfm
+    - mdformat-black
+
+  # Secret detection
+- repo: https://github.com/Yelp/detect-secrets
+  rev: v1.5.0
+  hooks:
+  - id: detect-secrets
+    args: ['--baseline', '.secrets.baseline']
+    exclude: package.lock.json

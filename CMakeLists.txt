@@ -88,12 +88,19 @@ if(BUILD_TESTING)
 endif()
 
 # ============================================================================
-# Python bindings (optional)
+
+# ============================================================================
+# Python bindings (optional, auto-enabled for wheel builds)
 # ============================================================================
 option(BUILD_PYTHON_BINDINGS "Build Python bindings" OFF)
 
-if(BUILD_PYTHON_BINDINGS)
-    message(STATUS "Building Python bindings for sage_flow")
-    add_subdirectory(python)
+# Auto-enable for scikit-build-core wheel builds
+if(SKBUILD)
+    set(BUILD_PYTHON_BINDINGS ON CACHE BOOL "Build Python bindings (auto-enabled by SKBUILD)" FORCE)
+    message(STATUS "SKBUILD detected: Auto-enabling BUILD_PYTHON_BINDINGS")
 endif()
 
+if(BUILD_PYTHON_BINDINGS)
+    message(STATUS "Building Python bindings for sage_flow")
+    add_subdirectory(sage_flow)
+endif()

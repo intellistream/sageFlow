@@ -65,12 +65,22 @@ std::shared_ptr<Operator> Planner::buildOperatorChain(const std::shared_ptr<Stre
         // 递归构建右侧输入流（使用其自身的 slotId）
         auto right_op = buildOperatorChain(other_stream, execution_graph, default_parallelism, /*inherit*/ other_stream->getSlotId());
 
-        // 创建 Join 算子（直接使用 Join Stream 上配置的参数）
-        head = op = std::make_shared<JoinOperator>(
-          stream->function_,
-          concurrency_manager_,
-          stream->getJoinMethod(),
-          stream->getJoinSimilarityThreshold());
+        // 创建 Join 算子
+        // 优先使用完整策略配置，回退到字符串 API
+        if (stream->hasJoinStrategyConfig()) {
+          const auto& strategy_config = stream->getJoinStrategyConfig().value();
+          head = op = std::make_shared<JoinOperator>(
+            stream->function_,
+            concurrency_manager_,
+            strategy_config);
+        } else {
+          // 回退到字符串 API（向后兼容）
+          head = op = std::make_shared<JoinOperator>(
+            stream->function_,
+            concurrency_manager_,
+            stream->getJoinMethod(),
+            stream->getJoinSimilarityThreshold());
+        }
         configureOperatorParallelism(op, stream->getParallelism());
 
         // 设置母节点（右侧输入）与左右 slot

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <sstream>
 #include <stdexcept>
 #include <toml++/toml.h>
@@ -26,6 +27,7 @@ std::string toString(JoinAlgorithm algo) {
         case JoinAlgorithm::IVF: return "ivf";
         case JoinAlgorithm::HNSW: return "hnsw";
         case JoinAlgorithm::HDR_TREE: return "hdr_tree";
+        case JoinAlgorithm::LSH: return "lsh";
         case JoinAlgorithm::CLUSTERED_JOIN: return "clustered_join";
         case JoinAlgorithm::S3J: return "s3j";
         case JoinAlgorithm::VSJOIN: return "vsjoin";
@@ -68,6 +70,7 @@ JoinAlgorithm parseJoinAlgorithm(const std::string& s) {
     if (lower == "ivf") return JoinAlgorithm::IVF;
     if (lower == "hnsw") return JoinAlgorithm::HNSW;
     if (lower == "hdr_tree" || lower == "hdrtree") return JoinAlgorithm::HDR_TREE;
+    if (lower == "lsh") return JoinAlgorithm::LSH;
     if (lower == "clustered_join" || lower == "clusteredjoin") return JoinAlgorithm::CLUSTERED_JOIN;
     if (lower == "s3j") return JoinAlgorithm::S3J;
     if (lower == "vsjoin") return JoinAlgorithm::VSJOIN;
@@ -98,6 +101,64 @@ IndexStrategy parseIndexStrategy(const std::string& s) {
     if (lower == "shared") return IndexStrategy::SHARED;
     if (lower == "partitioned") return IndexStrategy::PARTITIONED;
     throw std::runtime_error("Unknown IndexStrategy: " + s);
+}
+
+// ==================== ClusteredIndexType 转换 ====================
+
+std::string toString(ClusteredIndexType cit) {
+    switch (cit) {
+        case ClusteredIndexType::BRUTEFORCE: return "bruteforce";
+        case ClusteredIndexType::IVF: return "ivf";
+        case ClusteredIndexType::HNSW: return "hnsw";
+        default: return "unknown";
+    }
+}
+
+ClusteredIndexType parseClusteredIndexType(const std::string& s) {
+    std::string lower = toLower(s);
+    
+    if (lower == "bruteforce" || lower == "brute_force") {
+        return ClusteredIndexType::BRUTEFORCE;
+    }
+    if (lower == "ivf") {
+        return ClusteredIndexType::IVF;
+    }
+    if (lower == "hnsw") {
+        return ClusteredIndexType::HNSW;
+    }
+    
+    // 默认返回 IVF，并记录警告
+    SAGEFLOW_LOG_WARN("Config", "Unknown clustered_index_type '{}', defaulting to IVF", s);
+    return ClusteredIndexType::IVF;
+}
+
+// ==================== SimilarityMode 转换 ====================
+
+std::string toString(SimilarityMode sm) {
+    switch (sm) {
+        case SimilarityMode::FIXED_ALPHA: return "fixed_alpha";
+        case SimilarityMode::ADAPTIVE_ALPHA: return "adaptive_alpha";
+        case SimilarityMode::NORMALIZED: return "normalized";
+        default: return "unknown";
+    }
+}
+
+SimilarityMode parseSimilarityMode(const std::string& s) {
+    std::string lower = toLower(s);
+    
+    if (lower == "fixed_alpha" || lower == "fixed" || lower == "fixedalpha") {
+        return SimilarityMode::FIXED_ALPHA;
+    }
+    if (lower == "adaptive_alpha" || lower == "adaptive" || lower == "adaptivealpha" || lower == "auto") {
+        return SimilarityMode::ADAPTIVE_ALPHA;
+    }
+    if (lower == "normalized" || lower == "normalize" || lower == "norm") {
+        return SimilarityMode::NORMALIZED;
+    }
+    
+    // 默认返回 FIXED_ALPHA
+    SAGEFLOW_LOG_WARN("Config", "Unknown similarity_mode '{}', defaulting to fixed_alpha", s);
+    return SimilarityMode::FIXED_ALPHA;
 }
 
 // ==================== JoinStrategyConfig 方法实现 ====================
@@ -190,12 +251,53 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
     if (vsjoin_boundary_threshold < 0.0 || vsjoin_boundary_threshold > 1.0) {
         errors.emplace_back("vsjoin_boundary_threshold must be in [0.0, 1.0]");
     }
+
+    if (lsh_num_tables <= 0 || lsh_num_tables > 64) {
+        errors.emplace_back("lsh_num_tables must be in (0, 64]");
+    }
+
+    if (lsh_num_hashes <= 0 || lsh_num_hashes > 256) {
+        errors.emplace_back("lsh_num_hashes must be in (0, 256]");
+    }
     
     return errors;
 }
 
 void JoinStrategyConfig::inferDefaults() {
     switch (algorithm) {
+        case JoinAlgorithm::IVF: {
+            // IVF 默认走共享索引（RoundRobin + SharedWindowState）
+            partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            window_state_type = WindowStateType::SHARED;
+            index_strategy = IndexStrategy::SHARED;
+
+            // 关键：如果用户没有显式配置 IVF 参数（仍为默认 100/10），则根据窗口大小动态推断。
+            // 这与 JoinOperator 旧构造路径中的“基于 window_size/step_size 估计数据量”策略保持一致，
+            // 可避免在不同窗口配置下手动调 nprobes/nlist。
+            //
+            // 注意：只有在参数保持默认值时才覆盖，避免破坏用户在 TOML 中显式指定的配置。
+            if (ivf_nlist == 100 && ivf_nprobes == 10) {
+                const int64_t window_size = window_size_ms;
+                const int64_t step_size = step_size_ms;
+                const int64_t vector_count =
+                    (step_size > 0) ? (window_size / step_size) : window_size;
+
+                // nlist ~ 4 * sqrt(N)（N 为窗口内估计向量数）
+                int nlist = std::max(1, static_cast<int>(4.0 * std::sqrt(static_cast<double>(std::max<int64_t>(1, vector_count)))));
+                // nprobes ~ 30% nlist，偏向召回（流式 Join 更看重召回）
+                int nprobes = std::max(3, nlist * 30 / 100);
+                nprobes = std::min(nprobes, nlist);
+
+                ivf_nlist = nlist;
+                ivf_nprobes = nprobes;
+
+                SAGEFLOW_LOG_INFO("Config",
+                    "IVF defaults inferred from window: window={}ms step={}ms N≈{} -> nlist={} nprobes={}",
+                    window_size, step_size, vector_count, ivf_nlist, ivf_nprobes);
+            }
+            break;
+        }
+
         case JoinAlgorithm::VSJOIN:
             partition_strategy = PartitionStrategy::LSH;
             window_state_type = WindowStateType::PARTITIONED_VECTOR;
@@ -227,9 +329,15 @@ void JoinStrategyConfig::inferDefaults() {
                 index_strategy = IndexStrategy::PARTITIONED;
             }
             break;
+
+        case JoinAlgorithm::LSH:
+            // LSH 使用基于哈希的分区与分区窗口，保证相似向量落同一分区
+            partition_strategy = PartitionStrategy::LSH;
+            window_state_type = WindowStateType::PARTITIONED;
+            index_strategy = IndexStrategy::PARTITIONED;  // LSH 不依赖外部索引，用分区模式
+            break;
             
         case JoinAlgorithm::BRUTEFORCE:
-        case JoinAlgorithm::IVF:
         case JoinAlgorithm::HNSW:
         default:
             // 默认使用共享索引策略
@@ -251,8 +359,19 @@ std::string JoinStrategyConfig::summary() const {
         << "  index: " << toString(index_strategy) << "\n"
         << "  similarity_threshold: " << similarity_threshold << "\n"
         << "  dimension: " << dimension << "\n"
-        << "  window: " << window_size_ms << "ms (step: " << step_size_ms << "ms)\n"
-        << "}";
+        << "  window: " << window_size_ms << "ms (step: " << step_size_ms << "ms)\n";
+    
+    // ClusteredJoin 特定参数
+    if (algorithm == JoinAlgorithm::CLUSTERED_JOIN) {
+        oss << "  -- ClusteredJoin --\n"
+            << "  clustered_index_type: " << toString(clustered_index_type) << "\n"
+            << "  clustered_multicast_k: " << clustered_multicast_k << "\n"
+            << "  clustered_overlap_ratio: " << clustered_overlap_ratio << "\n"
+            << "  clustered_multicast_enabled: " << clustered_multicast_enabled << "\n"
+            << "  clustered_training_samples: " << clustered_training_samples << "\n";
+    }
+    
+    oss << "}";
     return oss.str();
 }
 
@@ -271,6 +390,18 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     if (auto dim = node["dimension"].value<int64_t>()) {
         config.dimension = static_cast<int>(*dim);
+    }
+    
+    // 相似度计算配置
+    if (auto mode = node["similarity_mode"].value<std::string>()) {
+        config.similarity_mode = parseSimilarityMode(*mode);
+    }
+    if (auto alpha = node["similarity_alpha"].value<double>()) {
+        config.similarity_alpha = *alpha;
+    }
+    // 兼容旧配置：支持 "alpha" 作为 "similarity_alpha" 的别名
+    if (auto alpha = node["alpha"].value<double>()) {
+        config.similarity_alpha = *alpha;
     }
     
     // 分区配置
@@ -318,6 +449,17 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     if (auto efs = node["hnsw_ef_search"].value<int64_t>()) {
         config.hnsw_ef_search = static_cast<int>(*efs);
     }
+
+    // LSH 参数
+    if (auto ltables = node["lsh_num_tables"].value<int64_t>()) {
+        config.lsh_num_tables = static_cast<int>(*ltables);
+    }
+    if (auto lhashes = node["lsh_num_hashes"].value<int64_t>()) {
+        config.lsh_num_hashes = static_cast<int>(*lhashes);
+    }
+    if (auto lseed = node["lsh_seed"].value<int64_t>()) {
+        config.lsh_seed = static_cast<uint32_t>(*lseed);
+    }
     
     // VSJoin 参数
     if (auto nhash = node["vsjoin_num_hash_functions"].value<int64_t>()) {
@@ -348,17 +490,27 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     
     // ClusteredJoin 参数
+    if (auto mk = node["clustered_multicast_k"].value<int64_t>()) {
+        config.clustered_multicast_k = static_cast<int>(*mk);
+    }
     if (auto or_ = node["clustered_overlap_ratio"].value<double>()) {
         config.clustered_overlap_ratio = *or_;
     }
     if (auto rt = node["clustered_rebalance_threshold"].value<double>()) {
         config.clustered_rebalance_threshold = *rt;
     }
-    if (auto br = node["clustered_border_replication"].value<bool>()) {
-        config.clustered_border_replication = *br;
-    }
     if (auto ts = node["clustered_training_samples"].value<int64_t>()) {
         config.clustered_training_samples = static_cast<int>(*ts);
+        // 同步到通用 training_samples 字段
+        config.training_samples = static_cast<size_t>(*ts);
+    }
+    // 新增：分区内索引类型
+    if (auto cit = node["clustered_index_type"].value<std::string>()) {
+        config.clustered_index_type = parseClusteredIndexType(*cit);
+    }
+    // 新增：是否启用多播
+    if (auto cme = node["clustered_multicast_enabled"].value<bool>()) {
+        config.clustered_multicast_enabled = *cme;
     }
     
     // HDR-Tree 参数
@@ -400,6 +552,102 @@ JoinStrategyConfig loadJoinStrategyConfig(const std::string& config_path) {
         
     } catch (const toml::parse_error& e) {
         throw std::runtime_error("Failed to parse TOML config: " + std::string(e.what()));
+    }
+    
+    return config;
+}
+
+// ==================== 从字符串方法名创建配置 ====================
+
+JoinStrategyConfig createJoinStrategyConfigFromMethodName(
+    const std::string& method_name,
+    double similarity_threshold,
+    int dimension,
+    int64_t window_size_ms,
+    int64_t step_size_ms) {
+    JoinStrategyConfig config;
+    
+    // 提取算法名称（移除 "_eager"/"_lazy" 后缀）
+    std::string algo = toLower(method_name);
+    if (algo.rfind("_eager") != std::string::npos) {
+        algo = algo.substr(0, algo.rfind("_eager"));
+    } else if (algo.rfind("_lazy") != std::string::npos) {
+        algo = algo.substr(0, algo.rfind("_lazy"));
+    }
+    
+    // 解析算法类型
+    config.algorithm = parseJoinAlgorithm(algo);
+    config.similarity_threshold = similarity_threshold;
+    config.dimension = dimension;
+    config.window_size_ms = window_size_ms;
+    config.step_size_ms = step_size_ms;
+    config.is_eager = true;  // 所有方法使用 Eager 模式
+    
+    // 根据算法类型设置默认参数（与旧构造函数逻辑保持一致）
+    switch (config.algorithm) {
+        case JoinAlgorithm::IVF:
+            // IVF 默认使用共享状态
+            config.window_state_type = WindowStateType::SHARED;
+            config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            config.index_strategy = IndexStrategy::SHARED;
+            config.ivf_rebuild_threshold = 2.0;  // 与原来构造函数中的默认值保持一致
+            // IVF 的 nlist 和 nprobes 会在 initializeWithStrategyConfig 中根据窗口大小动态计算
+            break;
+            
+        case JoinAlgorithm::BRUTEFORCE:
+            // BruteForce 使用共享状态
+            config.window_state_type = WindowStateType::SHARED;
+            config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            config.index_strategy = IndexStrategy::SHARED;
+            break;
+            
+        case JoinAlgorithm::HNSW:
+            // HNSW 使用共享状态
+            config.window_state_type = WindowStateType::SHARED;
+            config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            config.index_strategy = IndexStrategy::SHARED;
+            config.hnsw_m = 16;
+            config.hnsw_ef_construction = 200;
+            config.hnsw_ef_search = 100;
+            break;
+            
+        case JoinAlgorithm::HDR_TREE:
+            // HDRTree 推荐使用共享状态
+            config.window_state_type = WindowStateType::SHARED;
+            config.partition_strategy = PartitionStrategy::ROUND_ROBIN;
+            config.index_strategy = IndexStrategy::SHARED;
+            config.hdr_projected_dim = 16;
+            config.hdr_pca_sample_size = 100;
+            config.hdr_max_node_size = 100;  // 与原来构造函数中的默认值保持一致
+            config.hdr_delta_buffer_size = 1000;  // 默认值
+            break;
+            
+        case JoinAlgorithm::LSH:
+            // LSH 使用分区状态
+            config.window_state_type = WindowStateType::PARTITIONED;
+            config.partition_strategy = PartitionStrategy::LSH;
+            config.index_strategy = IndexStrategy::PARTITIONED;
+            config.lsh_num_tables = 4;
+            config.lsh_num_hashes = 8;
+            config.lsh_seed = 42;
+            break;
+            
+        case JoinAlgorithm::CLUSTERED_JOIN:
+            // ClusteredJoin 必须使用分区状态和质心分区
+            config.window_state_type = WindowStateType::PARTITIONED;
+            config.partition_strategy = PartitionStrategy::CENTROID;
+            config.index_strategy = IndexStrategy::PARTITIONED;
+            config.num_partitions = 8;  // 默认值，运行时会被 parallelism 覆盖
+            config.clustered_overlap_ratio = 0.1;
+            config.clustered_rebalance_threshold = 0.3;
+            config.clustered_multicast_enabled = true;
+            config.clustered_index_type = ClusteredIndexType::BRUTEFORCE;
+            break;
+            
+        default:
+            // 其他算法使用默认值
+            config.inferDefaults();
+            break;
     }
     
     return config;

@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/ivf_method.h"
+#include "operator/utils/join_method_registry.h"
 #include "compute_engine/simd_distance.h"
 #include "utils/logger.h"
 
@@ -119,7 +120,8 @@ void IVFMethod::open(
 
 std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t subtask_index) {
     
     std::vector<std::unique_ptr<VectorRecord>> results;
     
@@ -150,6 +152,7 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
         // 使用 IVF 索引进行查询
         auto candidates = rangeSearchWithIndex(query_record, target_index_id);
         
+        
         SAGEFLOW_LOG_DEBUG("IVFMethod",
             "ExecuteEager: query_uid={}, slot={}, index_id={}, found {} candidates via IVF index",
             query_record.uid_, query_slot, target_index_id, candidates.size());
@@ -164,6 +167,7 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
     } else {
         // 降级模式：无索引时使用暴力搜索
         auto records = target_state->getRecordsSnapshot(subtask_index_);
+        
         
         SAGEFLOW_LOG_DEBUG("IVFMethod",
             "ExecuteEager: query_uid={}, slot={}, fallback to bruteforce, searching {} records",
@@ -233,7 +237,7 @@ std::vector<std::shared_ptr<const VectorRecord>> IVFMethod::rangeSearchWithIndex
     // 使用 ConcurrencyManager 的 query_for_join 接口
     // 该接口返回满足相似度阈值的所有候选
     auto candidates = concurrency_manager_->query_for_join(
-        index_id, query, config_.similarity_threshold);
+        index_id, query, config_.similarity_threshold, similarity_alpha_);
     
     results.reserve(candidates.size());
     for (auto& candidate : candidates) {
@@ -347,18 +351,51 @@ double IVFMethod::computeSimilarity(
         return 0.0;
     }
     
-    // 使用 L2 距离 + 指数衰减转换为相似度
-    // 与 ComputeEngine::Similarity 保持一致
+    // IVFMethod 的候选获取通常走索引层 query_for_join()，相似度过滤在 Index 内部完成。
+    // 这里的 computeSimilarity 仅用于少数 fallback（例如无索引/窗口快照暴力过滤）场景。
     double distance_sq = 0.0;
     for (size_t i = 0; i < a.size(); ++i) {
         double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
         distance_sq += diff * diff;
     }
     double distance = std::sqrt(distance_sq);
-    
-    // alpha = 0.1 是默认值，与 ComputeEngine 一致
-    constexpr double kAlpha = 0.1;
-    return std::exp(-kAlpha * distance);
+
+    // alpha 统一从 ConcurrencyManager -> StorageManager::engine_ 获取
+    // （JoinStrategyFactory::create 会在运行时 setSimilarityAlpha）。
+    return std::exp(-similarity_alpha_ * distance);
 }
 
 } // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::IVF,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "IVF",
+        "IVF (Inverted File Index) based approximate nearest neighbor join. "
+        "Uses k-means clustering for space partitioning. "
+        "Balanced recall-speed tradeoff.",
+        sageFlow::JoinAlgorithm::IVF,
+        true,   // supports_eager
+        true,   // supports_lazy
+        sageFlow::PartitionStrategy::ROUND_ROBIN,
+        sageFlow::WindowStateType::SHARED,
+        "Faiss, IEEE TBD 2017"
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int left_idx,
+       int right_idx) {
+        sageFlow::IVFMethod::Config ivf_config;
+        ivf_config.similarity_threshold = config.similarity_threshold;
+        ivf_config.nlist = config.ivf_nlist;
+        ivf_config.nprobes = config.ivf_nprobes;
+        ivf_config.rebuild_threshold = config.ivf_rebuild_threshold;
+        ivf_config.use_existing_index = true;
+        
+        auto method = std::make_unique<sageFlow::IVFMethod>(ivf_config);
+        method->setIndexIds(left_idx, right_idx);
+        method->setConcurrencyManager(cm);
+        return method;
+    });

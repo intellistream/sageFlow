@@ -23,6 +23,16 @@ inline std::unique_ptr<VectorRecord> createVectorRecord(
   return std::make_unique<VectorRecord>(uid, timestamp, std::move(vector_data));
 }
 
+// 创建携带 Int64 payload 的 VectorRecord（用于测试：显式携带 (left_uid,right_uid)）
+inline std::unique_ptr<VectorRecord> createInt64VectorRecord(
+    uint64_t uid, int64_t timestamp, const std::vector<int64_t>& data) {
+  int32_t dim = static_cast<int32_t>(data.size());
+  auto raw_data = std::make_unique<char[]>(dim * sizeof(int64_t));
+  std::memcpy(raw_data.get(), data.data(), dim * sizeof(int64_t));
+  VectorData vector_data(dim, DataType::Int64, raw_data.release());
+  return std::make_unique<VectorRecord>(uid, timestamp, std::move(vector_data));
+}
+
 inline std::vector<float> extractFloatVector(const VectorRecord& record) {
   const auto& vector_data = record.data_;
   int32_t dim = vector_data.dim_;

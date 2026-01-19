@@ -4,6 +4,7 @@
 #include <vector>
 
 #include "common/data_types.h"
+#include "index/index.h"
 #include "storage/storage_manager.h"
 
 namespace sageFlow {
@@ -24,7 +25,14 @@ class ConcurrencyController {
 
   // New method for join-specific queries, returning shared_ptr records
   virtual auto query_for_join(const VectorRecord& record,
-                              double join_similarity_threshold) -> std::vector<std::shared_ptr<const VectorRecord>> = 0;
+                              double join_similarity_threshold,
+                              double similarity_alpha) -> std::vector<std::shared_ptr<const VectorRecord>> = 0;
+
+  /**
+   * @brief 获取底层索引（用于分区索引访问）
+   * @return Index 共享指针，如果不支持返回 nullptr
+   */
+  virtual auto getIndex() const -> std::shared_ptr<Index> { return nullptr; }
 
   std::shared_ptr<StorageManager> storage_manager_ = nullptr;
 };

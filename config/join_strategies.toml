@@ -104,6 +104,60 @@ clustered_overlap_ratio = 0.1
 clustered_rebalance_threshold = 0.3
 clustered_border_replication = true
 clustered_training_samples = 1000
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 5
+
+# ClusteredJoin - BruteForce 模式 (用于验证正确性)
+[strategies.clustered_bruteforce]
+algorithm = "clustered_join"
+is_eager = true
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_border_replication = true
+clustered_training_samples = 500
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+
+# ClusteredJoin - IVF 模式 (默认推荐)
+[strategies.clustered_ivf]
+algorithm = "clustered_join"
+is_eager = true
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_border_replication = true
+clustered_training_samples = 1000
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 5
+
+# ClusteredJoin - HNSW 模式
+[strategies.clustered_hnsw]
+algorithm = "clustered_join"
+is_eager = true
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_border_replication = true
+clustered_training_samples = 1000
+clustered_index_type = "hnsw"
+clustered_multicast_enabled = true
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
 
 # S3J - DEBS'23 自适应流式相似度 Join
 [strategies.s3j_baseline]

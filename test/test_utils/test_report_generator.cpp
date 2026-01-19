@@ -289,6 +289,8 @@ void TestReportGenerator::writeJsonDetailedResults(std::ostream& os, const TestR
         os << "      \"f1_score\": " << std::setprecision(4) << r.f1_score << ",\n";
         os << "      \"throughput_records_per_sec\": " << std::setprecision(1) << r.throughput_records_per_sec << ",\n";
         os << "      \"execution_time_ms\": " << std::setprecision(2) << r.execution_time_ms << ",\n";
+        os << "      \"join_time_ms\": " << std::setprecision(2) << r.join_time_ms << ",\n";
+        os << "      \"sink_wait_ms\": " << std::setprecision(2) << r.sink_wait_ms << ",\n";
         os << "      \"avg_query_latency_us\": " << std::setprecision(2) << r.avg_query_latency_us << ",\n";
         os << "      \"expected_matches\": " << r.expected_matches << ",\n";
         os << "      \"actual_matches\": " << r.actual_matches << ",\n";
@@ -310,11 +312,21 @@ void TestReportGenerator::writeJsonDetailedResults(std::ostream& os, const TestR
             os << "        \"emit_ns\": " << r.breakdown.emit_ns << ",\n";
             os << "        \"lock_wait_ns\": " << r.breakdown.lock_wait_ns << ",\n";
             os << "        \"total_processing_ns\": " << r.breakdown.totalProcessingNs() << ",\n";
+            os << "        \"window_insert_count\": " << r.breakdown.window_insert_count << ",\n";
+            os << "        \"index_op_count\": " << r.breakdown.index_op_count << ",\n";
+            os << "        \"expire_count\": " << r.breakdown.expire_count << ",\n";
+            os << "        \"candidate_fetch_count\": " << r.breakdown.candidate_fetch_count << ",\n";
+            os << "        \"similarity_count\": " << r.breakdown.similarity_count << ",\n";
+            os << "        \"join_function_count\": " << r.breakdown.join_function_count << ",\n";
+            os << "        \"emit_count\": " << r.breakdown.emit_count << ",\n";
+            os << "        \"lock_wait_count\": " << r.breakdown.lock_wait_count << ",\n";
             os << "        \"total_records_left\": " << r.breakdown.total_records_left << ",\n";
             os << "        \"total_records_right\": " << r.breakdown.total_records_right << ",\n";
             os << "        \"total_emits\": " << r.breakdown.total_emits << ",\n";
             os << "        \"apply_processing_count\": " << r.breakdown.apply_processing_count << ",\n";
-            os << "        \"avg_e2e_latency_us\": " << std::fixed << std::setprecision(2) << r.breakdown.avgE2ELatencyUs() << "\n";
+            os << "        \"avg_e2e_latency_us\": " << std::fixed << std::setprecision(2) << r.breakdown.avgE2ELatencyUs() << ",\n";
+            os << "        \"e2e_latency_p95_us\": " << std::fixed << std::setprecision(2) << r.breakdown.e2e_latency_p95_us << ",\n";
+            os << "        \"e2e_latency_p99_us\": " << std::fixed << std::setprecision(2) << r.breakdown.e2e_latency_p99_us << "\n";
             os << "      }";
         }
         
@@ -447,7 +459,7 @@ void TestReportGenerator::writeMarkdownDetailedResults(std::ostream& os, const T
         os << "<details>\n";
         os << "<summary>Click to expand breakdown timing details</summary>\n\n";
         os << "*Note: Columns marked with `*` are included in the Sum of Stages calculation.*\n\n";
-        os << "| Test Name | Para | Window Insert* | Index Insert* | Expire* | Candidate Fetch* | Similarity* | Join Func* | Emit* | Lock Wait* | Sum of Stages | Measured Total |\n";
+        os << "| Test Name | Para | Window Insert* | Index Insert* | Expire* | Candidate Fetch* | Similarity* | Join Func* | Emit* | Lock Wait* | Sum of Stages | Measured Total | P95 (µs) | P99 (µs) |\n";
         os << "|-----------|------|----------------|---------------|---------|------------------|-------------|------------|-------|------------|---------------|----------------|"
            << "\n";
         
@@ -477,7 +489,9 @@ void TestReportGenerator::writeMarkdownDetailedResults(std::ostream& os, const T
                << formatNs(r.breakdown.emit_ns) << " | "
                << formatNs(r.breakdown.lock_wait_ns) << " | "
                << formatNs(r.breakdown.totalWithLockWaitNs()) << " | "
-               << formatNs(r.breakdown.totalProcessingNs()) << " |\n";
+                    << formatNs(r.breakdown.totalProcessingNs()) << " | "
+                    << std::fixed << std::setprecision(2) << r.breakdown.e2e_latency_p95_us << " | "
+                    << std::fixed << std::setprecision(2) << r.breakdown.e2e_latency_p99_us << " |\n";
         }
         os << "\n</details>\n";
     }

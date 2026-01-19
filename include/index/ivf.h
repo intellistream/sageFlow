@@ -19,7 +19,8 @@ public:
   auto erase(uint64_t id) -> bool override;
   auto query(const VectorRecord &record, int k) -> std::vector<uint64_t> override;
   auto query_for_join(const VectorRecord &record,
-                      double join_similarity_threshold) -> std::vector<uint64_t> override;
+                      double join_similarity_threshold,
+                      double similarity_alpha) -> std::vector<uint64_t> override;
 
  private:
   // Number of clusters for K-means

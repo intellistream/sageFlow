@@ -60,12 +60,14 @@ TEST_F(JoinMethodRegistryTest, AutoRegisteredMethods) {
         << "S3J method should be auto-registered";
     EXPECT_TRUE(registry_->hasMethod(JoinAlgorithm::CLUSTERED_JOIN))
         << "ClusteredJoin method should be auto-registered";
+    EXPECT_TRUE(registry_->hasMethod(JoinAlgorithm::LSH))
+        << "LSH method should be auto-registered";
 }
 
 TEST_F(JoinMethodRegistryTest, GetRegisteredCount) {
-    // 至少应该注册了 6 种方法
+    // 至少应该注册了 7 种方法（新增 LSH）
     size_t count = registry_->getRegisteredCount();
-    EXPECT_GE(count, 6) << "Expected at least 6 registered methods, got " << count;
+    EXPECT_GE(count, 7) << "Expected at least 7 registered methods, got " << count;
 }
 
 // ==================== 方法信息测试 ====================
@@ -103,6 +105,18 @@ TEST_F(JoinMethodRegistryTest, GetMethodInfo_S3J) {
     EXPECT_EQ(info.recommended_window_state, WindowStateType::PARTITIONED);
     // S3J 有论文引用
     EXPECT_FALSE(info.paper_reference.empty());
+}
+
+TEST_F(JoinMethodRegistryTest, GetMethodInfo_LSH) {
+    const auto& info = registry_->getMethodInfo(JoinAlgorithm::LSH);
+
+    EXPECT_EQ(info.name, "LSH");
+    EXPECT_EQ(info.algorithm, JoinAlgorithm::LSH);
+    EXPECT_TRUE(info.supports_eager);
+    EXPECT_FALSE(info.supports_lazy);
+    EXPECT_EQ(info.recommended_partition, PartitionStrategy::LSH);
+    EXPECT_EQ(info.recommended_window_state, WindowStateType::PARTITIONED_VECTOR);
+    EXPECT_FALSE(info.description.empty());
 }
 
 TEST_F(JoinMethodRegistryTest, GetMethodInfo_UnknownAlgorithm) {
@@ -203,6 +217,20 @@ TEST_F(JoinMethodRegistryTest, CreateMethod_HDRTree) {
     auto method = registry_->createMethod(
         JoinAlgorithm::HDR_TREE, config, cm_, 128, -1, -1);
     
+    EXPECT_NE(method, nullptr);
+}
+
+TEST_F(JoinMethodRegistryTest, CreateMethod_LSH) {
+    JoinStrategyConfig config;
+    config.algorithm = JoinAlgorithm::LSH;
+    config.similarity_threshold = 0.8;
+    config.dimension = 4;
+    config.lsh_num_tables = 2;
+    config.lsh_num_hashes = 8;
+
+    auto method = registry_->createMethod(
+        JoinAlgorithm::LSH, config, cm_, 4, -1, -1);
+
     EXPECT_NE(method, nullptr);
 }
 

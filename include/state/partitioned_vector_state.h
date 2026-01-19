@@ -16,6 +16,8 @@
 #include <shared_mutex>
 #include <unordered_map>
 #include <vector>
+#include <atomic>
+#include <limits>
 
 namespace sageFlow {
 
@@ -207,6 +209,15 @@ public:
      */
     bool isShared() const override { return false; }
 
+    // ==================== 时间戳追踪接口 ====================
+    
+    void updateMaxSeenTimestamp(int64_t timestamp, size_t subtask_index) override;
+    
+    int64_t getMaxSeenTimestamp(size_t subtask_index) const override;
+    
+    int64_t getSafeEvictTimestamp(size_t subtask_index, 
+                                  const WindowState* other_state = nullptr) const override;
+
     /**
      * @brief 设置过期缓冲区倍数（传播到所有子分区）
      * @param multiplier 缓冲区倍数（必须 >= 1.0）
@@ -358,6 +369,9 @@ private:
     /// uid -> VectorRecord* 映射，用于快速查找（mutable 以支持 const 方法中的缓存更新）
     mutable std::unordered_map<uint64_t, const VectorRecord*> uid_record_map_;
     mutable std::shared_mutex record_map_mutex_;
+    
+    /// 全局最大已见时间戳（PartitionedVectorState 作为整体使用全局时间戳）
+    std::atomic<int64_t> max_seen_timestamp_{std::numeric_limits<int64_t>::min()};
 
     /**
      * @brief S3J 专用插入逻辑 (Paper Section 7)

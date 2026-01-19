@@ -33,7 +33,7 @@ void JoinMethodRegistry::registerMethod(
     
     infos_[algorithm] = std::move(info);
     creators_[algorithm] = std::move(creator);
-    SAGEFLOW_LOG_INFO("JoinMethodRegistry", 
+    SAGEFLOW_LOG_DEBUG("JoinMethodRegistry", 
         "Registered method: {} (algo={})", infos_[algorithm].name, static_cast<int>(algorithm));
 }
 

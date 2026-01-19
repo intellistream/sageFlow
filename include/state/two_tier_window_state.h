@@ -9,6 +9,8 @@
 #include <deque>
 #include <vector>
 #include <shared_mutex>
+#include <atomic>
+#include <limits>
 
 namespace sageFlow {
 
@@ -117,6 +119,15 @@ public:
      */
     bool isShared() const override { return false; }
 
+    // ==================== 时间戳追踪接口 ====================
+    
+    void updateMaxSeenTimestamp(int64_t timestamp, size_t subtask_index) override;
+    
+    int64_t getMaxSeenTimestamp(size_t subtask_index) const override;
+    
+    int64_t getSafeEvictTimestamp(size_t subtask_index, 
+                                  const WindowState* other_state = nullptr) const override;
+
     // ========== 新增方法 ==========
 
     /**
@@ -172,6 +183,9 @@ private:
     std::vector<TierPair> partitions_;
     size_t compact_threshold_;
     size_t merge_batch_size_;
+    
+    // 每个分区独立追踪的最大已见时间戳
+    std::vector<std::atomic<int64_t>> max_seen_timestamps_;
 
     /**
      * @brief 检查是否需要压缩
