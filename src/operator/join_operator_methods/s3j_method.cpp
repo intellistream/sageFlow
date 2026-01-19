@@ -69,7 +69,7 @@ double S3JMethod::computeSimilarity(const float* a, const float* b, size_t dim) 
 
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot, size_t /*subtask_index*/) {
     
     metrics_collector_.query_count++;
     auto results = searchInWindowState(query_record, query_slot);

@@ -644,13 +644,16 @@ std::pair<S3JWorkset*, float> PartitionedVectorState::findNearestWorkset(const V
     const float* rec_ptr = reinterpret_cast<const float*>(record.data_.data_.get());
     size_t dim = record.data_.dim_;
     
+    if (!rec_ptr || dim == 0) {
         return {nullptr, min_dist};
     }
 
     for (const auto& [id, workset] : s3j_worksets_) {
+        if (!workset || !workset->centroid) continue;
         
         //  使用高性能 SIMD 库计算距离
         const float* cen_ptr = reinterpret_cast<const float*>(workset->centroid->data_.data_.get());
+        if (!cen_ptr) continue;
         
         // 调用 SIMDDistance::l2Distance
         float dist = SIMDDistance::l2Distance(rec_ptr, cen_ptr, dim);
@@ -679,11 +682,13 @@ std::vector<S3JWorkset*> PartitionedVectorState::getWorksetsSnapshot() const {
     return snapshot;
 }
 
+// ==================== 时间戳追踪接口实现 ====================
 
 void PartitionedVectorState::updateMaxSeenTimestamp(int64_t timestamp, size_t /*subtask_index*/) {
     // PartitionedVectorState 使用全局时间戳（跨所有分区）
     int64_t current_max = max_seen_timestamp_.load(std::memory_order_relaxed);
     while (timestamp > current_max && 
+           !max_seen_timestamp_.compare_exchange_weak(
                current_max, timestamp,
                std::memory_order_release,
                std::memory_order_relaxed)) {
@@ -702,6 +707,7 @@ int64_t PartitionedVectorState::getSafeEvictTimestamp(size_t /*subtask_index*/,
     
     int64_t this_max = max_seen_timestamp_.load(std::memory_order_acquire);
     
+    if (!other_state) {
         return this_max;
     }
     
