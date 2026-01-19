@@ -503,8 +503,9 @@ name = "s3j_adaptive"
 description = "DEBS'23 S3J with adaptive clustering enabled"
 algorithm = "s3j"
 partition_strategy = "centroid"
-window_state_type = "partitioned"
+window_state_type = "partitioned_vector"
 index_strategy = "partitioned"
+alpha = 5.0
 s3j_num_centroids = 16
 s3j_enable_adaptive = true
 s3j_adapt_interval_ms = 1000
@@ -514,15 +515,16 @@ ivf_nprobes = 5
 data_sizes = [500, 1000]
 parallelism = [2, 4]
 expected_min_recall = 0.80
-enabled = false
+enabled = true
 
 [[test_case]]
 name = "s3j_static"
 description = "S3J with static centroid configuration"
 algorithm = "s3j"
 partition_strategy = "centroid"
-window_state_type = "partitioned"
+window_state_type = "partitioned_vector"
 index_strategy = "partitioned"
+alpha = 5.0
 s3j_num_centroids = 16
 s3j_enable_adaptive = false
 ivf_nlist = 50
@@ -530,16 +532,17 @@ ivf_nprobes = 5
 data_sizes = [500]
 parallelism = [2, 4]
 expected_min_recall = 0.75
-enabled = false
+enabled = true
 
 [[test_case]]
 name = "s3j_high_centroids"
 description = "S3J with more centroids for finer partitioning"
 algorithm = "s3j"
 partition_strategy = "centroid"
-window_state_type = "partitioned"
+window_state_type = "partitioned_vector"
 index_strategy = "partitioned"
-s3j_num_centroids = 32
+alpha = 5.0
+    s3j_num_centroids = 32
 s3j_enable_adaptive = true
 s3j_adapt_interval_ms = 500
 s3j_load_threshold = 0.2
@@ -548,7 +551,7 @@ ivf_nprobes = 8
 data_sizes = [1000]
 parallelism = [4, 8]
 expected_min_recall = 0.85
-enabled = false
+enabled = true
 
 # ==================== VSJoin 测试 ====================
 # Full VSJoin with LSH partitioning
