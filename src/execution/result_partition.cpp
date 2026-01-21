@@ -31,6 +31,10 @@ void ResultPartition::emit(Response&& data, int slot) const {
       if (queue->push(std::move(tagged))) {
         return true;
       }
+      // 如果队列已停止，立即返回（避免无意义的重试）
+      if (queue->isStopped()) {
+        return false;
+      }
       // 队列满，短暂等待后重试
       std::this_thread::sleep_for(std::chrono::microseconds(kRetryDelayUs));
     }

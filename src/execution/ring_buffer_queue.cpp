@@ -6,6 +6,11 @@
 
 namespace sageFlow {
 bool RingBufferQueue::push(TaggedResponse&& value) {
+  // 快速检查：如果已停止，立即返回 false
+  if (stopped_.load(std::memory_order_acquire)) {
+    return false;
+  }
+  
   const auto current_tail = tail_.load(std::memory_order_relaxed);
   const auto next_tail = (current_tail + 1) % size_;
 

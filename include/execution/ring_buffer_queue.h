@@ -23,7 +23,13 @@ public:
 
   std::optional<TaggedResponse> pop() override;
 
-  void stop() override {}
+  void stop() override {
+    stopped_.store(true, std::memory_order_release);
+  }
+  
+  bool isStopped() const {
+    return stopped_.load(std::memory_order_acquire);
+  }
 
 private:
   std::vector<TaggedResponse> buffer_;
@@ -31,5 +37,8 @@ private:
   // head 和 tail 由不同的线程访问，放在不同的缓存行以避免伪共享
   alignas(64) std::atomic<size_t> head_;
   alignas(64) std::atomic<size_t> tail_;
+  
+  // 停止标志：当设置后，push() 将快速失败
+  std::atomic<bool> stopped_{false};
 };
 }

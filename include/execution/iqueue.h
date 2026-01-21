@@ -28,6 +28,9 @@ public:
   virtual std::optional<TaggedResponse> pop() = 0;
   // 允许停止队列以唤醒阻塞中的消费者/生产者（RingBuffer 可为 no-op）
   virtual void stop() = 0;
+  
+  // 检查队列是否已停止（用于 pushWithRetry 快速退出）
+  virtual bool isStopped() const = 0;
 
 protected:
   const size_t size_;
@@ -35,4 +38,4 @@ protected:
 
 using QueuePtr = std::shared_ptr<IQueue>;
 
-} // namespace sageFlow
+}  // namespace sageFlow

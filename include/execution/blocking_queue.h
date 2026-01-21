@@ -44,6 +44,10 @@ public:
      * 并使后续的 push 调用立即返回，pop 调用在队列为空后返回 std::nullopt。
      */
     void stop() override;
+    
+    bool isStopped() const override {
+        return stopped_.load(std::memory_order_acquire);
+    }
 
 private:
     std::queue<TaggedResponse> queue_;
