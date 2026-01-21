@@ -63,7 +63,7 @@ auto ConcurrencyManager::create_index(const std::string& name,
 
   {
     std::unique_lock<std::shared_mutex> lk(controller_map_mutex_);
-    controller_map_[index->index_id_] = blank_controller;
+  controller_map_[index->index_id_] = blank_controller;
   }
 
   index_map_[name] = IdWithType{.id_ = index->index_id_, .index_type_ = index_type};
@@ -73,7 +73,7 @@ auto ConcurrencyManager::create_index(const std::string& name,
 auto ConcurrencyManager::create_index(const std::string& name,
                                       const IndexType& index_type,
                                       int dimension,
-                                      const IndexParameters& params) -> int {
+                                                 const IndexParameters& params) -> int {
   std::shared_ptr<Index> index = nullptr;
   switch (index_type) {
     case IndexType::None:
@@ -126,7 +126,7 @@ auto ConcurrencyManager::create_index(const std::string& name,
 
   {
     std::unique_lock<std::shared_mutex> lk(controller_map_mutex_);
-    controller_map_[index->index_id_] = blank_controller;
+  controller_map_[index->index_id_] = blank_controller;
   }
 
   index_map_[name] = IdWithType{.id_ = index->index_id_, .index_type_ = index_type};
@@ -141,23 +141,23 @@ auto ConcurrencyManager::register_index(const std::string& name, std::shared_ptr
   if (!index) {
     return -1;
   }
-
+  
   index->index_id_ = index_id_counter_++;
-
+  
   index->storage_manager_ = storage_;
   if (storage_ && !storage_->engine_) {
     storage_->engine_ = std::make_shared<ComputeEngine>();
   }
-
+  
   const auto blank_controller = std::make_shared<BlankController>(index);
-
+  
   {
     std::unique_lock<std::shared_mutex> lk(controller_map_mutex_);
-    controller_map_[index->index_id_] = blank_controller;
+  controller_map_[index->index_id_] = blank_controller;
   }
 
   index_map_[name] = IdWithType{.id_ = index->index_id_, .index_type_ = index->index_type_};
-
+  
   return index->index_id_;
 }
 
@@ -180,10 +180,10 @@ auto ConcurrencyManager::erase(int index_id, std::unique_ptr<VectorRecord> recor
   std::shared_ptr<ConcurrencyController> controller;
   {
     std::shared_lock<std::shared_mutex> lk(controller_map_mutex_);
-    const auto it = controller_map_.find(index_id);
-    if (it == controller_map_.end()) {
-      return false;
-    }
+  const auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return false;
+  }
     controller = it->second;
   }
   return controller ? controller->erase(std::move(record)) : false;
@@ -193,10 +193,10 @@ auto ConcurrencyManager::erase(int index_id, uint64_t uid) -> bool {
   std::shared_ptr<ConcurrencyController> controller;
   {
     std::shared_lock<std::shared_mutex> lk(controller_map_mutex_);
-    const auto it = controller_map_.find(index_id);
-    if (it == controller_map_.end()) {
-      return false;
-    }
+  const auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return false;
+  }
     controller = it->second;
   }
   return controller ? controller->erase(uid) : false;
@@ -207,10 +207,10 @@ auto ConcurrencyManager::query(int index_id, const VectorRecord& record, int k)
   std::shared_ptr<ConcurrencyController> controller;
   {
     std::shared_lock<std::shared_mutex> lk(controller_map_mutex_);
-    const auto it = controller_map_.find(index_id);
-    if (it == controller_map_.end()) {
-      return {};
-    }
+  const auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return {};
+  }
     controller = it->second;
   }
   return controller ? controller->query(record, k)
@@ -218,16 +218,16 @@ auto ConcurrencyManager::query(int index_id, const VectorRecord& record, int k)
 }
 
 auto ConcurrencyManager::query_for_join(int index_id, const VectorRecord& record,
-                                       double join_similarity_threshold,
+                      double join_similarity_threshold,
                                        double similarity_alpha)
     -> std::vector<std::shared_ptr<const VectorRecord>> {
   std::shared_ptr<ConcurrencyController> controller;
   {
     std::shared_lock<std::shared_mutex> lk(controller_map_mutex_);
-    const auto it = controller_map_.find(index_id);
-    if (it == controller_map_.end()) {
-      return {};
-    }
+  const auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
+    return {};
+  }
     controller = it->second;
   }
   return controller ? controller->query_for_join(record, join_similarity_threshold, similarity_alpha)
@@ -240,8 +240,8 @@ auto ConcurrencyManager::getPartitionedIndex(int index_id) -> std::shared_ptr<Pa
   std::shared_ptr<ConcurrencyController> controller;
   {
     std::shared_lock<std::shared_mutex> lk(controller_map_mutex_);
-    auto it = controller_map_.find(index_id);
-    if (it == controller_map_.end()) {
+  auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
       return nullptr;
     }
     controller = it->second;
@@ -250,7 +250,7 @@ auto ConcurrencyManager::getPartitionedIndex(int index_id) -> std::shared_ptr<Pa
   if (!controller) {
     return nullptr;
   }
-
+  
   auto index = controller->getIndex();
   return std::dynamic_pointer_cast<PartitionedIndex>(index);
 }
@@ -260,8 +260,8 @@ auto ConcurrencyManager::getPartitionedIndex(int index_id) const
   std::shared_ptr<ConcurrencyController> controller;
   {
     std::shared_lock<std::shared_mutex> lk(controller_map_mutex_);
-    auto it = controller_map_.find(index_id);
-    if (it == controller_map_.end()) {
+  auto it = controller_map_.find(index_id);
+  if (it == controller_map_.end()) {
       return nullptr;
     }
     controller = it->second;
@@ -270,7 +270,7 @@ auto ConcurrencyManager::getPartitionedIndex(int index_id) const
   if (!controller) {
     return nullptr;
   }
-
+  
   auto index = controller->getIndex();
   return std::dynamic_pointer_cast<const PartitionedIndex>(index);
 }

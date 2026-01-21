@@ -122,13 +122,15 @@ TEST_F(VSJoinRebuildTest, RebuildLoopDeduplicateAndFilterExpired) {
 
     // 验证：替换后，全局 IVF 索引可以 query_for_join 正常返回（不崩溃即可，召回不做强保证）
     // 这里通过 VSJoinMethod 的查询路径间接覆盖 ConcurrencyManager replace + query。
-    VectorRecord q = *makeRecord(777, now_ms, dim);
-
+    auto q_ptr = makeRecord(777, now_ms, dim);
+    ASSERT_NE(q_ptr, nullptr);
+    ASSERT_EQ(q_ptr->data_.dim_, dim) << "Query record should have dimension " << dim;
+    
     // 直接 query 全局索引（id 由 factory 创建并由 operator 初始化写入 vsjoin_global_*_id_）
     // JoinOperator 内部 id 是 private，这里无法直接读；但 query_for_join 不存在 id 则返回空。
-    // 因此我们只做“无异常”验证：后台 rebuild 期间不应导致崩溃。
+    // 因此我们只做"无异常"验证：后台 rebuild 期间不应导致崩溃。
     EXPECT_NO_THROW({
-        (void)concurrency_manager_->query_for_join(0, q, 0.8, 0.1);
+        (void)concurrency_manager_->query_for_join(0, *q_ptr, 0.8, 0.1);
     });
 
     op.reset();

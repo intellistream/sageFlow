@@ -12,14 +12,14 @@ BlankController::BlankController() = default;
 BlankController::BlankController(std::shared_ptr<Index> index) {
   {
     std::unique_lock<std::shared_mutex> lk(index_mutex_);
-    index_ = std::move(index);
+  index_ = std::move(index);
     if (index_ && index_->index_type_ == IndexType::None) {
       index_.reset();
     }
   }
 
   if (index_ && index_->storage_manager_) {
-    storage_manager_ = index_->storage_manager_;
+  storage_manager_ = index_->storage_manager_;
   }
 }
 
@@ -88,7 +88,7 @@ auto BlankController::insert(std::unique_ptr<VectorRecord> record) -> bool {
   bool ok = true;
   if (idx) {
     ok = idx->insert(uid);
-  }
+}
 
   // 3) 双写 shadow
   if (double_write && shadow) {
@@ -145,7 +145,7 @@ auto BlankController::query(const VectorRecord& record, int k)
 }
 
 auto BlankController::query_for_join(const VectorRecord& record,
-                                    double join_similarity_threshold,
+                                            double join_similarity_threshold,
                                     double similarity_alpha)
     -> std::vector<std::shared_ptr<const VectorRecord>> {
   std::shared_ptr<Index> idx;

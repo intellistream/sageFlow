@@ -7,6 +7,7 @@
 #include "operator/join_operator_methods/lsh_method.h"
 #include "operator/join_operator_methods/clustered_join_method.h"
 #include "operator/join_operator_methods/s3j_method.h"
+#include "operator/join_operator_methods/vsjoin_method.h"
 #include "state/shared_window_state.h"
 #include "state/partitioned_window_state.h"
 #include "state/two_tier_window_state.h"
@@ -60,27 +61,80 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
 
     StrategyComponents components;
     
-    // 2. 创建索引对
-    // 统一架构：所有使用索引的 Join 方法都通过 ConcurrencyManager 管理共享索引
+    // 2. 创建索引
+    // 统一架构：所有使用索引的 Join 方法都通过 ConcurrencyManager 管理索引
     // - 共享索引策略：IVF, HNSW, HDR_TREE
     // - BRUTEFORCE 使用 BruteForceBaseline，不依赖索引
     // - 分区索引策略（分区内部使用索引管理）：CLUSTERED_JOIN, S3J
-    bool need_index = (config.index_strategy == IndexStrategy::SHARED ||
-                      config.algorithm == JoinAlgorithm::CLUSTERED_JOIN ||
-                      config.algorithm == JoinAlgorithm::S3J);
-    
-    if (need_index) {
-        if (!createIndexPair(config, concurrency_manager, 
-                            components.left_index_id, components.right_index_id)) {
-            SAGEFLOW_LOG_WARN("JOIN_FACTORY", "Failed to create index pair, "
-                             "will proceed without index");
+    // - VSJOIN 使用双层索引：2 个 Global(共享) + 2*P 个 Local(分区独占)
+
+    if (!concurrency_manager) {
+        throw std::runtime_error("ConcurrencyManager is null");
+    }
+
+    if (config.algorithm == JoinAlgorithm::VSJOIN) {
+        const int P = static_cast<int>(parallelism);
+
+        IVFParameters global_ivf_params;
+        global_ivf_params.nlist = config.ivf_nlist;
+        global_ivf_params.nprobes = config.ivf_nprobes;
+        global_ivf_params.rebuild_threshold = config.ivf_rebuild_threshold;
+
+        components.global_left_id = concurrency_manager->create_index(
+            "vsjoin_global_left", IndexType::IVF, config.dimension, global_ivf_params);
+        components.global_right_id = concurrency_manager->create_index(
+            "vsjoin_global_right", IndexType::IVF, config.dimension, global_ivf_params);
+
+        components.local_left_ids.resize(P, -1);
+        components.local_right_ids.resize(P, -1);
+
+        for (int partition = 0; partition < P; ++partition) {
+            std::string left_name = "vsjoin_local_left_p" + std::to_string(partition);
+            components.local_left_ids[partition] = concurrency_manager->create_index(
+                left_name, IndexType::BruteForce, config.dimension);
+
+            std::string right_name = "vsjoin_local_right_p" + std::to_string(partition);
+            components.local_right_ids[partition] = concurrency_manager->create_index(
+                right_name, IndexType::BruteForce, config.dimension);
+        }
+
+        SAGEFLOW_LOG_INFO(
+            "VSJOIN_FACTORY",
+            "Created {} Global indexes + {} Local indexes (parallelism={})",
+            2,
+            2 * P,
+            P);
+    } else {
+        bool need_index = (config.index_strategy == IndexStrategy::SHARED ||
+                          config.algorithm == JoinAlgorithm::CLUSTERED_JOIN ||
+                          config.algorithm == JoinAlgorithm::S3J);
+
+        if (need_index) {
+            if (!createIndexPair(config, concurrency_manager,
+                                components.left_index_id, components.right_index_id)) {
+                SAGEFLOW_LOG_WARN("JOIN_FACTORY", "Failed to create index pair, "
+                                 "will proceed without index");
+            }
         }
     }
     
     // 3. 创建 JoinMethod
-    components.join_method = createJoinMethod(config, concurrency_manager,
-                                             components.left_index_id,
-                                             components.right_index_id);
+    if (config.algorithm == JoinAlgorithm::VSJOIN) {
+        components.join_method = createJoinMethod(
+            config,
+            concurrency_manager,
+            components.global_left_id,
+            components.global_right_id);
+
+        auto* vsjoin = dynamic_cast<VSJoinMethod*>(components.join_method.get());
+        if (vsjoin) {
+            vsjoin->setLocalIndexIds(components.local_left_ids, components.local_right_ids);
+        }
+    } else {
+        components.join_method = createJoinMethod(config, concurrency_manager,
+                                                 components.left_index_id,
+                                                 components.right_index_id);
+    }
     // 绑定 alpha 到该 pipeline 的 JoinMethod（方案 A：ComputeEngine 纯计算，alpha 由上层传入）
     if (components.join_method) {
         components.join_method->setSimilarityAlpha(config.similarity_alpha);
@@ -312,13 +366,19 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createVSJoinMethod(
     const JoinStrategyConfig& config,
     std::shared_ptr<ConcurrencyManager> cm,
     int left_idx, int right_idx) {
-    
-    // VSJoin 暂时使用 BruteForce 作为基础
-    // TODO: 实现完整的 VSJoin 方法
-    // Issue URL: https://github.com/intellistream/sageFlow/issues/78
-    SAGEFLOW_LOG_WARN("JOIN_FACTORY", "VSJoin method is not fully implemented yet, "
-                     "using BruteForce as fallback");
-    return createBruteForceMethod(config, cm, left_idx, right_idx);
+
+    (void)config;
+
+    auto method = std::make_unique<VSJoinMethod>();
+
+    // JoinStrategyFactory 不持有真实的执行时 context（每个 subtask 有不同 context），
+    // 这里用占位 context 完成初始化，保证 method 拥有可用的 ConcurrencyManager。
+    RuntimeContext ctx(0, 1);
+    method->initialize(ctx, cm);
+
+    method->setGlobalIndexIds(left_idx, right_idx);
+
+    return method;
 }
 
 // ==================== WindowState 创建 ====================
@@ -326,6 +386,12 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createVSJoinMethod(
 std::unique_ptr<WindowState> JoinStrategyFactory::createWindowState(
     const JoinStrategyConfig& config,
     size_t parallelism) {
+
+    if (config.algorithm == JoinAlgorithm::VSJOIN) {
+        return std::make_unique<TwoTierWindowState>(
+            parallelism,
+            config.two_tier_compact_threshold);
+    }
     
     switch (config.window_state_type) {
         case WindowStateType::SHARED:

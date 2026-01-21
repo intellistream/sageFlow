@@ -14,14 +14,14 @@ class VSJoinMethod : public BaseMethod {
 public:
     VSJoinMethod();
     ~VSJoinMethod() override;
-
+    
     void initialize(const RuntimeContext& context, std::shared_ptr<ConcurrencyManager> concurrency_manager);
 
     std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
         const VectorRecord& query_record,
         int query_slot,
         size_t subtask_index) override;
-
+    
     // Methods called by JoinOperator
     void setGlobalIndexIds(int left_id, int right_id);
     void setLocalIndexIds(const std::vector<int>& left_ids, const std::vector<int>& right_ids);
@@ -36,7 +36,7 @@ private:
 
 private:
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
-
+    
     int global_left_id_ = -1;
     int global_right_id_ = -1;
 

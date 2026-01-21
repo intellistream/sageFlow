@@ -74,21 +74,27 @@ void JoinOperator::globalIndexRebuildLoop() {
             continue;
         }
 
+        // 保持快照的所有权直到 rebuild 完成，避免悬空指针
+        std::vector<std::vector<std::shared_ptr<const VectorRecord>>> left_snapshots;
+        std::vector<std::vector<std::shared_ptr<const VectorRecord>>> right_snapshots;
+        left_snapshots.reserve(parallelism_);
+        right_snapshots.reserve(parallelism_);
+
         std::unordered_set<uint64_t> seen_left_uids;
         std::unordered_set<uint64_t> seen_right_uids;
         std::vector<const VectorRecord*> unique_left_records;
         std::vector<const VectorRecord*> unique_right_records;
 
         for (size_t p = 0; p < parallelism_; ++p) {
-            auto left_snapshot = left_state_->getRecordsSnapshot(p);
-            auto right_snapshot = right_state_->getRecordsSnapshot(p);
+            left_snapshots.push_back(left_state_->getRecordsSnapshot(p));
+            right_snapshots.push_back(right_state_->getRecordsSnapshot(p));
 
-            for (const auto& r : left_snapshot) {
+            for (const auto& r : left_snapshots.back()) {
                 if (r && seen_left_uids.insert(r->uid_).second) {
                     unique_left_records.push_back(r.get());
                 }
             }
-            for (const auto& r : right_snapshot) {
+            for (const auto& r : right_snapshots.back()) {
                 if (r && seen_right_uids.insert(r->uid_).second) {
                     unique_right_records.push_back(r.get());
                 }
@@ -364,7 +370,7 @@ void JoinOperator::open(const RuntimeContext& context) {
     if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
         startGlobalIndexRebuilder();
     }
-
+  
     // 根据配置创建窗口状态
     if (use_shared_state_) {
         left_state_ = std::make_unique<SharedWindowState>();

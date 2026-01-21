@@ -387,8 +387,6 @@ TEST_F(JoinStrategyFactoryTest, CreateLSHStrategy) {
     EXPECT_NE(components.vector_partitioner, nullptr);
     EXPECT_NE(components.partitioner, nullptr);
     EXPECT_FALSE(components.left_state->isShared());
-    EXPECT_GE(components.left_index_id, 0);
-    EXPECT_GE(components.right_index_id, 0);
 }
 
 // 测试无效配置应该抛出异常
