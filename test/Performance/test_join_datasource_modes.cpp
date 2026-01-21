@@ -144,6 +144,10 @@ struct DataSourceModeConfig {
   bool clustered_multicast_enabled{true};
   double clustered_overlap_ratio{0.1};
   int clustered_training_samples{500};
+  int s3j_num_centroids{16};
+  bool s3j_enable_adaptive{false};
+  int64_t s3j_adapt_interval_ms{1000};
+  double s3j_load_threshold{0.2};
 };
 
 static JoinStrategyConfig buildJoinStrategyConfigForTest(
@@ -181,6 +185,25 @@ static JoinStrategyConfig buildJoinStrategyConfigForTest(
     cfg.clustered_overlap_ratio = mode_config.clustered_overlap_ratio;
     cfg.clustered_training_samples = mode_config.clustered_training_samples;
     cfg.clustered_multicast_enabled = mode_config.clustered_multicast_enabled;
+  }
+
+  // ==================== S3J Configuration Mapping ====================
+  // 假设 JoinStrategyConfig 已包含对应字段 (因为 S3J 核心已实现)
+  // 如果 method 字符串包含 "s3j" (例如 "s3j_adaptive")，则应用参数
+  if (method.find("s3j") != std::string::npos) {
+    // [Fix] pass partition parameters
+    cfg.num_partitions = mode_config.s3j_num_centroids;
+    cfg.partition_strategy = PartitionStrategy::CENTROID; // RESTORED
+    cfg.s3j_num_centroids = mode_config.s3j_num_centroids;
+    cfg.s3j_enable_adaptive = mode_config.s3j_enable_adaptive;
+    cfg.s3j_adapt_interval_ms = mode_config.s3j_adapt_interval_ms;
+    cfg.s3j_load_threshold = mode_config.s3j_load_threshold;
+
+    // [DEBUG VALIDATION] 
+    // 强制改为 ROUND_ROBIN。如果这能跑通，说明原因为数据倾斜导致的信号丢失。
+    // cfg.partition_strategy = PartitionStrategy::ROUND_ROBIN; // REVERTED 
+    
+    cfg.window_state_type = WindowStateType::PARTITIONED;
   }
 
   return cfg;
@@ -287,6 +310,15 @@ static std::vector<DataSourceModeConfig> loadDataSourceModeConfigs() {
     mode_config.clustered_multicast_enabled =
         (config.get<int>("clustered_join_params.multicast_enabled", 1) != 0);
 
+    // ==================== S3J Configuration Parsing ====================
+    // 解析 [performance_test.s3j_params] 块，使用默认值兜底
+    mode_config.s3j_num_centroids = config.get<int>("s3j_params.num_centroids", 16);
+    mode_config.s3j_enable_adaptive = (config.get<int>("s3j_params.enable_adaptive", 0) != 0);
+    // 注意：从配置读取 int 并转为 int64_t
+    mode_config.s3j_adapt_interval_ms = static_cast<int64_t>(config.get<int>("s3j_params.adapt_interval_ms", 1000));
+    mode_config.s3j_load_threshold = config.get<double>("s3j_params.load_threshold", 0.2);
+
+    
     SAGEFLOW_LOG_INFO("TEST", "[CONFIG] Split mode: {}, similarity_mode: {}, alpha: {}", 
                       mode_config.split_mode, mode_config.similarity_mode, mode_config.alpha);
 
@@ -890,7 +922,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   // 使用完整 JoinStrategyConfig，确保 alpha/mode 能传到 JoinOperator 以及索引层（ComputeEngine）。
   // 注意：step_size 必须与 join_func->setWindow() 一致（使用 trigger_interval），
   // 否则 IVF 参数计算会出现偏差导致召回下降。
-  bool need_strategy_config = (method == "clustered_join" || method == "clusteredjoin");
+  bool need_strategy_config = (method == "clustered_join" || method == "clusteredjoin" || method.find("s3j") != std::string::npos);
   if (need_strategy_config) {
     auto strategy_cfg = buildJoinStrategyConfigForTest(
         method,
