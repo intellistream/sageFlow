@@ -3,6 +3,7 @@
 // Task B-02: PartitionedVectorState 分区向量状态
 //
 
+#include <atomic>
 #include "state/partitioned_vector_state.h"
 #include "utils/logger.h"
 #include "compute_engine/simd_distance.h" //  使用项目的高性能 SIMD 库
@@ -58,6 +59,16 @@ void PartitionedVectorState::addRecord(std::unique_ptr<VectorRecord> record,
                                        size_t subtask_index) {
     if (!record) {
         return;
+    }
+
+    // [DEBUG LOGGING]
+    static std::atomic<uint64_t> p_stats[32] = {0}; // 假设最大并行度32
+    size_t p_id = getPartitionId(*record);
+    
+    uint64_t count = p_stats[p_id].fetch_add(1, std::memory_order_relaxed);
+    // 每处理 500 条数据打印一次分布，避免刷屏
+    if (count > 0 && count % 500 == 0) {
+        SAGEFLOW_LOG_INFO("SkewDebug", "Partition [{}] received total {} records", p_id, count);
     }
 
     // [S3J] 检查是否开启了 S3J 动态构建模式
@@ -635,8 +646,18 @@ S3JWorkset* PartitionedVectorState::getWorkset(uint64_t workset_id) {
 }
 
 std::pair<S3JWorkset*, float> PartitionedVectorState::findNearestWorkset(const VectorRecord& record) {
-    std::shared_lock lock(workset_map_mutex_);
-    
+    // [Optimization] Snapshot Read: 持锁仅用于复制指针，最小化临界区
+    std::vector<S3JWorkset*> snapshot;
+    {
+        std::shared_lock lock(workset_map_mutex_);
+        snapshot.reserve(s3j_worksets_.size());
+        for (const auto& [id, workset] : s3j_worksets_) {
+            if (workset && workset->centroid) {
+                snapshot.push_back(workset.get());
+            }
+        }
+    } // 锁在此处释放
+
     S3JWorkset* nearest = nullptr;
     float min_dist = std::numeric_limits<float>::max();
     
@@ -648,9 +669,8 @@ std::pair<S3JWorkset*, float> PartitionedVectorState::findNearestWorkset(const V
         return {nullptr, min_dist};
     }
 
-    for (const auto& [id, workset] : s3j_worksets_) {
-        if (!workset || !workset->centroid) continue;
-        
+    // 无锁遍历快照进行计算
+    for (S3JWorkset* workset : snapshot) {
         //  使用高性能 SIMD 库计算距离
         const float* cen_ptr = reinterpret_cast<const float*>(workset->centroid->data_.data_.get());
         if (!cen_ptr) continue;
@@ -660,7 +680,7 @@ std::pair<S3JWorkset*, float> PartitionedVectorState::findNearestWorkset(const V
         
         if (dist < min_dist) {
             min_dist = dist;
-            nearest = workset.get();
+            nearest = workset;
         }
     }
     

@@ -19,6 +19,7 @@
 #include <vector>
 #include <unordered_map>
 #include <span>
+#include <thread>
 
 namespace sageFlow {
 
@@ -97,6 +98,10 @@ private:
     std::shared_ptr<WorksetDirectory> workset_directory_;
     IndexType current_index_type_ = IndexType::IVF;
     
+    // Background Adaptation Thread
+    std::thread adaptation_thread_;
+    std::atomic<bool> running_{false};
+
     // Per-Workset Load Tracking
     std::unordered_map<uint64_t, std::atomic<size_t>> local_workset_loads_;
     mutable std::mutex stats_mutex_;

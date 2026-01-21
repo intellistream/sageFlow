@@ -5,6 +5,8 @@
 #include "compute_engine/simd_distance.h"
 #include "state/partitioned_vector_state.h"
 #include "state/two_tier_window_state.h"
+#include <chrono>
+#include <thread>
 
 namespace sageFlow {
 
@@ -36,15 +38,43 @@ void S3JMethod::open(const RuntimeContext& context,
     metrics_collector_.reset();
     
     // Set up S3J distance threshold (t)
-    // Relationship: Sim >= Thresh  <==>  Dist <= (1 - Thresh)
-    float s3j_dist_threshold = 1.0f - static_cast<float>(join_similarity_threshold_);
-    if (s3j_dist_threshold < 0.0f) s3j_dist_threshold = 0.0f;
+    double alpha = similarity_alpha_;
+    if (alpha <= 1e-9) alpha = 0.1;
+    double dist_thresh = -std::log(join_similarity_threshold_) / alpha;
+    if (dist_thresh < 0) dist_thresh = 0;
+    float s3j_dist_threshold = static_cast<float>(dist_thresh);
+
+    SAGEFLOW_LOG_INFO("S3J", "Converted Similarity Thresh {} to Distance Thresh {} (alpha={})", 
+                      join_similarity_threshold_, dist_thresh, alpha);
     
     auto* p_left = dynamic_cast<PartitionedVectorState*>(left_state_);
     if (p_left) p_left->setS3JThreshold(s3j_dist_threshold);
     
     auto* p_right = dynamic_cast<PartitionedVectorState*>(right_state_);
     if (p_right) p_right->setS3JThreshold(s3j_dist_threshold);
+
+    // [Fix- Step 2] Start Background Adaptation Thread for Starved Workers
+    if (config_.enable_adaptive) {
+        running_ = true;
+        adaptation_thread_ = std::thread([this]() {
+            while (running_) {
+                // Sleep for a fraction of the adapt interval to check frequently enough
+                // but not burn CPU. Using 100ms or 1/10th of interval.
+                int64_t sleep_ms = std::max<int64_t>(100, config_.adapt_interval_ms / 10);
+                std::this_thread::sleep_for(std::chrono::milliseconds(sleep_ms));
+                if (!running_) break;
+                
+                // Call maybeAdapt() or directly partitioner check
+                // We use maybeAdapt() to reuse logic, but maybeAdapt logs too much?
+                // Direct call is cleaner for background thread.
+                if (partitioner_) {
+                    if (partitioner_->checkAndAdapt()) {
+                         SAGEFLOW_LOG_INFO("S3J", "Background thread triggered adaptation on subtask={}", subtask_index_);
+                    }
+                }
+            }
+        });
+    }
 }
 
 void S3JMethod::setWindowStates(WindowState* left_state, WindowState* right_state) {
@@ -60,17 +90,22 @@ void S3JMethod::setWorksetDirectory(std::shared_ptr<WorksetDirectory> dir) {
     workset_directory_ = std::move(dir);
 }
 
-// Linear Similarity: 1.0 - Distance
-// Ensures that Dist <= 0.1 <==> Sim >= 0.9 (when thresh=0.9)
+// Exponential Similarity: exp(-alpha * Distance)
 double S3JMethod::computeSimilarity(const float* a, const float* b, size_t dim) const {
     float dist = SIMDDistance::l2Distance(a, b, dim);
-    return std::max(0.0f, 1.0f - dist);
+    double alpha = similarity_alpha_;
+    if (alpha <= 1e-9) alpha = 0.1;
+    return std::exp(-alpha * dist);
 }
 
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot, size_t /*subtask_index*/) {
     
+    // [Fix-Step 1] Sync Point Instrumentation and Trigger
+    // Still useful to call here for eager updates from active workers
+    maybeAdapt();
+
     metrics_collector_.query_count++;
     auto results = searchInWindowState(query_record, query_slot);
     metrics_collector_.match_count += results.size();
@@ -102,7 +137,6 @@ void S3JMethod::scanTierForMatches(const VectorRecord& query,
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
     const VectorRecord& query, int slot) {
     
-    // Safety check for unit tests
     WindowState* target_state = (slot == 0) ? right_state_ : left_state_;
     if (!target_state) return {};
     
@@ -119,16 +153,16 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
     if (s3j_state && !worksets.empty()) {
         const float* q_vec = reinterpret_cast<const float*>(query.data_.data_.get());
         
-        double dist_threshold = 1.0 - join_similarity_threshold_;
-        if (dist_threshold < 0.0) dist_threshold = 0.0;
+        double alpha = similarity_alpha_;
+        if (alpha <= 1e-9) alpha = 0.1;
+        double dist_threshold = -std::log(join_similarity_threshold_) / alpha;
+        if (dist_threshold < 0) dist_threshold = 0;
         
         double pruning_limit = 4.0 * dist_threshold; 
         
         for (auto* ws : worksets) {
-            // [Fix] Track computation cost
             ws->computation_cost.fetch_add(1, std::memory_order_relaxed);
 
-            // Pruning Check
             bool skip_inner_outer = false;
             
             if (ws->centroid) {
@@ -144,11 +178,9 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
                 scanTierForMatches(query, ws->inner_set.get(), join_similarity_threshold_, results);
                 scanTierForMatches(query, ws->outer_set.get(), join_similarity_threshold_, results);
             }
-            // Always scan outliers as they are unbounded
             scanTierForMatches(query, ws->outliers.get(), join_similarity_threshold_, results);
         }
     } else {
-        // Fallback: Flat Scan
         auto snapshot = target_state->getRecordsSnapshot(subtask_index_);
         const float* q_vec = reinterpret_cast<const float*>(query.data_.data_.get());
         
@@ -166,6 +198,10 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
 }
 
 void S3JMethod::close() {
+    running_ = false;
+    if (adaptation_thread_.joinable()) {
+        adaptation_thread_.join();
+    }
     initialized_ = false;
 }
 
@@ -176,9 +212,27 @@ S3JMetrics S3JMethod::getMetrics() const {
     return m;
 }
 
-void S3JMethod::forceAdapt() { }
+void S3JMethod::forceAdapt() { 
+    if (partitioner_) partitioner_->forceAdapt();
+}
+
 int S3JMethod::otherIndexId(int slot) const { return (slot == 0) ? right_index_id_ : left_index_id_; }
-void S3JMethod::maybeAdapt() { }
+
+void S3JMethod::maybeAdapt() { 
+    if (!config_.enable_adaptive) return;
+
+    static thread_local int log_skips = 0;
+    if (log_skips++ % 1000 == 0) {
+        SAGEFLOW_LOG_DEBUG("S3J", "maybeAdapt check: subtask={}", subtask_index_);
+    }
+
+    if (partitioner_) {
+        if (partitioner_->checkAndAdapt()) {
+             SAGEFLOW_LOG_INFO("S3J", "Adaptive partitioner triggered adaptation on subtask={}", subtask_index_);
+        }
+    }
+}
+
 std::pair<const float*, size_t> S3JMethod::getRawVectorView(const VectorRecord& record) const {
     return {reinterpret_cast<const float*>(record.data_.data_.get()), static_cast<size_t>(record.data_.dim_)};
 }
