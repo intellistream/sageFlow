@@ -380,9 +380,9 @@ TEST_F(JoinOperatorStrategyTest, ConfigInferDefaults_LSH) {
 
     config.inferDefaults();
 
-    // LSH 应推断为 LSH 分区 + 分区向量窗口
+    // LSH 应推断为 LSH 分区 + 分区窗口（注：PARTITIONED_VECTOR 仅用于 VSJOIN）
     EXPECT_EQ(config.partition_strategy, PartitionStrategy::LSH);
-    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED_VECTOR);
+    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED);
 
     auto join_func = createJoinFunction(16);
 
