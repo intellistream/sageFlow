@@ -1,4 +1,5 @@
 #include <memory>
+#include <shared_mutex>
 
 #include "concurrency/concurrency_controller.h"
 #include "index/index.h"
@@ -24,13 +25,14 @@ class BlankController final : public ConcurrencyController {
 
   auto erase(uint64_t uid) -> bool override;
 
-  /**
-   * @brief 获取底层索引（用于分区索引访问）
-   * @return Index 共享指针
-   */
-  auto getIndex() const -> std::shared_ptr<Index> { return index_; }
+  auto getIndex() const -> std::shared_ptr<Index> override;
+  auto replaceIndex(std::shared_ptr<Index> new_index) -> bool override;
+  auto enableDoubleWrite(bool enable, std::shared_ptr<Index> shadow = nullptr) -> void override;
 
  private:
-  std::shared_ptr<Index> index_;
+  mutable std::shared_mutex index_mutex_;
+  std::shared_ptr<Index> index_{nullptr};
+  std::shared_ptr<Index> shadow_index_{nullptr};
+  bool double_write_enabled_{false};
 };
 }  // namespace sageFlow

@@ -1,8 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 #include <vector>
+
+
+#include "common/data_types.h"
 
 namespace sageFlow {
 
@@ -136,10 +140,13 @@ struct JoinStrategyConfig {
     uint32_t lsh_seed = 42;            ///< 随机种子，确保可复现
     
     // ==================== VSJoin 参数 ====================
-    int vsjoin_num_hash_functions = 8;    ///< LSH 哈希函数数量
-    double vsjoin_boundary_threshold = 0.1;  ///< 边界判定阈值
-    int vsjoin_async_threads = 2;            ///< 异步处理线程数
-    int64_t vsjoin_allowed_lateness = 1000;  ///< 允许的延迟（毫秒）
+    int vsjoin_multicast_k = 2;               ///< 边界向量多播到 k 个分区（推荐 2-3）
+    int64_t vsjoin_rebuild_interval_ms = 5000;  ///< Global Index 重建间隔
+    size_t vsjoin_rebuild_threshold = 1000;     ///< 触发重建的阈值
+
+    // LSH 分区器参数
+    int vsjoin_num_hash_functions = 8;         ///< LSH 哈希函数数量
+    double vsjoin_boundary_threshold = 0.1;    ///< 边界向量阈值
     
     // ==================== S3J 参数 ====================
     int s3j_num_centroids = 16;          ///< S3J 质心数量

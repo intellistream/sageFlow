@@ -8,6 +8,11 @@
 #include <atomic>
 #include <string>
 #include <algorithm>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <unordered_set>
+#include <mutex>
 
 #include "common/data_types.h"
 #include "operator/operator.h"
@@ -288,6 +293,25 @@ namespace sageFlow {
     static constexpr size_t kMinBatchDeleteThreshold = 50;   ///< 最小批量删除阈值
     static constexpr size_t kBatchDeleteDivisor = 10;         ///< 批量删除除数因子
     size_t batch_delete_threshold_ = kMinBatchDeleteThreshold; ///< 实际使用的批量删除阈值
+
+    // ==================== VSJoin 专用 ====================
+    // Local Index ID 数组（每分区独立）
+    std::vector<int> vsjoin_local_left_ids_;   // size = parallelism_
+    std::vector<int> vsjoin_local_right_ids_;  // size = parallelism_
+
+    // Global Index ID（共享只读）
+    int vsjoin_global_left_id_ = -1;
+    int vsjoin_global_right_id_ = -1;
+
+    // ==================== VSJoin 后台重建 ====================
+    std::once_flag rebuild_thread_started_;
+    std::unique_ptr<std::thread> rebuild_thread_;
+    std::atomic<bool> rebuild_running_{false};
+    std::atomic<int64_t> rebuild_interval_ms_{5000};
+
+    void globalIndexRebuildLoop();
+    void startGlobalIndexRebuilder();
+    void stopGlobalIndexRebuilder();
     
     // GPERFTOOLS profiling support
     std::unique_ptr<PerformanceMonitor> profiler_;

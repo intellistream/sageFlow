@@ -468,12 +468,16 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     if (auto bt = node["vsjoin_boundary_threshold"].value<double>()) {
         config.vsjoin_boundary_threshold = *bt;
     }
-    if (auto at = node["vsjoin_async_threads"].value<int64_t>()) {
-        config.vsjoin_async_threads = static_cast<int>(*at);
+    if (auto mk = node["vsjoin_multicast_k"].value<int64_t>()) {
+        config.vsjoin_multicast_k = static_cast<int>(*mk);
     }
-    if (auto al = node["vsjoin_allowed_lateness"].value<int64_t>()) {
-        config.vsjoin_allowed_lateness = *al;
+    if (auto ri = node["vsjoin_rebuild_interval_ms"].value<int64_t>()) {
+        config.vsjoin_rebuild_interval_ms = *ri;
     }
+    if (auto rt = node["vsjoin_rebuild_threshold"].value<int64_t>()) {
+        config.vsjoin_rebuild_threshold = static_cast<size_t>(*rt);
+    }
+
     
     // S3J 参数
     if (auto nc = node["s3j_num_centroids"].value<int64_t>()) {

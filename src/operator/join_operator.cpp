@@ -12,6 +12,7 @@
 #include "operator/join_metrics.h"
 #include "operator/utils/join_strategy_factory.h"
 #include "operator/utils/join_config_validator.h"
+#include "operator/join_operator_methods/vsjoin_method.h"
 #include "execution/partitioner_factory.h"
 #include "execution/centroid_partitioner.h"
 #include "utils/monitoring.h"
@@ -31,9 +32,135 @@
 
 #include "utils/logger.h"
 
+#include <mutex>
+
 #include "spdlog/fmt/bundled/chrono.h"
 
 namespace sageFlow {
+
+void JoinOperator::startGlobalIndexRebuilder() {
+    std::call_once(rebuild_thread_started_, [this]() {
+        rebuild_running_.store(true, std::memory_order_release);
+        rebuild_interval_ms_.store(strategy_config_.vsjoin_rebuild_interval_ms, std::memory_order_release);
+
+        rebuild_thread_ = std::make_unique<std::thread>(&JoinOperator::globalIndexRebuildLoop, this);
+
+        SAGEFLOW_LOG_INFO("VSJOIN_REBUILDER",
+            "Background rebuild thread started (interval={}ms, parallelism={})",
+            rebuild_interval_ms_.load(), parallelism_);
+    });
+}
+
+void JoinOperator::stopGlobalIndexRebuilder() {
+    if (rebuild_running_.exchange(false)) {
+        if (rebuild_thread_ && rebuild_thread_->joinable()) {
+            rebuild_thread_->join();
+        }
+        SAGEFLOW_LOG_INFO("VSJOIN_REBUILDER", "Background rebuild thread stopped");
+    }
+}
+
+void JoinOperator::globalIndexRebuildLoop() {
+    while (rebuild_running_.load(std::memory_order_acquire)) {
+        const int64_t interval_ms = rebuild_interval_ms_.load(std::memory_order_relaxed);
+        std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+
+        if (!rebuild_running_.load(std::memory_order_acquire)) {
+            break;
+        }
+
+        if (!left_state_ || !right_state_) {
+            SAGEFLOW_LOG_WARN("VSJOIN_REBUILD", "WindowState not ready, skip rebuild");
+            continue;
+        }
+
+        std::unordered_set<uint64_t> seen_left_uids;
+        std::unordered_set<uint64_t> seen_right_uids;
+        std::vector<const VectorRecord*> unique_left_records;
+        std::vector<const VectorRecord*> unique_right_records;
+
+        for (size_t p = 0; p < parallelism_; ++p) {
+            auto left_snapshot = left_state_->getRecordsSnapshot(p);
+            auto right_snapshot = right_state_->getRecordsSnapshot(p);
+
+            for (const auto& r : left_snapshot) {
+                if (r && seen_left_uids.insert(r->uid_).second) {
+                    unique_left_records.push_back(r.get());
+                }
+            }
+            for (const auto& r : right_snapshot) {
+                if (r && seen_right_uids.insert(r->uid_).second) {
+                    unique_right_records.push_back(r.get());
+                }
+            }
+        }
+
+        const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::system_clock::now().time_since_epoch()).count();
+        const int64_t window_lower = logicalWindowLowerBound(now_ms);
+
+        std::vector<const VectorRecord*> valid_left_records;
+        std::vector<const VectorRecord*> valid_right_records;
+        valid_left_records.reserve(unique_left_records.size());
+        valid_right_records.reserve(unique_right_records.size());
+
+        for (const auto* r : unique_left_records) {
+            if (r && r->timestamp_ >= window_lower) {
+                valid_left_records.push_back(r);
+            }
+        }
+        for (const auto* r : unique_right_records) {
+            if (r && r->timestamp_ >= window_lower) {
+                valid_right_records.push_back(r);
+            }
+        }
+
+        // ====== 3. 构建新的 Global Index（离线）并原子切换 ======
+        if (concurrency_manager_ && vsjoin_global_left_id_ >= 0 && vsjoin_global_right_id_ >= 0) {
+            IVFParameters global_ivf_params;
+            global_ivf_params.nlist = strategy_config_.ivf_nlist;
+            global_ivf_params.nprobes = strategy_config_.ivf_nprobes;
+            global_ivf_params.rebuild_threshold = strategy_config_.ivf_rebuild_threshold;
+
+            const int new_left_id = concurrency_manager_->build_index_from_records(
+                "vsjoin_global_left_rebuilt",
+                IndexType::IVF,
+                join_func_ ? join_func_->getDim() : strategy_config_.dimension,
+                global_ivf_params,
+                valid_left_records);
+
+            const int new_right_id = concurrency_manager_->build_index_from_records(
+                "vsjoin_global_right_rebuilt",
+                IndexType::IVF,
+                join_func_ ? join_func_->getDim() : strategy_config_.dimension,
+                global_ivf_params,
+                valid_right_records);
+
+            bool left_swapped = false;
+            bool right_swapped = false;
+            if (new_left_id >= 0) {
+                left_swapped = concurrency_manager_->replace_index_by_id(vsjoin_global_left_id_, new_left_id);
+            }
+            if (new_right_id >= 0) {
+                right_swapped = concurrency_manager_->replace_index_by_id(vsjoin_global_right_id_, new_right_id);
+            }
+
+            SAGEFLOW_LOG_INFO(
+                "VSJOIN_REBUILD",
+                "Global index rebuilt: {} unique left ({} valid), {} unique right ({} valid), swapped(L={}, R={})",
+                unique_left_records.size(), valid_left_records.size(),
+                unique_right_records.size(), valid_right_records.size(),
+                left_swapped ? 1 : 0,
+                right_swapped ? 1 : 0);
+        } else {
+            SAGEFLOW_LOG_INFO(
+                "VSJOIN_REBUILD",
+                "Global index rebuild tick: {} unique left ({} valid), {} unique right ({} valid) (skip swap: cm/global_id not ready)",
+                unique_left_records.size(), valid_left_records.size(),
+                unique_right_records.size(), valid_right_records.size());
+        }
+    }
+}
 
 bool JoinOperator::createIndexPair(IndexType type, const std::string& prefix) {
     if (!concurrency_manager_) return false;
@@ -178,6 +305,8 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
 }
 
 JoinOperator::~JoinOperator() {
+    stopGlobalIndexRebuilder();
+
     static std::atomic<int> destructor_count{0};
     if (destructor_count.fetch_add(1) == 0) {
         // 输出 QIQ 三阶段统计
@@ -225,9 +354,17 @@ void JoinOperator::open(const RuntimeContext& context) {
     // E-01: 如果使用策略配置模式，通过 JoinStrategyFactory 初始化组件
     if (use_strategy_config_) {
         initializeWithStrategyConfig(context);
+        if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+            startGlobalIndexRebuilder();
+        }
         return;
     }
   
+    // VSJoin 特殊处理：启动后台重建线程
+    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        startGlobalIndexRebuilder();
+    }
+
     // 根据配置创建窗口状态
     if (use_shared_state_) {
         left_state_ = std::make_unique<SharedWindowState>();
@@ -664,7 +801,26 @@ auto JoinOperator::updateSideWithState(
     // 插入索引
     if (use_index_ && concurrency_manager_ && data_for_index_insert && index_id_for_cc != -1) {
         MetricsTimer t_idx(JoinMetrics::instance().index_insert_ns);
-        concurrency_manager_->insert(index_id_for_cc, std::move(data_for_index_insert));
+
+        // VSJoin 特殊处理：只插入到本分区的 Local Index
+        if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+            const auto& local_ids = (slot == left_slot_id_)
+                ? vsjoin_local_left_ids_
+                : vsjoin_local_right_ids_;
+
+            int local_index_id = (subtask_index < local_ids.size())
+                ? local_ids[subtask_index]
+                : -1;
+
+            if (local_index_id >= 0) {
+                concurrency_manager_->insert(local_index_id, std::move(data_for_index_insert));
+            }
+
+            SAGEFLOW_LOG_DEBUG("VSJOIN", "subtask_{} inserted to local_id={}", subtask_index, local_index_id);
+        } else {
+            concurrency_manager_->insert(index_id_for_cc, std::move(data_for_index_insert));
+        }
+
         metrics_increment(JoinMetrics::instance().index_op_count);
     }
     
@@ -1091,6 +1247,25 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
     left_index_id_ = components.left_index_id;
     right_index_id_ = components.right_index_id;
 
+    // ==================== VSJoin 专用：索引 ID 下发 ====================
+    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        vsjoin_global_left_id_ = components.global_left_id;
+        vsjoin_global_right_id_ = components.global_right_id;
+        vsjoin_local_left_ids_ = components.local_left_ids;
+        vsjoin_local_right_ids_ = components.local_right_ids;
+
+        auto* vsjoin_method = dynamic_cast<VSJoinMethod*>(join_method_.get());
+        if (vsjoin_method) {
+            vsjoin_method->setGlobalIndexIds(vsjoin_global_left_id_, vsjoin_global_right_id_);
+            vsjoin_method->setLocalIndexIds(vsjoin_local_left_ids_, vsjoin_local_right_ids_);
+            vsjoin_method->setWindowStates(left_state_.get(), right_state_.get());
+        }
+
+        SAGEFLOW_LOG_INFO("VSJOIN", "JoinOperator received index ids: global(L={}, R={}) local_sizes(L={}, R={})",
+                         vsjoin_global_left_id_, vsjoin_global_right_id_,
+                         vsjoin_local_left_ids_.size(), vsjoin_local_right_ids_.size());
+    }
+
     // 5.1 启用索引插入/查询路径（用于 IVF/HNSW/HDR 等通过 ConcurrencyManager 管理索引的方法）
     // 注意：BRUTEFORCE 使用 BruteForceBaseline，不依赖索引。
     use_index_ = (left_index_id_ != -1 && right_index_id_ != -1);
@@ -1274,9 +1449,26 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
             }
             
             case JoinAlgorithm::VSJOIN: {
-                // VSJoin 使用 LSH 分区（通过 PartitionerFactory 创建）
-                // 这里返回 nullptr，让 ExecutionGraph 使用 PartitionerFactory
-                return nullptr;
+                // 临时方案：VSJoin 先复用 ClusteredJoin 的 CentroidPartitioner 以获得多播能力（multicast_k）。
+                // TODO(vsjoin): 实现 LSHPartitionerAdapter 的多播接口（supportsMulticast/partitionMulti + k），
+                // 再切回 LSH 分区。
+                CentroidPartitioner::Config cp_config;
+                cp_config.num_partitions = (num_partitions > 0)
+                    ? num_partitions
+                    : strategy_config_.num_partitions;
+                cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
+                cp_config.dimension = (dimension > 0)
+                    ? dimension
+                    : strategy_config_.dimension;
+                cp_config.seed = 42;
+                cp_config.rebalance_threshold = strategy_config_.clustered_rebalance_threshold;
+                cp_config.multicast_k = strategy_config_.clustered_multicast_k;
+                cp_config.training_samples = static_cast<size_t>(strategy_config_.clustered_training_samples);
+                cp_config.enable_cold_start = strategy_config_.enable_cold_start;
+
+                auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
+                partitioner->setMulticastEnabled(strategy_config_.clustered_multicast_enabled);
+                return partitioner;
             }
             
             case JoinAlgorithm::BRUTEFORCE:

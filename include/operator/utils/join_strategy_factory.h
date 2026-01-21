@@ -68,21 +68,17 @@ public:
         std::shared_ptr<Index> right_partitioned_index;
         
         // ==================== VSJoin 专用组件 ====================
-        
+
+        // 双层索引：Global(共享) + Local(按分区)
+        int global_left_id = -1;
+        int global_right_id = -1;
+        std::vector<int> local_left_ids;
+        std::vector<int> local_right_ids;
+
         /// 向量空间分区器
         std::shared_ptr<VectorSpacePartitioner> vector_partitioner;
-        
-        /// 分区协调器
-        std::shared_ptr<PartitionCoordinator> coordinator;
-        
-        /// 左流异步候选生成器
-        std::shared_ptr<AsyncCandidateGenerator> left_async_gen;
-        
-        /// 右流异步候选生成器
-        std::shared_ptr<AsyncCandidateGenerator> right_async_gen;
-        
-        /// 距离验证器
-        std::shared_ptr<DistanceVerifier> verifier;
+
+        // 旧版本残留的 VSJoin 组件（coordinator/async_gen/verifier）不再在 task04 路径使用
         
         // ==================== S3J/ClusteredJoin 专用组件 ====================
         

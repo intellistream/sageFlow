@@ -115,8 +115,11 @@ bool JoinConfigValidator::isCompatible(PartitionStrategy partition_strategy,
                    window_state_type == WindowStateType::TWO_TIER;
 
         case PartitionStrategy::LSH:
-            // LSH 需要 PARTITIONED_VECTOR（LSH/VSJoin 均复用）
-            return window_state_type == WindowStateType::PARTITIONED_VECTOR;
+            // LSH 分区在新版 VSJoin 设计中允许复用 TwoTierWindowState（按 subtask 分区 + 两层结构）。
+            // 旧 v1 版本使用 PARTITIONED_VECTOR（PartitionedVectorState）已弃用。
+            return window_state_type == WindowStateType::PARTITIONED_VECTOR ||
+                   window_state_type == WindowStateType::TWO_TIER ||
+                   window_state_type == WindowStateType::PARTITIONED;
 
         case PartitionStrategy::CENTROID:
             // CENTROID 兼容 PARTITIONED 和 TWO_TIER
@@ -229,7 +232,9 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
     const JoinStrategyConfig& config,
     ValidationResult& result) {
 
-    // VSJoin 必须配 LSH + PARTITIONED_VECTOR + PARTITIONED 索引
+    // VSJoin 需要 LSH + PARTITIONED 索引。
+    // WindowState 在新版设计中推荐 TWO_TIER（复用 TwoTierWindowState），也允许 PARTITIONED。
+    // 旧 v1 版本的 PARTITIONED_VECTOR（PartitionedVectorState）已弃用，但为兼容历史仍允许。
     if (config.algorithm == JoinAlgorithm::VSJOIN) {
         if (config.partition_strategy != PartitionStrategy::LSH) {
             result.addError(
@@ -237,9 +242,11 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
                 "Current: " + sageFlow::toString(config.partition_strategy) + ". "
                 "VSJoin uses locality-sensitive hashing to partition similar vectors.");
         }
-        if (config.window_state_type != WindowStateType::PARTITIONED_VECTOR) {
+        if (config.window_state_type != WindowStateType::TWO_TIER &&
+            config.window_state_type != WindowStateType::PARTITIONED &&
+            config.window_state_type != WindowStateType::PARTITIONED_VECTOR) {
             result.addError(
-                "VSJoin algorithm requires PartitionedVectorState. "
+                "VSJoin algorithm requires TwoTierWindowState (recommended) or PartitionedWindowState. "
                 "Current: " + sageFlow::toString(config.window_state_type) + ".");
         }
         if (config.index_strategy != IndexStrategy::PARTITIONED) {
@@ -427,12 +434,6 @@ void JoinConfigValidator::checkParameterRanges(
         result.addError(
             "vsjoin_boundary_threshold must be in range [0.0, 1.0], got: " +
             std::to_string(config.vsjoin_boundary_threshold));
-    }
-
-    if (config.vsjoin_async_threads <= 0) {
-        result.addError(
-            "vsjoin_async_threads must be positive, got: " +
-            std::to_string(config.vsjoin_async_threads));
     }
 
     // S3J 参数验证

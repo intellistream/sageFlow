@@ -293,12 +293,7 @@ JoinStrategyConfig IntegrationTestConfigLoader::parseStrategyConfig(
     if (auto v = table["vsjoin_boundary_threshold"].value<double>()) {
         config.vsjoin_boundary_threshold = *v;
     }
-    if (auto v = table["vsjoin_async_threads"].value<int64_t>()) {
-        config.vsjoin_async_threads = static_cast<int>(*v);
-    }
-    if (auto v = table["vsjoin_allowed_lateness"].value<int64_t>()) {
-        config.vsjoin_allowed_lateness = *v;
-    }
+    // 旧版 VSJoin 字段 vsjoin_async_threads 和 vsjoin_allowed_lateness 已移除，不再解析
 
     // 双层窗口参数
     if (auto v = table["two_tier_compact_threshold"].value<int64_t>()) {

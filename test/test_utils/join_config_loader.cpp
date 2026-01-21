@@ -231,14 +231,7 @@ JoinStrategyConfig JoinConfigLoader::merge(const JoinStrategyConfig& base,
         override_config.vsjoin_boundary_threshold > 0) {
         result.vsjoin_boundary_threshold = override_config.vsjoin_boundary_threshold;
     }
-    if (override_config.vsjoin_async_threads != 2 &&
-        override_config.vsjoin_async_threads > 0) {
-        result.vsjoin_async_threads = override_config.vsjoin_async_threads;
-    }
-    if (override_config.vsjoin_allowed_lateness != 1000 &&
-        override_config.vsjoin_allowed_lateness > 0) {
-        result.vsjoin_allowed_lateness = override_config.vsjoin_allowed_lateness;
-    }
+    // 旧版 VSJoin 字段 vsjoin_async_threads 和 vsjoin_allowed_lateness 已移除，不再合并
 
     // S3J 参数
     if (override_config.s3j_num_centroids != 16 && override_config.s3j_num_centroids > 0) {
@@ -355,8 +348,7 @@ void JoinConfigLoader::saveToFile(const JoinStrategyConfig& config,
     ofs << "# VSJoin Parameters\n";
     ofs << "vsjoin_num_hash_functions = " << config.vsjoin_num_hash_functions << "\n";
     ofs << "vsjoin_boundary_threshold = " << config.vsjoin_boundary_threshold << "\n";
-    ofs << "vsjoin_async_threads = " << config.vsjoin_async_threads << "\n";
-    ofs << "vsjoin_allowed_lateness = " << config.vsjoin_allowed_lateness << "\n\n";
+    // 旧版 VSJoin 字段 vsjoin_async_threads 和 vsjoin_allowed_lateness 已移除，不再保存
 
     // S3J 参数
     ofs << "# S3J Parameters\n";
