@@ -280,7 +280,225 @@ ctest -R vsjoin_integration_test
 - [ ] 并发安全测试通过（如果实现）
 - [ ] 测试覆盖率 >= 80%
 - [ ] 测试文档完整
+## 追加任务：集成测试框架链路打通
 
+### 任务背景
+
+为保证 VSJoin 能够完整地融入 SageFlow 现有的集成测试体系，需要将 VSJoin 接入到 `join_baseline_integration_test.cpp` 和 `run_integration_test.py` 这套标准测试链路中。这样可以：
+
+1. 通过 TOML 配置驱动 VSJoin 测试用例
+2. 支持通过 Python 脚本批量运行 VSJoin 测试
+3. 与其他 Join 算法（BruteForce, IVF, HNSW 等）使用统一的测试报告和对比框架
+
+### 实现要求
+
+#### 1. 更新 TOML 测试配置
+
+更新 `config/integration_test_cases.toml`，添加启用的 VSJoin 测试用例：
+
+```toml
+# ==================== VSJoin 集成测试 ====================
+# VSJoin 双层索引 + 后台重建测试
+
+[[test_case]]
+name = "vsjoin_baseline"
+description = "VSJoin baseline test with two-tier index"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 4
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_rebuild_interval_ms = 5000
+vsjoin_rebuild_threshold = 500
+ivf_nlist = 50
+ivf_nprobes = 10
+data_sizes = [500, 1000]
+parallelism = [1, 2, 4]
+expected_min_recall = 0.75
+enabled = true
+
+[[test_case]]
+name = "vsjoin_high_recall"
+description = "VSJoin with higher hash functions for better recall"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 4
+vsjoin_num_hash_functions = 16
+vsjoin_boundary_threshold = 0.15
+vsjoin_rebuild_interval_ms = 3000
+ivf_nlist = 50
+ivf_nprobes = 15
+data_sizes = [500]
+parallelism = [1, 2, 4]
+expected_min_recall = 0.80
+enabled = true
+
+[[test_case]]
+name = "vsjoin_parallelism_scaling"
+description = "VSJoin parallelism scalability test"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 8
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+ivf_nlist = 50
+ivf_nprobes = 10
+data_sizes = [1000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 0.70
+enabled = true
+```
+
+#### 2. 验证 JoinIntegrationPipelineHelper 支持 VSJoin
+
+确认 `test/test_utils/join_integration_pipeline_helper.*` 能够正确处理 VSJoin 配置：
+
+- `JoinStrategyFactory::create()` 能够创建 VSJoin 组件
+- Pipeline 正确初始化双层索引（Global + Local）
+- 后台重建线程正常启动和停止
+
+#### 3. 验证 run_integration_test.py 支持 VSJoin
+
+确认 `scripts/run_integration_test.py` 的 `METHOD_FILTER_MAP` 已包含 vsjoin：
+
+```python
+METHOD_FILTER_MAP = {
+    'bruteforce': '*bruteforce*',
+    'ivf': '*ivf*',
+    'hnsw': '*hnsw*',
+    'hdr_tree': '*hdr_tree*',
+    'clustered_join': '*clustered*',
+    's3j': '*s3j*',
+    'vsjoin': '*vsjoin*',  # 确认已存在
+}
+```
+
+#### 4. 运行测试验证
+
+```bash
+# 构建
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON
+cmake --build build -j $(nproc)
+
+# 运行 VSJoin 集成测试
+python3 scripts/run_integration_test.py --methods vsjoin \
+    --config config/integration_test_cases.toml \
+    --output-dir test/result/vsjoin_integration
+
+# 或者直接运行测试二进制
+./build/bin/test_join_baseline_integration --gtest_filter='*vsjoin*'
+```
+
+### 验收项
+
+#### 配置验证
+- [ ] `config/integration_test_cases.toml` 包含至少 3 个启用的 VSJoin 测试用例
+- [ ] 配置包含必要的 VSJoin 参数（`vsjoin_num_hash_functions`, `vsjoin_boundary_threshold` 等）
+- [ ] `num_partitions` 参数设置合理
+
+#### 链路打通验证
+- [ ] `JoinStrategyFactory::create()` 能为 VSJoin 正确创建所有组件：
+  - `join_method` 为 `VSJoinMethod` 实例
+  - `left_state` 和 `right_state` 为 `TwoTierWindowState`
+  - `global_left_id` 和 `global_right_id` 有效
+  - `local_left_ids` 和 `local_right_ids` 长度等于 parallelism
+- [ ] Pipeline 执行过程中：
+  - 数据正确插入到 Local Index
+  - 查询同时访问 Local 和 Global Index
+  - 后台重建线程正常工作
+- [ ] 测试完成后 Pipeline 正常关闭，无资源泄漏
+
+#### 测试执行验证
+- [ ] `./build/bin/test_join_baseline_integration --gtest_filter='*vsjoin*'` 执行成功
+- [ ] `python3 scripts/run_integration_test.py --methods vsjoin` 执行成功
+- [ ] 测试结果输出到指定目录
+- [ ] 生成的 CSV 报告包含 VSJoin 测试结果
+
+#### 召回率验证
+- [ ] `vsjoin_baseline` 测试召回率 >= 75%
+- [ ] `vsjoin_high_recall` 测试召回率 >= 80%
+- [ ] 所有启用的 VSJoin 测试用例通过
+
+#### 对比验证（可选）
+- [ ] VSJoin 与 BruteForce 在相同数据集上的召回率对比记录
+- [ ] VSJoin 与 IVF 在相同数据集上的性能对比记录
+
+### 关键检查点
+
+#### 1. WindowState 类型匹配
+
+VSJoin 必须使用 `TwoTierWindowState`：
+
+```cpp
+// JoinStrategyFactory::createWindowState() 中
+if (config.algorithm == JoinAlgorithm::VSJOIN) {
+    return std::make_unique<TwoTierWindowState>(
+        parallelism,
+        config.two_tier_compact_threshold);
+}
+```
+
+#### 2. 索引创建验证
+
+VSJoin 需要创建 2 个 Global Index + 2*P 个 Local Index：
+
+```cpp
+// JoinStrategyFactory::create() 中
+if (config.algorithm == JoinAlgorithm::VSJOIN) {
+    // Global Index (IVF)
+    components.global_left_id = concurrency_manager->create_index(
+        "vsjoin_global_left", IndexType::IVF, ...);
+    components.global_right_id = concurrency_manager->create_index(
+        "vsjoin_global_right", IndexType::IVF, ...);
+    
+    // Local Index (BruteForce) - 每个分区一对
+    for (int partition = 0; partition < P; ++partition) {
+        components.local_left_ids[partition] = concurrency_manager->create_index(...);
+        components.local_right_ids[partition] = concurrency_manager->create_index(...);
+    }
+}
+```
+
+#### 3. VSJoinMethod 初始化
+
+确保 VSJoinMethod 正确接收索引 ID：
+
+```cpp
+auto* vsjoin = dynamic_cast<VSJoinMethod*>(components.join_method.get());
+if (vsjoin) {
+    vsjoin->setGlobalIndexIds(components.global_left_id, components.global_right_id);
+    vsjoin->setLocalIndexIds(components.local_left_ids, components.local_right_ids);
+    vsjoin->setWindowStates(components.left_state.get(), components.right_state.get());
+}
+```
+
+#### 4. 后台重建线程
+
+JoinOperator 需要为 VSJoin 启动后台重建：
+
+```cpp
+// JoinOperator::initializeWithStrategyConfig() 中
+if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+    // 启动后台重建线程
+    startRebuildThread();
+}
+```
+
+### 常见问题排查
+
+| 问题 | 可能原因 | 解决方案 |
+|------|----------|----------|
+| 测试无输出 | VSJoin 测试用例 `enabled = false` | 检查 TOML 配置，确保 `enabled = true` |
+| 召回率为 0 | 索引未正确创建 | 检查日志中的 `VSJOIN_FACTORY` 消息 |
+| 段错误 | WindowState 类型不匹配 | 确保使用 `TwoTierWindowState` |
+| 后台重建未执行 | 重建间隔太长 | 减小 `vsjoin_rebuild_interval_ms` |
+| 测试超时 | Global Index 过大 | 调整 IVF 参数或减小数据规模 |
 ## 后续任务
 
 完成本任务后，VSJoin 核心功能已完成，可以继续：

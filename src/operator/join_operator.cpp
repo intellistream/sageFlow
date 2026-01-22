@@ -1013,7 +1013,16 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
         ? left_state_.get() : right_state_.get();
     WindowState* opposite_state = (slot == left_slot_id_) 
         ? right_state_.get() : left_state_.get();
-    int index_id = (slot == left_slot_id_) ? left_index_id_ : right_index_id_;
+    
+    // 计算索引 ID（VSJoin 使用 vsjoin_global_* 而非 left_/right_index_id_）
+    int index_id;
+    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        // VSJoin 使用专用的 global 索引 ID
+        // 注意：实际插入会在 updateSideWithState 中被特殊处理为插入到 local 索引
+        index_id = (slot == left_slot_id_) ? vsjoin_global_left_id_ : vsjoin_global_right_id_;
+    } else {
+        index_id = (slot == left_slot_id_) ? left_index_id_ : right_index_id_;
+    }
     
     // 保存数据指针副本用于后续 join
     auto data_for_join = std::make_unique<VectorRecord>(*data_ptr);
@@ -1274,7 +1283,14 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
 
     // 5.1 启用索引插入/查询路径（用于 IVF/HNSW/HDR 等通过 ConcurrencyManager 管理索引的方法）
     // 注意：BRUTEFORCE 使用 BruteForceBaseline，不依赖索引。
-    use_index_ = (left_index_id_ != -1 && right_index_id_ != -1);
+    // 特殊处理：VSJoin 使用 vsjoin_global_* 和 vsjoin_local_* 索引
+    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        use_index_ = (vsjoin_global_left_id_ != -1 && vsjoin_global_right_id_ != -1);
+        SAGEFLOW_LOG_INFO("VSJOIN", "use_index_={} (global_left={}, global_right={})",
+                         use_index_, vsjoin_global_left_id_, vsjoin_global_right_id_);
+    } else {
+        use_index_ = (left_index_id_ != -1 && right_index_id_ != -1);
+    }
     // 5.2 设置 index_kind_（与字符串路径保持一致）
     switch (strategy_config_.algorithm) {
         case JoinAlgorithm::IVF:

@@ -187,6 +187,28 @@ private:
     static void checkColdStartConfig(
         const JoinStrategyConfig& config,
         ValidationResult& result);
+
+    /**
+     * @brief 检查 VSJoin 配置
+     * 
+     * 验证 VSJoin 专有参数的合法性和一致性。
+     * 仅在 algorithm = VSJOIN 时执行验证。
+     * 
+     * 验证规则：
+     * - vsjoin_multicast_k: [1, 10]
+     * - vsjoin_rebuild_interval_ms: >= 1000ms
+     * - vsjoin_rebuild_threshold: >= 100
+     * - vsjoin_num_hash_functions: [1, 32]
+     * - vsjoin_boundary_threshold: [0.0, 1.0]
+     * - vsjoin_local_index_type: 推荐 BruteForce
+     * - vsjoin_global_index_type: 必须是 IVF 或 HNSW
+     * 
+     * @param config 策略配置
+     * @param result 验证结果（会被修改）
+     */
+    static void checkVSJoinConfig(
+        const JoinStrategyConfig& config,
+        ValidationResult& result);
 };
 
 }  // namespace sageFlow

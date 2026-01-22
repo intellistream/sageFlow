@@ -18,6 +18,7 @@ std::string toString(PartitionStrategy ps);
 std::string toString(WindowStateType ws);
 std::string toString(IndexStrategy is);
 std::string toString(ClusteredIndexType cit);
+std::string toString(VSJoinIndexType vit);
 
 // ==================== ValidationResult 方法实现 ====================
 
@@ -67,6 +68,7 @@ JoinConfigValidator::ValidationResult JoinConfigValidator::validate(
     checkDependencies(config, result);
     checkPerformanceHints(config, result);
     checkColdStartConfig(config, result);  // 添加冷启动配置检查
+    checkVSJoinConfig(config, result);     // 添加 VSJoin 配置检查
 
     return result;
 }
@@ -198,14 +200,16 @@ void JoinConfigValidator::checkPartitionWindowCompatibility(
             "resulting in reduced recall. Change window_state_type to SHARED.");
     }
 
-    // 规则2: LSH 需要分区窗口状态（PARTITIONED 或 PARTITIONED_VECTOR）
+    // 规则2: LSH 需要分区窗口状态（PARTITIONED、PARTITIONED_VECTOR 或 TWO_TIER）
+    // 注意：TWO_TIER 是 VSJoin 的推荐窗口状态，在新版设计中允许复用 TwoTierWindowState
     if (config.partition_strategy == PartitionStrategy::LSH &&
         config.window_state_type != WindowStateType::PARTITIONED &&
-        config.window_state_type != WindowStateType::PARTITIONED_VECTOR) {
+        config.window_state_type != WindowStateType::PARTITIONED_VECTOR &&
+        config.window_state_type != WindowStateType::TWO_TIER) {
         result.addError(
             "LSH partition strategy requires partitioned window state. "
             "Current: " + sageFlow::toString(config.window_state_type) + ". "
-            "LSH requires PARTITIONED or PARTITIONED_VECTOR window state.");
+            "LSH requires PARTITIONED, PARTITIONED_VECTOR, or TWO_TIER window state.");
     }
 
     // 规则3: CENTROID 不兼容 SHARED
@@ -701,6 +705,95 @@ void JoinConfigValidator::checkColdStartConfig(
             "During cold-start broadcast phase, all subtasks will receive data, "
             "but after training, single-partition routing may cause low recall. "
             "Consider enabling multicast for consistent behavior.");
+    }
+}
+
+void JoinConfigValidator::checkVSJoinConfig(
+    const JoinStrategyConfig& config,
+    ValidationResult& result) {
+
+    // 仅在 VSJoin 算法时验证
+    if (config.algorithm != JoinAlgorithm::VSJOIN) {
+        return;
+    }
+
+    // 验证 multicast_k 范围: [1, 10]
+    if (config.vsjoin_multicast_k < 1 || config.vsjoin_multicast_k > 10) {
+        result.addError(
+            "vsjoin_multicast_k must be in range [1, 10], got: " +
+            std::to_string(config.vsjoin_multicast_k) + ". "
+            "Recommended value: 2-3 for balanced recall and performance.");
+    }
+
+    // 验证 rebuild_interval_ms: >= 1000ms
+    if (config.vsjoin_rebuild_interval_ms < 1000) {
+        result.addError(
+            "vsjoin_rebuild_interval_ms must be >= 1000ms, got: " +
+            std::to_string(config.vsjoin_rebuild_interval_ms) + "ms. "
+            "Too frequent rebuilds may cause high CPU overhead.");
+    }
+
+    // 验证 rebuild_threshold: >= 100
+    if (config.vsjoin_rebuild_threshold < 100) {
+        result.addError(
+            "vsjoin_rebuild_threshold must be >= 100, got: " +
+            std::to_string(config.vsjoin_rebuild_threshold) + ". "
+            "Too small threshold may trigger unnecessary rebuilds.");
+    }
+
+    // 验证 num_hash_functions: [1, 32]
+    if (config.vsjoin_num_hash_functions < 1 || config.vsjoin_num_hash_functions > 32) {
+        result.addError(
+            "vsjoin_num_hash_functions must be in range [1, 32], got: " +
+            std::to_string(config.vsjoin_num_hash_functions) + ". "
+            "Recommended value: 8 for balanced partitioning.");
+    }
+
+    // 验证 boundary_threshold: [0.0, 1.0]
+    if (config.vsjoin_boundary_threshold < 0.0 || config.vsjoin_boundary_threshold > 1.0) {
+        result.addError(
+            "vsjoin_boundary_threshold must be in range [0.0, 1.0], got: " +
+            std::to_string(config.vsjoin_boundary_threshold) + ". "
+            "Recommended value: 0.1 for boundary vector detection.");
+    }
+
+    // 验证 Global Index 类型: 必须是 IVF 或 HNSW
+    if (config.vsjoin_global_index_type != VSJoinIndexType::IVF &&
+        config.vsjoin_global_index_type != VSJoinIndexType::HNSW) {
+        result.addError(
+            "vsjoin_global_index_type must be IVF or HNSW, got: " +
+            sageFlow::toString(config.vsjoin_global_index_type) + ". "
+            "BruteForce is not suitable for Global Index due to performance.");
+    }
+
+    // Local Index 类型警告：推荐 BruteForce
+    if (config.vsjoin_local_index_type != VSJoinIndexType::BRUTEFORCE) {
+        result.addWarning(
+            "vsjoin_local_index_type is not BruteForce, got: " +
+            sageFlow::toString(config.vsjoin_local_index_type) + ". "
+            "BruteForce is recommended for Local Index (lightweight and accurate). "
+            "Using IVF/HNSW for Local Index may add unnecessary overhead.");
+    }
+
+    // 性能建议：rebuild_interval_ms 与 window_size_ms 的关系
+    if (config.vsjoin_rebuild_interval_ms > config.window_size_ms * 2) {
+        result.addWarning(
+            "vsjoin_rebuild_interval_ms (" +
+            std::to_string(config.vsjoin_rebuild_interval_ms) +
+            "ms) is much larger than window_size_ms (" +
+            std::to_string(config.window_size_ms) + "ms). "
+            "This may cause Global Index to become stale. "
+            "Consider reducing rebuild_interval_ms for fresher index.");
+    }
+
+    // 性能建议：multicast_k 与 num_partitions 的关系
+    if (config.vsjoin_multicast_k > config.num_partitions / 2) {
+        result.addWarning(
+            "vsjoin_multicast_k (" + std::to_string(config.vsjoin_multicast_k) +
+            ") is more than half of num_partitions (" +
+            std::to_string(config.num_partitions) + "). "
+            "This may reduce the benefit of partitioning. "
+            "Consider increasing num_partitions or reducing multicast_k.");
     }
 }
 
