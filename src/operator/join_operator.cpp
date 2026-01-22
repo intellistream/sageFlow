@@ -16,6 +16,8 @@
 #include "execution/partitioner_factory.h"
 #include "execution/centroid_partitioner.h"
 #include "utils/monitoring.h"
+#include "operator/join_operator_methods/vsjoin_components/partition_assignment.h"
+#include "operator/join_operator_methods/vsjoin_components/load_monitor.h"
 
 #include <algorithm>
 #include <cassert>
@@ -1077,19 +1079,45 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     }
     if (use_lockless_iq) {
         // ====== IQ 策略（无锁，适用于分区模式或单线程） ======
-        // 
-        // 在分区模式下，每个分区有独立的 WindowState 和索引：
-        // 1. 数据通过 CentroidPartitioner 路由到对应的 subtask
-        // 2. 同一分区内的数据由同一个 subtask 串行处理
-        // 3. 因此分区内无并发竞争，只需 Insert -> Query
-        
-        // 阶段1：Insert 当前记录到对应窗口和索引
-        updateSideWithState(
-            current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
-        
-        // 阶段2：Query 对侧窗口查找匹配
-        executeJoinWithState(data_for_join.get(), opposite_state, slot, 
-                            subtask_index, local_return_pool);
+        //
+        // Task08: VSJoin logical partition routing
+        // - 通过 preferred partitioner（当前为 CentroidPartitioner）得到物理分区 physical_pid(们)
+        // - 映射为 logical_pid = physical_pid * V + v_idx，其中 v_idx 使用 uid 的 hash 计算
+        // - 再通过 AssignmentTable 将 logical_pid 映射到 physical subtask
+
+        if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+            auto preferred_partitioner = getPreferredPartitioner(
+                join_func_ ? join_func_->getDim() : strategy_config_.dimension,
+                static_cast<int>(context.getParallelism()));
+
+            std::vector<int> logical_pids = computeVSJoinLogicalPartitions(
+                record, preferred_partitioner.get(), static_cast<size_t>(context.getParallelism()));
+
+            std::vector<size_t> target_subtasks = routeToPhysicalSubtasks(logical_pids);
+
+            if (target_subtasks.empty()) {
+                target_subtasks.push_back(subtask_index);
+            }
+
+            for (size_t target_subtask : target_subtasks) {
+                auto data_for_insert = std::make_unique<VectorRecord>(*data_ptr);
+                updateSideWithState(current_state, index_id, std::move(data_for_insert), now_time_stamp, slot, target_subtask);
+
+                executeJoinWithState(data_for_join.get(), opposite_state, slot, target_subtask, local_return_pool);
+
+                if (load_monitor_) {
+                    load_monitor_->reportLoad(target_subtask, 1);
+                }
+            }
+        } else {
+            // 阶段1：Insert 当前记录到对应窗口和索引
+            updateSideWithState(
+                current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
+
+            // 阶段2：Query 对侧窗口查找匹配
+            executeJoinWithState(data_for_join.get(), opposite_state, slot,
+                                subtask_index, local_return_pool);
+        }
     } else if (!force_qiq) {
         // ====== 共享策略 + 多线程：全局读写锁 + IQ 策略（Insert-Query）======
         // 
@@ -1264,6 +1292,12 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
 
     // ==================== VSJoin 专用：索引 ID 下发 ====================
     if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        // Task08: logical partitions = P * V
+        num_logical_partitions_ = static_cast<size_t>(context.getParallelism()) * virtual_nodes_per_partition_;
+        partition_assignment_ = std::make_unique<VSJoinPartitionAssignment>(num_logical_partitions_,
+                                                                            static_cast<size_t>(context.getParallelism()));
+        load_monitor_ = std::make_unique<VSJoinLoadMonitor>(static_cast<size_t>(context.getParallelism()));
+
         vsjoin_global_left_id_ = components.global_left_id;
         vsjoin_global_right_id_ = components.global_right_id;
         vsjoin_local_left_ids_ = components.local_left_ids;

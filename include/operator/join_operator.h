@@ -22,6 +22,8 @@
 #include "state/window_state.h"
 #include "state/partitioned_window_state.h"
 #include "state/shared_window_state.h"
+#include "operator/join_operator_methods/vsjoin_components/partition_assignment.h"
+#include "operator/join_operator_methods/vsjoin_components/load_monitor.h"
 
 namespace sageFlow {
   // Forward declaration for PerformanceMonitor
@@ -302,6 +304,20 @@ namespace sageFlow {
     // Global Index ID（共享只读）
     int vsjoin_global_left_id_ = -1;
     int vsjoin_global_right_id_ = -1;
+
+    // ==================== VSJoin 负载均衡（Task08: Logical Partition Routing） ====================
+    std::unique_ptr<VSJoinPartitionAssignment> partition_assignment_;
+    std::unique_ptr<VSJoinLoadMonitor> load_monitor_;
+    size_t num_logical_partitions_ = 0;
+    size_t virtual_nodes_per_partition_ = 8;
+
+    std::vector<size_t> routeToPhysicalSubtasks(const std::vector<int>& logical_pids) const;
+
+    int computeVirtualNodeIndexForVSJoin(uint64_t uid) const;
+
+    std::vector<int> computeVSJoinLogicalPartitions(const Response& record,
+                                                    IPartitioner* partitioner,
+                                                    size_t num_channels) const;
 
     // ==================== VSJoin 后台重建 ====================
     std::once_flag rebuild_thread_started_;
