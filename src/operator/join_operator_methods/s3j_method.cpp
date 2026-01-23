@@ -156,29 +156,60 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
         
         double alpha = similarity_alpha_;
         if (alpha <= 1e-9) alpha = 0.1;
-        double dist_threshold = -std::log(join_similarity_threshold_) / alpha;
-        if (dist_threshold < 0) dist_threshold = 0;
+        // t: distance threshold converted from similarity threshold
+        double t = -std::log(join_similarity_threshold_) / alpha;
+        if (t < 0) t = 0;
         
-        double pruning_limit = 4.0 * dist_threshold; 
+        double t_half = t / 2.0;
+        double t_double = t * 2.0;
         
         for (auto* ws : worksets) {
             ws->computation_cost.fetch_add(1, std::memory_order_relaxed);
 
-            bool skip_inner_outer = false;
+            // [S3J Paper Section 7] Triangle inequality based pruning
+            // Determine which sets to scan based on dist(query, centroid)
+            bool scan_inner = false;
+            bool scan_outer = false;
             
             if (ws->centroid) {
                 const float* c_vec = reinterpret_cast<const float*>(ws->centroid->data_.data_.get());
                 float dist_qc = SIMDDistance::l2Distance(q_vec, c_vec, dim);
                 
-                if (dist_qc > pruning_limit) {
-                    skip_inner_outer = true;
+                // Case 1: dist(q,c) <= t/2 -> Only scan Inner Set
+                // All matches guaranteed in Inner Set by triangle inequality
+                if (dist_qc <= t_half) {
+                    scan_inner = true;
+                    scan_outer = false;
                 }
+                // Case 2: t/2 < dist(q,c) <= t -> Scan both Inner and Outer
+                else if (dist_qc <= t) {
+                    scan_inner = true;
+                    scan_outer = true;
+                }
+                // Case 3: t < dist(q,c) <= 2t -> Only scan Outer Set
+                // Inner Set points are too close to centroid to match
+                else if (dist_qc <= t_double) {
+                    scan_inner = false;
+                    scan_outer = true;
+                }
+                // Case 4: dist(q,c) > 2t -> Skip this Workset entirely
+                else {
+                    scan_inner = false;
+                    scan_outer = false;
+                }
+            } else {
+                // No centroid, conservatively scan both
+                scan_inner = true;
+                scan_outer = true;
             }
             
-            if (!skip_inner_outer) {
+            if (scan_inner) {
                 scanTierForMatches(query, ws->inner_set.get(), join_similarity_threshold_, results);
+            }
+            if (scan_outer) {
                 scanTierForMatches(query, ws->outer_set.get(), join_similarity_threshold_, results);
             }
+            // Outliers: Always scan (they don't follow workset geometry)
             scanTierForMatches(query, ws->outliers.get(), join_similarity_threshold_, results);
         }
     } else {

@@ -101,18 +101,23 @@ TEST_F(S3JVerificationTest, InnerSetPruningAndMatching) {
 }
 
 // 测试边界区域 (Outer Set) 的匹配能力
+// [Paper Section 7] 当 t/2 < dist(query, centroid) <= t 时，扫描 Inner + Outer
 TEST_F(S3JVerificationTest, BoundaryMatching) {
-    auto centroid = createRecord(888, 1.0f, 1.0f);
+    // 阈值 t ≈ 1.054 (对应 similarity_threshold = 0.9, alpha = 0.1)
+    // t/2 ≈ 0.527
+    auto centroid = createRecord(888, 0.0f, 0.0f);
     state->createWorkset(2, std::move(centroid));
     S3JWorkset* ws = state->getWorkset(2);
     
-    // 插入 Outer Set 数据
-    ws->outer_set->addRecord(createRecord(301, 1.05f, 1.0f), 0);
+    // 插入 Outer Set 数据: 距离质心 = 0.7 (在 t/2 到 t 之间)
+    ws->outer_set->addRecord(createRecord(301, 0.7f, 0.0f), 0);
     
-    // 查询边界区域
-    auto query = createRecord(401, 1.08f, 1.0f);
+    // 查询: 距离质心 = 0.6 (Case 2: t/2 < 0.6 <= t)
+    // 此时会扫描 Inner + Outer Set
+    auto query = createRecord(401, 0.6f, 0.0f);
     auto results = method->ExecuteEager(*query, 0);
     
+    // 查询与记录301距离 = |0.7 - 0.6| = 0.1 < t，应该匹配
     bool found_301 = false;
     for(const auto& res : results) {
         if (res->uid_ == 301) found_301 = true;
