@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/s3j_method.h"
+#include "operator/utils/join_method_registry.h"
 #include <cmath>
 #include <algorithm>
 #include "utils/logger.h"
@@ -209,6 +210,7 @@ S3JMetrics S3JMethod::getMetrics() const {
     S3JMetrics m;
     m.total_queries = metrics_collector_.query_count;
     m.total_matches = metrics_collector_.match_count;
+    m.current_partitions = partitioner_ ? partitioner_->getCurrentNumPartitions() : config_.num_partitions;
     return m;
 }
 
@@ -238,3 +240,38 @@ std::pair<const float*, size_t> S3JMethod::getRawVectorView(const VectorRecord& 
 }
 
 } // namespace sageFlow
+
+// S3J method registration
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::S3J,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "S3J",
+        "S3J (Scalable Similarity Stream Join) algorithm from DEBS'23. "
+        "Adaptive partitioning with dynamic workset rebalancing. "
+        "Uses CENTROID partitioning strategy with PARTITIONED window state.",
+        sageFlow::JoinAlgorithm::S3J,
+        true,   // supports_eager
+        false,  // supports_lazy (deprecated)
+        sageFlow::PartitionStrategy::CENTROID,
+        sageFlow::WindowStateType::PARTITIONED,
+        "DEBS'23: Scalable Similarity Stream Join"
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int /*left_idx*/,
+       int /*right_idx*/) {
+        // Configure S3JMethod
+        sageFlow::S3JConfig s3j_config;
+        s3j_config.similarity_threshold = config.similarity_threshold;
+        s3j_config.dimension = config.dimension;
+        s3j_config.num_partitions = config.num_partitions;
+        s3j_config.enable_adaptive = true;
+        s3j_config.enable_metrics = true;
+        
+        auto method = std::make_unique<sageFlow::S3JMethod>(
+            config.similarity_threshold, s3j_config);
+        method->setConcurrencyManager(cm);
+        return method;
+    }
+);

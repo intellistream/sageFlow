@@ -14,7 +14,9 @@ AdaptivePartitioner::AdaptivePartitioner(int dimension,
                                           const AdaptivePartitionerConfig& config,
                                           int seed)
     : KMeansPartitioner(dimension, config.initial_partitions, seed),
-      adapt_config_(config) {}
+      adapt_config_(config),
+      current_num_partitions_(config.initial_partitions),
+      partition_stats_(config.initial_partitions) {}
 
 // [S3J Paper] Algorithm 1: Workset Balancing Algorithm implementation
 std::vector<MigrationPlan> AdaptivePartitioner::runGreedyBalancing(

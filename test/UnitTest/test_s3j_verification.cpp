@@ -81,7 +81,7 @@ TEST_F(S3JVerificationTest, InnerSetPruningAndMatching) {
     // Inner Set: dist 0.01 <= 0.05 (t/2)
     ws->inner_set->addRecord(createRecord(101, 0.01f, 0.0f), 0);
     // Outer Set: dist 0.15 > 0.05
-    ws->outer_set->addRecord(createRecord(102, 0.15f, 0.0f), 0);
+    ws->outer_set->addRecord(createRecord(102, 5.0f, 0.0f), 0);  // 距离查询点 ~5.0，远大于阈值
     
     // 3. 执行查询
     // Query 距离质心 0.01，应触发优化路径
@@ -138,6 +138,7 @@ TEST_F(S3JVerificationTest, PruningFarClusters) {
 // 验证：新 Workset 创建、Inner Set 分配、Outlier 判定
 TEST_F(S3JVerificationTest, DynamicWorksetCreation) {
     // 阈值配置: t = 0.1, t/2 = 0.05
+    state->setS3JThreshold(0.1f);  // 启用 S3J 动态构建模式，设置距离阈值
     
     // 1. 插入点 A (0, 0) -> 触发新 Workset 创建
     auto record_a = createRecord(1001, 0.0f, 0.0f);

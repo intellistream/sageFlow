@@ -57,7 +57,7 @@ public:
     
     explicit S3JMethod(double threshold, const S3JConfig& config = S3JConfig());
     
-    ~S3JMethod() override = default;
+    ~S3JMethod() override { close(); }
     
     S3JMethod(const S3JMethod&) = delete;
     S3JMethod& operator=(const S3JMethod&) = delete;
