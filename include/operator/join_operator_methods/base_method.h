@@ -26,6 +26,9 @@ class BaseMethod {
 
    virtual ~BaseMethod() = default;
 
+   // 清理资源（如后台线程）
+   virtual void close() {}
+
    // 原有接口保持兼容性
    virtual void Excute(std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> &emit_pool,
                        std::unique_ptr<JoinFunction> &joinfuc,

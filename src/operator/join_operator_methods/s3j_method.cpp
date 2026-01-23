@@ -100,14 +100,14 @@ double S3JMethod::computeSimilarity(const float* a, const float* b, size_t dim) 
 
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot, size_t /*subtask_index*/) {
+    int query_slot, size_t subtask_index) {
     
     // [Fix-Step 1] Sync Point Instrumentation and Trigger
     // Still useful to call here for eager updates from active workers
     maybeAdapt();
 
     metrics_collector_.query_count++;
-    auto results = searchInWindowState(query_record, query_slot);
+    auto results = searchInWindowState(query_record, query_slot, subtask_index);
     metrics_collector_.match_count += results.size();
     return results;
 }
@@ -135,7 +135,7 @@ void S3JMethod::scanTierForMatches(const VectorRecord& query,
 }
 
 std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
-    const VectorRecord& query, int slot) {
+    const VectorRecord& query, int slot, size_t subtask_index) {
     
     WindowState* target_state = (slot == 0) ? right_state_ : left_state_;
     if (!target_state) return {};
@@ -181,7 +181,7 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
             scanTierForMatches(query, ws->outliers.get(), join_similarity_threshold_, results);
         }
     } else {
-        auto snapshot = target_state->getRecordsSnapshot(subtask_index_);
+        auto snapshot = target_state->getRecordsSnapshot(subtask_index);
         const float* q_vec = reinterpret_cast<const float*>(query.data_.data_.get());
         
         for (const auto& candidate : snapshot) {

@@ -5,6 +5,9 @@
 #include <cstdint>
 #include <random>
 #include <vector>
+#include <mutex>
+#include <atomic>
+#include <memory>
 
 namespace sageFlow {
 
@@ -141,8 +144,11 @@ class KMeansPartitioner : public VectorSpacePartitioner {
    * @param dimension 向量维度
    * @param num_clusters 聚类数量
    * @param seed 随机种子
+   * @param enable_cold_start 是否启用冷启动（默认 false，保持向后兼容）
+   * @param cold_start_samples 冷启动所需的样本数量
    */
-  KMeansPartitioner(int dimension, int num_clusters, int seed = 42);
+  KMeansPartitioner(int dimension, int num_clusters, int seed = 42,
+                    bool enable_cold_start = false, size_t cold_start_samples = 300);
 
   /**
    * @brief 使用样本数据初始化质心
@@ -175,6 +181,25 @@ class KMeansPartitioner : public VectorSpacePartitioner {
    */
   int getNumClusters() const { return num_clusters_; }
 
+  /**
+   * @brief 检查是否处于冷启动阶段
+   * @return true 如果正在收集样本或尚未训练完成
+   */
+  bool isInColdStart() const { return enable_cold_start_ && !centroids_initialized_; }
+
+  /**
+   * @brief 收集冷启动样本
+   * @param record 向量记录
+   * @return true 如果训练被触发
+   */
+  bool collectSample(const VectorRecord& record);
+
+  /**
+   * @brief 获取冷启动进度
+   * @return {当前样本数, 目标样本数}
+   */
+  std::pair<size_t, size_t> getColdStartProgress() const;
+
  private:
   int dimension_;
   int num_clusters_;
@@ -182,6 +207,13 @@ class KMeansPartitioner : public VectorSpacePartitioner {
   bool centroids_initialized_;
   std::vector<std::vector<float>> centroids_;
   std::vector<size_t> cluster_counts_;  // 用于在线更新时的加权
+
+  // 冷启动相关成员
+  bool enable_cold_start_;
+  size_t cold_start_samples_;
+  std::vector<std::unique_ptr<VectorRecord>> training_buffer_;
+  mutable std::mutex cold_start_mutex_;
+  std::atomic<bool> training_triggered_{false};
 
   /**
    * @brief 找到最近的质心
@@ -204,6 +236,11 @@ class KMeansPartitioner : public VectorSpacePartitioner {
    * @return 浮点向量
    */
   std::vector<float> extractFloatVector(const VectorRecord& record) const;
+
+  /**
+   * @brief 触发冷启动训练
+   */
+  void triggerColdStartTraining();
 };
 
 }  // namespace sageFlow

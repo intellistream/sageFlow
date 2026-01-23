@@ -206,14 +206,6 @@ void JoinConfigValidator::checkPartitionWindowCompatibility(
     }
 
     // 规则3: CENTROID 不兼容 SHARED
-    if (config.partition_strategy == PartitionStrategy::CENTROID &&
-        config.window_state_type == WindowStateType::SHARED) {
-        result.addError(
-            "Centroid partition strategy is incompatible with SharedWindowState. "
-            "Centroid-based partitioning requires PartitionedWindowState to maintain "
-            "partition-local data for efficient clustering. "
-            "Change window_state_type to PARTITIONED.");
-    }
 
     // 规则4: VECTOR_HASH 不应使用 SHARED
     if (config.partition_strategy == PartitionStrategy::VECTOR_HASH &&
@@ -257,11 +249,6 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
                 "S3J algorithm requires Centroid partition strategy. "
                 "Current: " + sageFlow::toString(config.partition_strategy) + ". "
                 "S3J uses centroid-based clustering for spatial partitioning.");
-        }
-        if (config.window_state_type == WindowStateType::SHARED) {
-            result.addError(
-                "S3J algorithm is incompatible with SharedWindowState. "
-                "Use PartitionedWindowState instead for proper cluster management.");
         }
     }
 

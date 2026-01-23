@@ -415,11 +415,14 @@ std::shared_ptr<VectorSpacePartitioner> JoinStrategyFactory::createVectorSpacePa
                 config.vsjoin_boundary_threshold);
             
         case PartitionStrategy::CENTROID: {
-            // 使用 KMeansPartitioner
+            // 使用 KMeansPartitioner（启用冷启动以支持 S3J）
             return std::make_shared<KMeansPartitioner>(
                 config.dimension,
                 config.num_partitions,
-                42);  // seed
+                42,     // seed
+                true,   // enable_cold_start
+                static_cast<size_t>(config.clustered_training_samples > 0 
+                    ? config.clustered_training_samples : 300));
         }
             
         default:
@@ -532,8 +535,8 @@ IndexType JoinStrategyFactory::getIndexType(const JoinStrategyConfig& config) {
         }
         case JoinAlgorithm::VSJOIN:
         case JoinAlgorithm::S3J:
-            // 这些算法使用 IVF 索引
-            return IndexType::IVF;
+            // S3J 使用 BruteForce 索引（无需训练）
+            return IndexType::BruteForce;
         default:
             return IndexType::BruteForce;
     }

@@ -1,4 +1,6 @@
 #include <memory>
+#include <shared_mutex>
+#include <unordered_set>
 
 #include "concurrency/concurrency_controller.h"
 #include "index/index.h"
@@ -32,5 +34,7 @@ class BlankController final : public ConcurrencyController {
 
  private:
   std::shared_ptr<Index> index_;
+  std::unordered_set<uint64_t> local_uids_;
+  mutable std::shared_mutex local_uids_mutex_;
 };
 }  // namespace sageFlow

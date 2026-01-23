@@ -125,7 +125,7 @@ private:
     void maybeAdapt();
     
     std::vector<std::unique_ptr<VectorRecord>> searchInWindowState(
-        const VectorRecord& query, int slot);
+        const VectorRecord& query, int slot, size_t subtask_index);
     
     // Zero-Copy Optimization:
     // Using pair<ptr, size> to avoid copying float vectors

@@ -87,18 +87,27 @@ std::unique_ptr<IPartitioner> PartitionerFactory::create(
           42,  // seed
           config.vsjoin_boundary_threshold);
     }
-
     case PartitionStrategy::CENTROID: {
       SAGEFLOW_LOG_DEBUG("PartitionerFactory",
                          "Creating CentroidPartitioner with {} partitions, "
-                         "dimension {}",
-                         num_partitions, dimension);
+                         "dimension {}, multicast_k={}",
+                         num_partitions, dimension, config.clustered_multicast_k);
       CentroidPartitioner::Config centroid_config;
       centroid_config.num_partitions = num_partitions;
       centroid_config.dimension = dimension;
       centroid_config.overlap_ratio = config.clustered_overlap_ratio;
       centroid_config.rebalance_threshold = config.clustered_rebalance_threshold;
-      return std::make_unique<CentroidPartitioner>(centroid_config);
+      centroid_config.training_samples = static_cast<size_t>(config.clustered_training_samples);
+      centroid_config.multicast_k = config.clustered_multicast_k;
+      auto partitioner = std::make_unique<CentroidPartitioner>(centroid_config);
+      // S3J-R: Enable multicast when multicast_k > 1 (论文 3-Way Partitioning)
+      if (config.clustered_multicast_k > 1 || config.clustered_multicast_enabled) {
+        partitioner->setMulticastEnabled(true);
+        SAGEFLOW_LOG_INFO("PartitionerFactory",
+                         "Enabled multicast for CentroidPartitioner (multicast_k={})",
+                         config.clustered_multicast_k);
+      }
+      return partitioner;
     }
 
     default:

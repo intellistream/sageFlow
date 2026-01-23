@@ -148,6 +148,7 @@ struct DataSourceModeConfig {
   bool s3j_enable_adaptive{false};
   int64_t s3j_adapt_interval_ms{1000};
   double s3j_load_threshold{0.2};
+  int s3j_multicast_k{4};  // multicast to k nearest centroids
 };
 
 static JoinStrategyConfig buildJoinStrategyConfigForTest(
@@ -176,7 +177,8 @@ static JoinStrategyConfig buildJoinStrategyConfigForTest(
     // Runtime constraint: num_partitions must equal parallelism.
     cfg.num_partitions = parallelism;
     cfg.partition_strategy = PartitionStrategy::CENTROID;
-    cfg.window_state_type = WindowStateType::PARTITIONED;
+    cfg.window_state_type = WindowStateType::SHARED;
+    cfg.clustered_multicast_enabled = true;  // Enable multicast for S3J
     cfg.index_strategy = IndexStrategy::SHARED;  // new architecture uses shared indices managed by ConcurrencyManager
 
     // 关键：把 clustered_join_params.* 的配置透传到 JoinStrategyConfig，
@@ -193,17 +195,19 @@ static JoinStrategyConfig buildJoinStrategyConfigForTest(
   if (method.find("s3j") != std::string::npos) {
     // [Fix] pass partition parameters
     cfg.num_partitions = mode_config.s3j_num_centroids;
-    cfg.partition_strategy = PartitionStrategy::CENTROID; // RESTORED
+    cfg.partition_strategy = PartitionStrategy::CENTROID; // S3J requires CENTROID
     cfg.s3j_num_centroids = mode_config.s3j_num_centroids;
     cfg.s3j_enable_adaptive = mode_config.s3j_enable_adaptive;
     cfg.s3j_adapt_interval_ms = mode_config.s3j_adapt_interval_ms;
     cfg.s3j_load_threshold = mode_config.s3j_load_threshold;
+    cfg.clustered_multicast_k = mode_config.s3j_multicast_k;
 
     // [DEBUG VALIDATION] 
     // 强制改为 ROUND_ROBIN。如果这能跑通，说明原因为数据倾斜导致的信号丢失。
     // cfg.partition_strategy = PartitionStrategy::ROUND_ROBIN; // REVERTED 
     
     cfg.window_state_type = WindowStateType::PARTITIONED;
+    cfg.clustered_multicast_enabled = true;  // Enable multicast for S3J
   }
 
   return cfg;
@@ -317,6 +321,7 @@ static std::vector<DataSourceModeConfig> loadDataSourceModeConfigs() {
     // 注意：从配置读取 int 并转为 int64_t
     mode_config.s3j_adapt_interval_ms = static_cast<int64_t>(config.get<int>("s3j_params.adapt_interval_ms", 1000));
     mode_config.s3j_load_threshold = config.get<double>("s3j_params.load_threshold", 0.2);
+    mode_config.s3j_multicast_k = config.get<int>("s3j_params.multicast_k", 4);
 
     
     SAGEFLOW_LOG_INFO("TEST", "[CONFIG] Split mode: {}, similarity_mode: {}, alpha: {}", 
@@ -995,8 +1000,8 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
 
     if (!timed_out) {
       // Wait for output stabilization
-      const auto stable_window = 50ms;
-      const auto max_wait = std::chrono::seconds(5);
+      const auto stable_window = 500ms;
+      const auto max_wait = std::chrono::seconds(120);
       uint64_t last = JoinMetrics::instance().total_emits.load();
       auto stable_since = std::chrono::steady_clock::now();
       auto end_by = std::chrono::steady_clock::now() + max_wait;

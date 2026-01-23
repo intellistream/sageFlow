@@ -191,12 +191,19 @@ bool LSHPartitioner::isBoundaryVector(const VectorRecord& record, size_t num_par
   return false;
 }
 
+
 // =============================================================================
-// KMeansPartitioner Implementation
+// KMeansPartitioner Implementation (with Cold-Start Support)
 // =============================================================================
 
-KMeansPartitioner::KMeansPartitioner(int dimension, int num_clusters, int seed)
-    : dimension_(dimension), num_clusters_(num_clusters), seed_(seed), centroids_initialized_(false) {
+KMeansPartitioner::KMeansPartitioner(int dimension, int num_clusters, int seed,
+                                     bool enable_cold_start, size_t cold_start_samples)
+    : dimension_(dimension)
+    , num_clusters_(num_clusters)
+    , seed_(seed)
+    , centroids_initialized_(false)
+    , enable_cold_start_(enable_cold_start)
+    , cold_start_samples_(cold_start_samples) {
   if (dimension <= 0) {
     throw std::invalid_argument("KMeansPartitioner: dimension must be positive");
   }
@@ -206,7 +213,72 @@ KMeansPartitioner::KMeansPartitioner(int dimension, int num_clusters, int seed)
 
   centroids_.resize(num_clusters);
   cluster_counts_.resize(num_clusters, 0);
+  
+  if (enable_cold_start_) {
+    training_buffer_.reserve(cold_start_samples_);
+  }
 }
+
+bool KMeansPartitioner::collectSample(const VectorRecord& record) {
+  if (!enable_cold_start_ || centroids_initialized_) {
+    return false;
+  }
+  
+  {
+    std::lock_guard<std::mutex> lock(cold_start_mutex_);
+    if (training_buffer_.size() < cold_start_samples_) {
+      training_buffer_.push_back(std::make_unique<VectorRecord>(record));
+    }
+  }
+  
+  // 检查是否达到训练阈值
+  size_t current_size = 0;
+  {
+    std::lock_guard<std::mutex> lock(cold_start_mutex_);
+    current_size = training_buffer_.size();
+  }
+  
+  if (current_size >= cold_start_samples_) {
+    triggerColdStartTraining();
+    return true;
+  }
+  
+  return false;
+}
+
+std::pair<size_t, size_t> KMeansPartitioner::getColdStartProgress() const {
+  std::lock_guard<std::mutex> lock(cold_start_mutex_);
+  return {training_buffer_.size(), cold_start_samples_};
+}
+
+void KMeansPartitioner::triggerColdStartTraining() {
+  bool expected = false;
+  if (!training_triggered_.compare_exchange_strong(expected, true)) {
+    return;  // 已被其他线程触发
+  }
+  
+  std::vector<std::unique_ptr<VectorRecord>> samples;
+  {
+    std::lock_guard<std::mutex> lock(cold_start_mutex_);
+    samples = std::move(training_buffer_);
+    training_buffer_.clear();
+  }
+  
+  if (!samples.empty()) {
+    // 转换为 initCentroids 所需的格式
+    std::vector<const VectorRecord*> sample_ptrs;
+    sample_ptrs.reserve(samples.size());
+    for (const auto& s : samples) {
+      sample_ptrs.push_back(s.get());
+    }
+    
+    initCentroids(sample_ptrs, 100);
+  }
+  
+  training_buffer_.shrink_to_fit();
+}
+
+
 
 std::vector<float> KMeansPartitioner::extractFloatVector(const VectorRecord& record) const {
   if (record.data_.dim_ != dimension_) {

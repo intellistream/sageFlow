@@ -61,6 +61,12 @@ void PartitionedVectorState::addRecord(std::unique_ptr<VectorRecord> record,
         return;
     }
 
+    // [COLD-START] 收集样本用于 KMeansPartitioner 冷启动训练
+    auto* kmeans = dynamic_cast<KMeansPartitioner*>(partitioner_.get());
+    if (kmeans && kmeans->isInColdStart()) {
+        kmeans->collectSample(*record);
+    }
+
     // [DEBUG LOGGING]
     static std::atomic<uint64_t> p_stats[32] = {0}; // 假设最大并行度32
     size_t p_id = getPartitionId(*record);
@@ -553,6 +559,13 @@ const VectorRecord* PartitionedVectorState::findRecordByUid(uint64_t uid) const 
 }
 
 size_t PartitionedVectorState::getPartitionId(const VectorRecord& record) const {
+    // 检查 KMeansPartitioner 是否处于冷启动阶段
+    auto* kmeans = dynamic_cast<KMeansPartitioner*>(partitioner_.get());
+    if (kmeans && kmeans->isInColdStart()) {
+        // 冷启动期间使用 round-robin 分配
+        static std::atomic<size_t> cold_start_counter{0};
+        return cold_start_counter.fetch_add(1) % num_partitions_;
+    }
     return partitioner_->partition(record, num_partitions_);
 }
 

@@ -1285,8 +1285,15 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
                 cp_config.dimension = (dimension > 0) 
                     ? dimension : strategy_config_.dimension;
                 cp_config.seed = 42;
+                cp_config.multicast_k = strategy_config_.clustered_multicast_k;
+                cp_config.training_samples = static_cast<size_t>(strategy_config_.clustered_training_samples);
                 
-                return std::make_unique<CentroidPartitioner>(cp_config);
+                auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
+                // S3J-R: Enable multicast for boundary vector routing (论文 3-Way Partitioning)
+                if (strategy_config_.clustered_multicast_k > 1 || strategy_config_.clustered_multicast_enabled) {
+                    partitioner->setMulticastEnabled(true);
+                }
+                return partitioner;
             }
             
             case JoinAlgorithm::VSJOIN: {
