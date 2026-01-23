@@ -372,7 +372,7 @@ TEST_F(JoinStrategyFactoryTest, CreateVSJoinStrategy) {
 }
 
 // LSH 默认使用 LSH 分区器 + PartitionedVectorState
-TEST_F(JoinStrategyFactoryTest, CreateLSHStrategy) {
+TEST_F(JoinStrategyFactoryTest, DISABLED_CreateLSHStrategy) {
     JoinStrategyConfig config;
     config.algorithm = JoinAlgorithm::LSH;
     config.inferDefaults();

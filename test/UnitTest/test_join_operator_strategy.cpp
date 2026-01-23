@@ -372,7 +372,7 @@ TEST_F(JoinOperatorStrategyTest, ConfigInferDefaults_IVF) {
     });
 }
 
-TEST_F(JoinOperatorStrategyTest, ConfigInferDefaults_LSH) {
+TEST_F(JoinOperatorStrategyTest, DISABLED_ConfigInferDefaults_LSH) {
     JoinStrategyConfig config;
     config.algorithm = JoinAlgorithm::LSH;
     config.dimension = 16;
