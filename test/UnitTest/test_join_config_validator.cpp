@@ -81,14 +81,15 @@ TEST_F(JoinConfigValidatorTest, IncompatibleLSHWithShared) {
                 result.errors[0].find("PartitionedVectorState") != std::string::npos);
 }
 
-TEST_F(JoinConfigValidatorTest, IncompatibleCentroidWithShared) {
+// NOTE: CENTROID + SHARED is now allowed for flexibility (validation rule removed)
+TEST_F(JoinConfigValidatorTest, CentroidWithSharedNowAllowed) {
     valid_config_.partition_strategy = PartitionStrategy::CENTROID;
     valid_config_.window_state_type = WindowStateType::SHARED;
 
     auto result = JoinConfigValidator::validate(valid_config_);
 
-    EXPECT_FALSE(result.valid);
-    EXPECT_TRUE(result.errors[0].find("Centroid") != std::string::npos);
+    // This combination is now valid - no error expected
+    EXPECT_TRUE(result.valid);
 }
 
 TEST_F(JoinConfigValidatorTest, IncompatibleVectorHashWithShared) {
