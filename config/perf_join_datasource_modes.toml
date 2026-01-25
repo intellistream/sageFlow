@@ -1,10 +1,10 @@
 [log]
 level = "info"
 
-# ==================== S3J 性能测试 (生产就绪) ====================
-# S3J 已验证 100% recall，使用合理规模验证功能正确性
+# ==================== S3J 多并行度性能测试 ====================
+# 测试 S3J 在不同并行度下的性能表现
 
-# 小规模快速验证
+# 小规模基准 (500 条) - parallelism=1 保持召回
 [[performance_test]]
 name = "s3j_small"
 mode = "generate_direct_use"
@@ -32,16 +32,16 @@ adapt_interval_ms = 1000
 load_threshold = 0.2
 multicast_k = 1
 
-# 中等规模验证（2000条记录需要更长超时）
+# 中规模多并行度测试 (1000 条) - 低并行度保证召回
 [[performance_test]]
-name = "s3j_medium"
+name = "s3j_medium_low_par"
 mode = "generate_direct_use"
 methods = ["s3j"]
 sizes = [1000]
 records_count = 1000
 vector_dim = 128
-parallelism = [1]
-window_time_ms = [10000]
+parallelism = [1, 2, 4]
+window_time_ms = [15000]
 window_trigger_ms = 50
 time_interval = 10
 similarity_threshold = 0.8
@@ -54,8 +54,64 @@ multicast_enabled = 1
 overlap_ratio = 0.1
 
 [performance_test.s3j_params]
-num_centroids = 4
+num_centroids = 8
 enable_adaptive = 0
 adapt_interval_ms = 1000
 load_threshold = 0.2
-multicast_k = 1
+multicast_k = 2
+
+# 中规模高并行度测试 (1000 条) - 增加 multicast_k 提升召回
+[[performance_test]]
+name = "s3j_medium_high_par"
+mode = "generate_direct_use"
+methods = ["s3j"]
+sizes = [1000]
+records_count = 1000
+vector_dim = 128
+parallelism = [8, 16]
+window_time_ms = [30000]
+window_trigger_ms = 100
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+training_samples = 500
+multicast_enabled = 1
+overlap_ratio = 0.2
+
+[performance_test.s3j_params]
+num_centroids = 16
+enable_adaptive = 0
+adapt_interval_ms = 1000
+load_threshold = 0.2
+multicast_k = 4
+
+# 大规模验证 (2000 条)
+[[performance_test]]
+name = "s3j_large"
+mode = "generate_direct_use"
+methods = ["s3j"]
+sizes = [2000]
+records_count = 2000
+vector_dim = 128
+parallelism = [1, 2, 4]
+window_time_ms = [30000]
+window_trigger_ms = 100
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+training_samples = 1000
+multicast_enabled = 1
+overlap_ratio = 0.1
+
+[performance_test.s3j_params]
+num_centroids = 16
+enable_adaptive = 0
+adapt_interval_ms = 1000
+load_threshold = 0.2
+multicast_k = 2
