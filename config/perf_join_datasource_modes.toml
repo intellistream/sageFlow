@@ -145,3 +145,31 @@ enable_adaptive = 0
 adapt_interval_ms = 1000
 load_threshold = 0.2
 multicast_k = 2
+
+# 自适应负载均衡测试 - 验证 greedy balancing 被调用
+[[performance_test]]
+name = "s3j_adaptive_test"
+mode = "generate_direct_use"
+methods = ["s3j"]
+sizes = [300]
+records_count = 300
+vector_dim = 128
+parallelism = [2, 4]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.clustered_join_params]
+index_type = "bruteforce"
+training_samples = 150
+multicast_enabled = 1
+overlap_ratio = 0.1
+
+[performance_test.s3j_params]
+num_centroids = 4
+enable_adaptive = 1
+adapt_interval_ms = 200
+load_threshold = 0.1
+multicast_k = 1

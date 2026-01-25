@@ -278,11 +278,19 @@ void S3JMethod::maybeAdapt() {
     if (!config_.enable_adaptive) return;
     if (!partitioner_) return;
 
-    // [S3J Paper Section 5] Check adaptation interval via checkAndAdapt
-    // Note: checkAndAdapt() already handles time-based throttling
-    if (!partitioner_->checkAndAdapt()) {
+    // [S3J Paper Section 5] Check adaptation interval only (not load threshold)
+    // We need to collect workset load first before deciding on balancing
+    auto now = std::chrono::steady_clock::now();
+    static thread_local std::chrono::steady_clock::time_point last_adapt_time;
+    auto elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_adapt_time).count();
+    
+    if (elapsed_ms < config_.adapt_interval_ms) {
         return;  // Not time for adaptation yet
     }
+    last_adapt_time = now;
+    
+    SAGEFLOW_LOG_INFO("S3J", "maybeAdapt triggered on subtask={} (interval={}ms)", 
+                      subtask_index_, elapsed_ms);
 
     // [S3J Paper Algorithm 1] Collect workset load directly from PartitionedVectorState
     // This provides actual computation_cost from S3JWorkset structures
