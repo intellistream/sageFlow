@@ -67,6 +67,12 @@ void S3JMethod::open(const RuntimeContext& context,
         
         SAGEFLOW_LOG_INFO("S3J", "AdaptivePartitioner initialized: partitions={} interval={}ms threshold={}",
                           adapt_cfg.initial_partitions, adapt_cfg.adapt_interval_ms, adapt_cfg.load_threshold);
+
+        // Create default LocalWorksetDirectory for load tracking
+        if (!workset_directory_) {
+            workset_directory_ = std::make_shared<LocalWorksetDirectory>();
+            SAGEFLOW_LOG_INFO("S3J", "Created default LocalWorksetDirectory for subtask={}", subtask_index_);
+        }
     }
     
     
@@ -278,27 +284,55 @@ void S3JMethod::maybeAdapt() {
         return;  // Not time for adaptation yet
     }
 
-    // [S3J Paper Algorithm 1] Collect workset load info from WorksetDirectory
-    if (!workset_directory_) {
-        SAGEFLOW_LOG_DEBUG("S3J", "maybeAdapt: no WorksetDirectory, skipping greedy balancing");
-        return;
-    }
-
-    auto profiles = workset_directory_->getAllWorksetProfiles();
-    if (profiles.empty()) {
-        return;
-    }
-
-    // Convert WorksetProfile to WorksetLoadInfo
+    // [S3J Paper Algorithm 1] Collect workset load directly from PartitionedVectorState
+    // This provides actual computation_cost from S3JWorkset structures
+    auto* s3j_left = dynamic_cast<PartitionedVectorState*>(left_state_);
+    auto* s3j_right = dynamic_cast<PartitionedVectorState*>(right_state_);
+    
     std::vector<WorksetLoadInfo> workset_infos;
-    workset_infos.reserve(profiles.size());
-    for (const auto& p : profiles) {
-        WorksetLoadInfo info;
-        info.workset_id = p.id;      // WorksetProfile uses 'id'
-        info.worker_id = p.owner;    // WorksetProfile uses 'owner'
-        info.load = p.load;
-        info.size_bytes = 0;  // Migration cost not tracked yet
-        workset_infos.push_back(info);
+    
+    // Collect from left state worksets
+    if (s3j_left) {
+        auto worksets = s3j_left->getWorksetsSnapshot();
+        for (size_t i = 0; i < worksets.size(); ++i) {
+            if (worksets[i]) {
+                WorksetLoadInfo info;
+                info.workset_id = i;
+                info.worker_id = static_cast<int>(subtask_index_);
+                info.load = static_cast<double>(worksets[i]->computation_cost.load(std::memory_order_relaxed));
+                info.size_bytes = worksets[i]->inner_set->size(0) + worksets[i]->outer_set->size(0);
+                workset_infos.push_back(info);
+            }
+        }
+    }
+    
+    // Collect from right state worksets  
+    if (s3j_right) {
+        auto worksets = s3j_right->getWorksetsSnapshot();
+        size_t offset = workset_infos.size();
+        for (size_t i = 0; i < worksets.size(); ++i) {
+            if (worksets[i]) {
+                WorksetLoadInfo info;
+                info.workset_id = offset + i;  // Offset to avoid ID collision
+                info.worker_id = static_cast<int>(subtask_index_);
+                info.load = static_cast<double>(worksets[i]->computation_cost.load(std::memory_order_relaxed));
+                info.size_bytes = worksets[i]->inner_set->size(0) + worksets[i]->outer_set->size(0);
+                workset_infos.push_back(info);
+            }
+        }
+    }
+
+    if (workset_infos.empty()) {
+        SAGEFLOW_LOG_DEBUG("S3J", "maybeAdapt: no worksets found, skipping greedy balancing");
+        return;
+    }
+
+    // Update WorksetDirectory with current load info (for cross-worker visibility)
+    if (workset_directory_) {
+        for (const auto& info : workset_infos) {
+            workset_directory_->setOwner(info.workset_id, info.worker_id);
+            workset_directory_->reportWorksetLoad(info.workset_id, info.load);
+        }
     }
 
     // [S3J Paper Algorithm 1] Run greedy balancing
