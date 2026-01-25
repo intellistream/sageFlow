@@ -102,7 +102,8 @@ TEST_F(JoinMethodRegistryTest, GetMethodInfo_S3J) {
     EXPECT_EQ(info.algorithm, JoinAlgorithm::S3J);
     // S3J 推荐使用 CENTROID 分区和 PARTITIONED 窗口状态
     EXPECT_EQ(info.recommended_partition, PartitionStrategy::CENTROID);
-    EXPECT_EQ(info.recommended_window_state, WindowStateType::PARTITIONED);
+    // S3J uses PARTITIONED_VECTOR for two-tier workset structure
+    EXPECT_EQ(info.recommended_window_state, WindowStateType::PARTITIONED_VECTOR);
     // S3J 有论文引用
     EXPECT_FALSE(info.paper_reference.empty());
 }
@@ -280,7 +281,8 @@ TEST_F(JoinMethodRegistryTest, ApplyRecommendedConfig_S3J) {
     EXPECT_TRUE(success);
     EXPECT_EQ(config.algorithm, JoinAlgorithm::S3J);
     EXPECT_EQ(config.partition_strategy, PartitionStrategy::CENTROID);
-    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED);
+    // S3J uses PARTITIONED_VECTOR for two-tier workset structure
+    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED_VECTOR);
 }
 
 TEST_F(JoinMethodRegistryTest, ApplyRecommendedConfig_UnknownAlgorithm) {

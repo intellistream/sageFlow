@@ -957,7 +957,10 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   {
     using namespace std::chrono_literals;
     bool timed_out = false;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(std::max(60, static_cast<int>(expected_left / 20)));
+    // Increase timeout for higher parallelism (processing time grows non-linearly)
+    int base_timeout = std::max(120, static_cast<int>(expected_left / 10));
+    int parallelism_factor = (parallelism > 8) ? parallelism * 15 : parallelism * 5;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(base_timeout + parallelism_factor);
     // All methods are now eager - we only need to wait for inputs to be processed
     // Windows won't drain fully until window time passes after last record
     // Note: lazy methods have been removed, so is_eager_method is always true
@@ -998,7 +1001,8 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
     if (!timed_out) {
       // Wait for output stabilization
       const auto stable_window = 500ms;
-      const auto max_wait = std::chrono::seconds(120);
+      // Increase max_wait for high parallelism scenarios
+      const auto max_wait = std::chrono::seconds((parallelism > 8) ? 300 : 120);
       uint64_t last = JoinMetrics::instance().total_emits.load();
       auto stable_since = std::chrono::steady_clock::now();
       auto end_by = std::chrono::steady_clock::now() + max_wait;

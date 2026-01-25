@@ -69,20 +69,6 @@ void S3JMethod::open(const RuntimeContext& context,
                           adapt_cfg.initial_partitions, adapt_cfg.adapt_interval_ms, adapt_cfg.load_threshold);
     }
     
-    // [S3J Paper Section 5] Initialize AdaptivePartitioner for workset balancing
-    if (config_.enable_adaptive) {
-        AdaptivePartitionerConfig adapt_cfg;
-        adapt_cfg.initial_partitions = config_.num_partitions;
-        adapt_cfg.adapt_interval_ms = config_.adapt_interval_ms;
-        adapt_cfg.load_threshold = config_.load_threshold;
-        adapt_cfg.migration_factor = 0.01;  // 迁移成本系数
-        
-        partitioner_ = std::make_shared<AdaptivePartitioner>(
-            config_.dimension, adapt_cfg, 42);
-        
-        SAGEFLOW_LOG_INFO("S3J", "AdaptivePartitioner initialized: partitions={} interval={}ms threshold={}",
-                          adapt_cfg.initial_partitions, adapt_cfg.adapt_interval_ms, adapt_cfg.load_threshold);
-    }
     
     // [Fix- Step 2] Start Background Adaptation Thread for Starved Workers
     if (config_.enable_adaptive) {
@@ -281,17 +267,51 @@ void S3JMethod::forceAdapt() {
 
 int S3JMethod::otherIndexId(int slot) const { return (slot == 0) ? right_index_id_ : left_index_id_; }
 
+
 void S3JMethod::maybeAdapt() { 
     if (!config_.enable_adaptive) return;
+    if (!partitioner_) return;
 
-    static thread_local int log_skips = 0;
-    if (log_skips++ % 1000 == 0) {
-        SAGEFLOW_LOG_DEBUG("S3J", "maybeAdapt check: subtask={}", subtask_index_);
+    // [S3J Paper Section 5] Check adaptation interval via checkAndAdapt
+    // Note: checkAndAdapt() already handles time-based throttling
+    if (!partitioner_->checkAndAdapt()) {
+        return;  // Not time for adaptation yet
     }
 
-    if (partitioner_) {
-        if (partitioner_->checkAndAdapt()) {
-             SAGEFLOW_LOG_INFO("S3J", "Adaptive partitioner triggered adaptation on subtask={}", subtask_index_);
+    // [S3J Paper Algorithm 1] Collect workset load info from WorksetDirectory
+    if (!workset_directory_) {
+        SAGEFLOW_LOG_DEBUG("S3J", "maybeAdapt: no WorksetDirectory, skipping greedy balancing");
+        return;
+    }
+
+    auto profiles = workset_directory_->getAllWorksetProfiles();
+    if (profiles.empty()) {
+        return;
+    }
+
+    // Convert WorksetProfile to WorksetLoadInfo
+    std::vector<WorksetLoadInfo> workset_infos;
+    workset_infos.reserve(profiles.size());
+    for (const auto& p : profiles) {
+        WorksetLoadInfo info;
+        info.workset_id = p.id;      // WorksetProfile uses 'id'
+        info.worker_id = p.owner;    // WorksetProfile uses 'owner'
+        info.load = p.load;
+        info.size_bytes = 0;  // Migration cost not tracked yet
+        workset_infos.push_back(info);
+    }
+
+    // [S3J Paper Algorithm 1] Run greedy balancing
+    auto plans = partitioner_->runGreedyBalancing(workset_infos, parallelism_);
+    
+    if (!plans.empty()) {
+        SAGEFLOW_LOG_INFO("S3J", "Greedy balancing generated {} migration plans on subtask={}", 
+                          plans.size(), subtask_index_);
+        // TODO: Execute migration plans (requires cross-worker coordination via RPC)
+        // For now, just log the plans for observability
+        for (const auto& plan : plans) {
+            SAGEFLOW_LOG_INFO("S3J", "  Migration: workset={} from worker {} to {}", 
+                              plan.workset_id, plan.source_worker, plan.target_worker);
         }
     }
 }
@@ -309,12 +329,12 @@ REGISTER_JOIN_METHOD(
         "S3J",
         "S3J (Scalable Similarity Stream Join) algorithm from DEBS'23. "
         "Adaptive partitioning with dynamic workset rebalancing. "
-        "Uses CENTROID partitioning strategy with PARTITIONED window state.",
+        "Uses CENTROID partitioning strategy with PARTITIONED_VECTOR window state for workset management.",
         sageFlow::JoinAlgorithm::S3J,
         true,   // supports_eager
         false,  // supports_lazy (deprecated)
         sageFlow::PartitionStrategy::CENTROID,
-        sageFlow::WindowStateType::PARTITIONED,
+        sageFlow::WindowStateType::PARTITIONED_VECTOR,
         "DEBS'23: Scalable Similarity Stream Join"
     }),
     [](const sageFlow::JoinStrategyConfig& config,
@@ -327,7 +347,9 @@ REGISTER_JOIN_METHOD(
         s3j_config.similarity_threshold = config.similarity_threshold;
         s3j_config.dimension = config.dimension;
         s3j_config.num_partitions = config.num_partitions;
-        s3j_config.enable_adaptive = true;
+        s3j_config.enable_adaptive = config.s3j_enable_adaptive;
+        s3j_config.adapt_interval_ms = config.s3j_adapt_interval_ms;
+        s3j_config.load_threshold = config.s3j_load_threshold;
         s3j_config.enable_metrics = true;
         
         auto method = std::make_unique<sageFlow::S3JMethod>(
