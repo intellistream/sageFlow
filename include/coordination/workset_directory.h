@@ -30,7 +30,7 @@ public:
     virtual void reportWorksetLoad(uint64_t workset_id, double load) = 0;
     
     // Get global view for rebalancing
-    virtual std::vector<WorksetProfile> getAllWorkksetProfiles() const = 0;
+    virtual std::vector<WorksetProfile> getAllWorksetProfiles() const = 0;
 };
 
 class LocalWorksetDirectory : public WorksetDirectory {
@@ -54,7 +54,7 @@ public:
         loads_[workset_id] = load;
     }
     
-    std::vector<WorksetProfile> getAllWorkksetProfiles() const override {
+    std::vector<WorksetProfile> getAllWorksetProfiles() const override {
         std::shared_lock<std::shared_mutex> owner_lock(mutex_);
         std::lock_guard<std::mutex> load_lock(load_mutex_);
         

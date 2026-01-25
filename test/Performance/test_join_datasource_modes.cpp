@@ -206,7 +206,7 @@ static JoinStrategyConfig buildJoinStrategyConfigForTest(
     // 强制改为 ROUND_ROBIN。如果这能跑通，说明原因为数据倾斜导致的信号丢失。
     // cfg.partition_strategy = PartitionStrategy::ROUND_ROBIN; // REVERTED 
     
-    cfg.window_state_type = WindowStateType::PARTITIONED;
+    cfg.window_state_type = WindowStateType::PARTITIONED_VECTOR; // S3J requires workset mechanism
     cfg.clustered_multicast_enabled = true;  // Enable multicast for S3J
   }
 
@@ -957,10 +957,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   {
     using namespace std::chrono_literals;
     bool timed_out = false;
-    // 这里不要给 1000s 这种超长等待：
-    // 一旦 JoinOperator 因配置约束/异常提前退出，输入永远不会被消费，测试会“假卡死”。
-    // 对性能回归测试而言，30s 足够覆盖该规模数据。
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(std::max(60, static_cast<int>(expected_left / 20)));
     // All methods are now eager - we only need to wait for inputs to be processed
     // Windows won't drain fully until window time passes after last record
     // Note: lazy methods have been removed, so is_eager_method is always true

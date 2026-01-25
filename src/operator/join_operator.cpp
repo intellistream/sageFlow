@@ -1277,10 +1277,11 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
             }
             
             case JoinAlgorithm::S3J: {
-                // S3J 也使用 CentroidPartitioner，但使用 S3J 特有参数
+                // S3J 也使用 CentroidPartitioner，使用 S3J 特有参数
+                // 注意：S3J 的 num_partitions 由 s3j_num_centroids 决定，不受 parallelism 影响
                 CentroidPartitioner::Config cp_config;
-                cp_config.num_partitions = (num_partitions > 0) 
-                    ? num_partitions : strategy_config_.s3j_num_centroids;
+                cp_config.num_partitions = (strategy_config_.s3j_num_centroids > 0)
+                    ? strategy_config_.s3j_num_centroids : 4;  // 默认 4 个质心
                 cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
                 cp_config.dimension = (dimension > 0) 
                     ? dimension : strategy_config_.dimension;

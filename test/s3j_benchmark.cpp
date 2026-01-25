@@ -58,9 +58,13 @@ VectorRecord createRandomRecord(uint64_t uid) {
     // Correctly construct VectorData
     VectorData data(128, DataType::Float32);
     
+    // Use <random> instead of rand() for better randomness and portability
+    static thread_local std::mt19937 gen(std::random_device{}());
+    static thread_local std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+    
     float* ptr = reinterpret_cast<float*>(data.data_.get());
     for(int i=0; i<128; ++i) {
-        ptr[i] = (float)rand() / RAND_MAX;
+        ptr[i] = dist(gen);
     }
     
     return VectorRecord(uid, 1000, std::move(data));

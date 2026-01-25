@@ -67,15 +67,6 @@ void PartitionedVectorState::addRecord(std::unique_ptr<VectorRecord> record,
         kmeans->collectSample(*record);
     }
 
-    // [DEBUG LOGGING]
-    static std::atomic<uint64_t> p_stats[32] = {0}; // 假设最大并行度32
-    size_t p_id = getPartitionId(*record);
-    
-    uint64_t count = p_stats[p_id].fetch_add(1, std::memory_order_relaxed);
-    // 每处理 500 条数据打印一次分布，避免刷屏
-    if (count > 0 && count % 500 == 0) {
-        SAGEFLOW_LOG_INFO("SkewDebug", "Partition [{}] received total {} records", p_id, count);
-    }
 
     // [S3J] 检查是否开启了 S3J 动态构建模式
     // 如果设置了阈值，且 record 有效，则走 S3J 逻辑 (Layer 2)
@@ -148,9 +139,12 @@ void PartitionedVectorState::addRecordS3J(std::unique_ptr<VectorRecord> record) 
     bool assigned_to_inner = false;
 
     // Step 2 & 3: 判定归属 (Inner vs New Workset vs Outlier)
+    // [S3J Paper] 记录主分区 ID 用于去重路由
+    uint64_t primary_workset_id = UINT64_MAX;
     
     // Case A: 加入 Inner Set (dist <= t/2) [cite: 62-65, 82]
     if (nearest_workset && min_dist <= t_half) {
+        primary_workset_id = nearest_workset->workset_id;
         nearest_workset->inner_set->addRecord(std::move(record), 0);
         assigned_to_inner = true;
         // 增加负载计数 (Approximate)
@@ -161,6 +155,7 @@ void PartitionedVectorState::addRecordS3J(std::unique_ptr<VectorRecord> record) 
     else if (!nearest_workset || min_dist > t) {
         // 生成新 ID
         uint64_t new_id = next_workset_id_.fetch_add(1);
+        primary_workset_id = new_id;
         
         // 当前记录作为质心 (深拷贝)
         auto centroid_copy = std::make_unique<VectorRecord>(*raw_rec);
@@ -175,18 +170,26 @@ void PartitionedVectorState::addRecordS3J(std::unique_ptr<VectorRecord> record) 
     }
     // Case C: 成为 Outlier (t/2 < dist <= t) [cite: 304-307]
     else {
+        primary_workset_id = nearest_workset->workset_id;
         // 加入到最近 Workset 的 Outliers 集合
         nearest_workset->outliers->addRecord(std::move(record), 0);
         // 此处不置 assigned_to_inner，因为 Outlier 需要参与更多比较
         nearest_workset->computation_cost.fetch_add(1, std::memory_order_relaxed);
     }
 
+    // [S3J Paper Section 2 - Deduplication Routing Rule]
     // 论文 Definition 10: dist <= 2t (且 > t/2，因为 <=t/2 是 Inner)
+    // 去重规则：仅当目标分区 ID < 记录所属主分区 ID 时，才路由到外部区
+    // 这确保每对记录只在一个分区中被比较一次
     
     auto snapshots = getWorksetsSnapshot();
     for (auto* ws : snapshots) {
         // 跳过它刚刚加入 Inner Set 的那个 Workset 
         if (assigned_to_inner && ws == nearest_workset) continue;
+        
+        // [S3J Dedup] 只有目标 workset_id < primary_workset_id 时才路由
+        // 这避免了同一对记录在多个 Workset 中重复计算
+        if (ws->workset_id >= primary_workset_id) continue;
         
         // 计算距离
         const float* cen_ptr = reinterpret_cast<const float*>(ws->centroid->data_.data_.get());
@@ -198,10 +201,6 @@ void PartitionedVectorState::addRecordS3J(std::unique_ptr<VectorRecord> record) 
             auto record_copy = std::make_unique<VectorRecord>(
                 raw_rec->uid_, raw_rec->timestamp_, raw_rec->data_ 
             );
-            // 手动复制数据，如果 VectorData 拷贝不完整
-            if (record_copy->data_.dim_ == 0) {
-   
-            }
             
             ws->outer_set->addRecord(std::move(record_copy), 0);
             ws->migration_cost.fetch_add(1, std::memory_order_relaxed); // 增加存储/迁移成本计数

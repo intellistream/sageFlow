@@ -47,6 +47,11 @@ auto sageFlow::BlankController::erase(const uint64_t uid) -> bool {
 
 auto sageFlow::BlankController::query(const VectorRecord& record, int k)
     -> std::vector<std::shared_ptr<const VectorRecord>> {
+    // Defensive null check: if index is None type, we fall back to empty result
+  if (!index_) {
+    return {};
+  }
+
   const auto uids = index_->query(record, k);
   std::vector<uint64_t> local;
   local.reserve(uids.size());
@@ -64,7 +69,12 @@ auto sageFlow::BlankController::query(const VectorRecord& record, int k)
 auto sageFlow::BlankController::query_for_join(const VectorRecord& record,
                                             double join_similarity_threshold,
                                             double similarity_alpha) -> std::vector<std::shared_ptr<const VectorRecord>> {
-  const auto uids  = index_->query_for_join(record, join_similarity_threshold, similarity_alpha);
+    // Defensive null check: if index is None type, we fall back to empty result
+  if (!index_) {
+    return {};
+  }
+
+  const auto uids = index_->query_for_join(record, join_similarity_threshold, similarity_alpha);
   std::vector<uint64_t> local;
   local.reserve(uids.size());
   {

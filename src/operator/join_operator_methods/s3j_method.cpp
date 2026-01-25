@@ -54,6 +54,36 @@ void S3JMethod::open(const RuntimeContext& context,
     auto* p_right = dynamic_cast<PartitionedVectorState*>(right_state_);
     if (p_right) p_right->setS3JThreshold(s3j_dist_threshold);
 
+    // [S3J Paper Section 5] Initialize AdaptivePartitioner for workset balancing
+    if (config_.enable_adaptive) {
+        AdaptivePartitionerConfig adapt_cfg;
+        adapt_cfg.initial_partitions = config_.num_partitions;
+        adapt_cfg.adapt_interval_ms = config_.adapt_interval_ms;
+        adapt_cfg.load_threshold = config_.load_threshold;
+        adapt_cfg.migration_factor = 0.01;  // 迁移成本系数
+        
+        partitioner_ = std::make_shared<AdaptivePartitioner>(
+            config_.dimension, adapt_cfg, 42);
+        
+        SAGEFLOW_LOG_INFO("S3J", "AdaptivePartitioner initialized: partitions={} interval={}ms threshold={}",
+                          adapt_cfg.initial_partitions, adapt_cfg.adapt_interval_ms, adapt_cfg.load_threshold);
+    }
+    
+    // [S3J Paper Section 5] Initialize AdaptivePartitioner for workset balancing
+    if (config_.enable_adaptive) {
+        AdaptivePartitionerConfig adapt_cfg;
+        adapt_cfg.initial_partitions = config_.num_partitions;
+        adapt_cfg.adapt_interval_ms = config_.adapt_interval_ms;
+        adapt_cfg.load_threshold = config_.load_threshold;
+        adapt_cfg.migration_factor = 0.01;  // 迁移成本系数
+        
+        partitioner_ = std::make_shared<AdaptivePartitioner>(
+            config_.dimension, adapt_cfg, 42);
+        
+        SAGEFLOW_LOG_INFO("S3J", "AdaptivePartitioner initialized: partitions={} interval={}ms threshold={}",
+                          adapt_cfg.initial_partitions, adapt_cfg.adapt_interval_ms, adapt_cfg.load_threshold);
+    }
+    
     // [Fix- Step 2] Start Background Adaptation Thread for Starved Workers
     if (config_.enable_adaptive) {
         running_ = true;
