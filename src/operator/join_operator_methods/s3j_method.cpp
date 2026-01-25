@@ -308,6 +308,7 @@ void S3JMethod::maybeAdapt() {
         SAGEFLOW_LOG_INFO("S3J", "Greedy balancing generated {} migration plans on subtask={}", 
                           plans.size(), subtask_index_);
         // TODO: Execute migration plans (requires cross-worker coordination via RPC)
+        // Issue URL: https://github.com/intellistream/sageFlow/issues/105
         // For now, just log the plans for observability
         for (const auto& plan : plans) {
             SAGEFLOW_LOG_INFO("S3J", "  Migration: workset={} from worker {} to {}", 
