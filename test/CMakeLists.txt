@@ -179,6 +179,7 @@ set(INTEG_TEST_SPECS
     test_vsjoin_integration        IntegrationTest/test_vsjoin_integration.cpp 600 INTEGRATION
     test_join_baseline_integration IntegrationTest/join_baseline_integration_test.cpp 600 INTEGRATION
     test_clustered_join_cold_start IntegrationTest/test_clustered_join_cold_start.cpp 600 INTEGRATION
+    test_non_join_operators_pipeline IntegrationTest/test_non_join_operators_pipeline.cpp 300 INTEGRATION
 )
 
 list(LENGTH INTEG_TEST_SPECS _ilen)

@@ -1,5 +1,4 @@
 ---
-agent: 'agent'
 tools: ['read/readFile', 'edit/editFiles', 'search']
 description: 'Guide users through creating high-quality GitHub Copilot prompts with proper structure, tools, and best practices.'
 ---
