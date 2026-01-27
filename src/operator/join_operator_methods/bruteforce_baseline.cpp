@@ -183,8 +183,8 @@ double BruteForceBaseline::computeSimilarity(
         }
         double distance = std::sqrt(distance_sq);
         
-        // 归一化后使用固定 alpha=0.1（归一化后 L2 范围 [0, 2]）
-        return std::exp(-0.1 * distance);
+        // 使用配置的 alpha 参数（归一化后 L2 范围 [0, 2]）
+        return std::exp(-similarity_alpha_ * distance);
     }
     
     // FIXED_ALPHA 或 ADAPTIVE_ALPHA 模式：使用配置的 alpha

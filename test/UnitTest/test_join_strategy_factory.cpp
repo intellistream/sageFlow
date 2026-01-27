@@ -188,7 +188,7 @@ TEST_F(JoinStrategyConfigTest, InferDefaultsForVSJoin) {
     config.inferDefaults();
     
     EXPECT_EQ(config.partition_strategy, PartitionStrategy::LSH);
-    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED);
+    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED_VECTOR);
     EXPECT_EQ(config.index_strategy, IndexStrategy::PARTITIONED);
 }
 
@@ -387,7 +387,6 @@ TEST_F(JoinStrategyFactoryTest, CreateLSHStrategy) {
     EXPECT_NE(components.vector_partitioner, nullptr);
     EXPECT_NE(components.partitioner, nullptr);
     EXPECT_FALSE(components.left_state->isShared());
-    // 注意：LSH 不依赖外部索引，index_id 可能为 -1，不做检查
 }
 
 // 测试无效配置应该抛出异常
