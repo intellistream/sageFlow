@@ -188,7 +188,7 @@ TEST_F(JoinStrategyConfigTest, InferDefaultsForVSJoin) {
     config.inferDefaults();
     
     EXPECT_EQ(config.partition_strategy, PartitionStrategy::LSH);
-    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED_VECTOR);
+    EXPECT_EQ(config.window_state_type, WindowStateType::PARTITIONED);
     EXPECT_EQ(config.index_strategy, IndexStrategy::PARTITIONED);
 }
 

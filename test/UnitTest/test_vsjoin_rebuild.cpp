@@ -42,7 +42,7 @@ protected:
         config.ivf_nprobes = 4;
         config.ivf_rebuild_threshold = 2.0;
 
-        config.vsjoin_rebuild_interval_ms = 30; // 提高触发频率
+        config.vsjoin_rebuild_interval_ms = 1000; // 提高触发频率
         config.window_size_ms = 100;
         config.step_size_ms = 10;
         return config;
