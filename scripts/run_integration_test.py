@@ -284,7 +284,8 @@ def run_test_binary(
     config_path: str = '',
     timeout: int = 3600,
     verbose: bool = False,
-    dry_run: bool = False
+    dry_run: bool = False,
+    log_file: Optional[Path] = None
 ) -> Tuple[bool, str, str]:
     """运行测试二进制
     
@@ -345,6 +346,27 @@ def run_test_binary(
             timeout=timeout,
             env=env
         )
+
+        if log_file is not None:
+            try:
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# SageFlow Integration Test Runner Log\n")
+                    f.write(f"started_at={datetime.now().isoformat()}\n")
+                    f.write(f"finished_at={datetime.now().isoformat()}\n")
+                    f.write(f"binary={binary_path}\n")
+                    if config_path:
+                        f.write(f"config={config_path}\n")
+                    if gtest_filter:
+                        f.write(f"gtest_filter={gtest_filter}\n")
+                    f.write(f"output_dir={output_dir}\n")
+                    f.write(f"command={' '.join(cmd)}\n")
+                    f.write("\n===== STDOUT =====\n")
+                    f.write(result.stdout or "")
+                    f.write("\n\n===== STDERR =====\n")
+                    f.write(result.stderr or "")
+            except Exception as e:
+                print(f"Warning: failed to write runner log to {log_file}: {e}")
         elapsed = time.time() - start_time
         
         # 输出结果
@@ -355,6 +377,28 @@ def run_test_binary(
             if result.stderr:
                 print("\n--- STDERR ---")
                 print(result.stderr[-2000:] if len(result.stderr) > 2000 else result.stderr)
+
+        # 记录底层日志（B 类：底层二进制 stdout/stderr）
+        if log_file is not None:
+            try:
+                log_file.parent.mkdir(parents=True, exist_ok=True)
+                with open(log_file, 'w', encoding='utf-8') as f:
+                    f.write(f"# SageFlow Integration Test Binary Log\n")
+                    f.write(f"started_at={datetime.now().isoformat()}\n")
+                    f.write(f"binary={binary_path}\n")
+                    if config_path:
+                        f.write(f"config={config_path}\n")
+                    if gtest_filter:
+                        f.write(f"gtest_filter={gtest_filter}\n")
+                    f.write(f"output_dir={output_dir}\n")
+                    f.write(f"command={' '.join(cmd)}\n")
+                    f.write(f"returncode={result.returncode}\n")
+                    f.write("\n===== STDOUT =====\n")
+                    f.write(result.stdout or "")
+                    f.write("\n\n===== STDERR =====\n")
+                    f.write(result.stderr or "")
+            except Exception as e:
+                print(f"Warning: failed to write binary log to {log_file}: {e}")
         
         print(f"\nTests completed in {elapsed:.1f}s")
         
@@ -460,7 +504,7 @@ def main():
         print(f"Parallelism: {args.parallelism}")
     if args.data_sizes:
         print(f"Data sizes: {args.data_sizes}")
-    print(f"Output directory: {args.output_dir}")
+    print(f"Output directory: {args.output_dir} (will create per-run subfolder)")
     print(f"Binary path: {args.binary_path}")
     print(f"Visualize: {args.visualize}")
     
@@ -473,22 +517,44 @@ def main():
     # 构建 gtest_filter
     gtest_filter = args.gtest_filter if args.gtest_filter else build_gtest_filter(args.methods)
     
-    # 运行测试
+    # 为本次运行创建独立输出目录，避免与历史产物混用
+    run_id = datetime.now().strftime('%Y%m%d_%H%M%S')
+    run_dir = Path(args.output_dir) / f"run_{run_id}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    # 运行测试（落盘 runner 日志：记录脚本视角的 stdout/stderr）
+    # A 类日志：脚本层日志（记录本脚本视角的关键信息 + 后续汇总信息）
+    runner_log = run_dir / "logs" / "runner.log"
+    runner_log.parent.mkdir(parents=True, exist_ok=True)
+    with open(runner_log, 'w', encoding='utf-8') as f:
+        f.write("# SageFlow Integration Test Runner Log\n")
+        f.write(f"started_at={datetime.now().isoformat()}\n")
+        f.write(f"methods={args.methods}\n")
+        f.write(f"config={args.config}\n")
+        f.write(f"output_dir={str(run_dir)}\n")
+        f.write(f"binary_path={args.binary_path}\n")
+        f.write(f"visualize={args.visualize}\n")
+        f.write(f"gtest_filter={gtest_filter}\n")
+
+    # B 类日志：底层二进制 stdout/stderr
+    binary_log = run_dir / "logs" / "binary.log"
+
     success, stdout, stderr = run_test_binary(
         binary_path=args.binary_path,
         gtest_filter=gtest_filter,
-        output_dir=args.output_dir,
+        output_dir=str(run_dir),
         config_path=args.config,
         timeout=args.timeout,
         verbose=args.verbose,
-        dry_run=args.dry_run
+        dry_run=args.dry_run,
+        log_file=binary_log
     )
     
     if args.dry_run:
         return 0
     
     # 收集结果
-    results = collect_results(args.output_dir)
+    results = collect_results(str(run_dir))
     
     if results:
         print_results_summary(results)
@@ -507,7 +573,7 @@ def main():
             sys.path.insert(0, str(script_dir))
             
             from visualize_results import generate_charts
-            generate_charts(args.output_dir, args.output_dir, args.chart_format)
+            generate_charts(str(run_dir), str(run_dir), args.chart_format)
             
         except ImportError as e:
             print(f"Warning: Could not import visualization module: {e}")
