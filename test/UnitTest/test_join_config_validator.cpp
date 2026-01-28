@@ -140,21 +140,14 @@ TEST_F(JoinConfigValidatorTest, VSJoinValidConfig) {
     EXPECT_TRUE(result.hasWarnings());
 }
 
-TEST_F(JoinConfigValidatorTest, S3JRequiresCentroid) {
+TEST_F(JoinConfigValidatorTest, S3JWithRoundRobinIsValid) {
     valid_config_.algorithm = JoinAlgorithm::S3J;
     valid_config_.partition_strategy = PartitionStrategy::ROUND_ROBIN;
 
     auto result = JoinConfigValidator::validate(valid_config_);
 
-    EXPECT_FALSE(result.valid);
-    bool found_s3j_error = false;
-    for (const auto& error : result.errors) {
-        if (error.find("S3J") != std::string::npos) {
-            found_s3j_error = true;
-            break;
-        }
-    }
-    EXPECT_TRUE(found_s3j_error);
+    // S3J + RoundRobin 现在是合法的，因为 S3J 使用内部 AdaptivePartitioner
+    EXPECT_TRUE(result.valid) << "S3J + RoundRobin should be valid (internal AdaptivePartitioner)";
 }
 
 TEST_F(JoinConfigValidatorTest, S3JValidConfig) {

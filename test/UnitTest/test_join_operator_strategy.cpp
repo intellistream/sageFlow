@@ -170,10 +170,10 @@ TEST_F(JoinOperatorStrategyTest, InvalidConfigThrows_VSJoinWithRoundRobin) {
     EXPECT_THROW(op->open(ctx), std::runtime_error);
 }
 
-TEST_F(JoinOperatorStrategyTest, InvalidConfigThrows_S3JWithRoundRobin) {
+TEST_F(JoinOperatorStrategyTest, ValidConfig_S3JWithRoundRobin) {
     JoinStrategyConfig config;
     config.algorithm = JoinAlgorithm::S3J;
-    config.partition_strategy = PartitionStrategy::ROUND_ROBIN;  // 不兼容
+    config.partition_strategy = PartitionStrategy::ROUND_ROBIN;  // S3J 使用内部 AdaptivePartitioner，所以 RoundRobin 是合法的
     config.window_state_type = WindowStateType::SHARED;
     config.dimension = 128;
     
@@ -185,7 +185,7 @@ TEST_F(JoinOperatorStrategyTest, InvalidConfigThrows_S3JWithRoundRobin) {
         config);
     
     RuntimeContext ctx(0, 1);
-    EXPECT_THROW(op->open(ctx), std::runtime_error);
+    EXPECT_NO_THROW(op->open(ctx)) << "S3J + RoundRobin should be valid";
 }
 
 // ============================================================
