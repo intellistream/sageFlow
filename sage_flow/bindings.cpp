@@ -17,7 +17,6 @@
 #include "stream/stream_environment.h"
 #include "stream/data_stream_source/simple_stream_source.h"
 #include "stream/data_stream_source/streaming_source.h"
-#include "operator/utils/join_strategy_config.h"
 
 namespace py = pybind11;
 using namespace sageFlow;  // NOLINT
@@ -475,7 +474,7 @@ PYBIND11_MODULE(_sage_flow, m) {
            py::arg("join_method"), py::arg("similarity_threshold"), py::arg("parallelism") = 1,
         "Join with method config: join_method (e.g., 'bruteforce_lazy', 'ivf', 'hnsw')")
 
-        // Join with method, threshold, and window_size_ms (full config)
+        // Join with method, threshold, and window_size_ms
         .def("join", [](Stream& self, std::shared_ptr<Stream> other_stream, py::function join_cb,
                         int dim, const std::string& join_method, double similarity_threshold,
                         int64_t window_size_ms, size_t parallelism) {
@@ -505,31 +504,19 @@ PYBIND11_MODULE(_sage_flow, m) {
                     throw std::runtime_error(std::string("Python join callback error: ") + e.what());
                 }
             };
-            // Use the constructor that accepts time_window parameter
-            auto join_fn = std::make_unique<JoinFunction>("py_join", cpp_func, window_size_ms, dim);
+            auto join_fn = std::make_unique<JoinFunction>("py_join", cpp_func, dim);
             auto result_stream = self.join(other_stream, std::move(join_fn), join_method, similarity_threshold, parallelism);
-            
-            // Set up the full JoinStrategyConfig with window_size_ms
-            // For normalized vectors (norm≈1), use NORMALIZED mode which automatically handles
-            // the similarity computation correctly (sim = exp(-alpha * normalized_L2))
+            // Set window_size_ms via JoinStrategyConfig
             JoinStrategyConfig config;
+            config.window_size_ms = window_size_ms;
             config.similarity_threshold = similarity_threshold;
             config.dimension = dim;
-            config.window_size_ms = window_size_ms;
-            config.step_size_ms = window_size_ms / 4;  // Default step = window / 4
-            // Use NORMALIZED mode for better handling of normalized embeddings
-            // This mode normalizes vectors before computing L2 distance, ensuring
-            // that the similarity range is [exp(-0.2), 1] ≈ [0.82, 1] for L2 in [0, 2]
-            // With larger alpha (e.g., 5.0), we get better discrimination
-            config.similarity_mode = SimilarityMode::NORMALIZED;
-            config.similarity_alpha = 5.0;  // Larger alpha for better discrimination with normalized vectors
             result_stream->setJoinStrategyConfig(config);
-            
             return result_stream;
         }, py::arg("other_stream"), py::arg("join_func"), py::arg("dim"),
-           py::arg("join_method"), py::arg("similarity_threshold"),
+           py::arg("join_method"), py::arg("similarity_threshold"), 
            py::arg("window_size_ms"), py::arg("parallelism") = 1,
-        "Join with full config: join_method, similarity_threshold, and window_size_ms")
+        "Join with method config and window size: window_size_ms controls the time window for join matching")
 
         // Window operation
         .def("window", [](Stream& self, int window_size, int slide_size, WindowType window_type, 
