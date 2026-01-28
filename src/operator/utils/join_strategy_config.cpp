@@ -193,13 +193,10 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
         }
     }
     
-    // 规则3: S3J 必须配 CENTROID
-    if (algorithm == JoinAlgorithm::S3J &&
-        partition_strategy != PartitionStrategy::CENTROID) {
-        errors.emplace_back(
-            "S3J requires Centroid partition strategy. "
-            "Current: " + toString(partition_strategy));
-    }
+    // 规则3: S3J 内部使用 AdaptivePartitioner，外部分区策略灵活
+    // S3J 的 AdaptivePartitioner 会在内部重新路由数据到 Workset，
+    // 因此外部可以使用 RoundRobin（推荐）或其他分区策略
+    // if (algorithm == JoinAlgorithm::S3J) { /* 不再强制 CENTROID */ }
     
     // 规则4: ClusteredJoin 必须配 CENTROID + PARTITIONED
     if (algorithm == JoinAlgorithm::CLUSTERED_JOIN) {

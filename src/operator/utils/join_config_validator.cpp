@@ -242,13 +242,15 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
         }
     }
 
-    // S3J 必须配 CENTROID
+    // S3J 内部使用 AdaptivePartitioner，外部可以使用任意分区策略
+    // 推荐 RoundRobin（均匀分发）或 CENTROID（预分区）
+    // 注意：S3J 的 AdaptivePartitioner 会在内部重新路由数据到 Workset
     if (config.algorithm == JoinAlgorithm::S3J) {
-        if (config.partition_strategy != PartitionStrategy::CENTROID) {
-            result.addError(
-                "S3J algorithm requires Centroid partition strategy. "
-                "Current: " + sageFlow::toString(config.partition_strategy) + ". "
-                "S3J uses centroid-based clustering for spatial partitioning.");
+        // 不再强制要求 CENTROID，但仍然验证状态类型
+        if (config.window_state_type != WindowStateType::PARTITIONED_VECTOR) {
+            result.addWarning(
+                "S3J algorithm works best with PartitionedVectorState. "
+                "Current: " + sageFlow::toString(config.window_state_type) + ".");
         }
     }
 

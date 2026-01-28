@@ -139,13 +139,16 @@ TEST_F(JoinStrategyConfigTest, ValidateVSJoinRequiresLSH) {
 
 // 测试配置验证 - S3J 必须配 Centroid
 TEST_F(JoinStrategyConfigTest, ValidateS3JRequiresCentroid) {
+    // S3J 不再强制要求 CENTROID 分区策略
+    // S3J 内部使用 AdaptivePartitioner，外部可以使用 RoundRobin 或其他策略
     JoinStrategyConfig config;
     config.algorithm = JoinAlgorithm::S3J;
-    config.partition_strategy = PartitionStrategy::ROUND_ROBIN;  // 错误配置
+    config.partition_strategy = PartitionStrategy::ROUND_ROBIN;  // 现在是合法配置
+    config.window_state_type = WindowStateType::PARTITIONED_VECTOR;  // S3J 推荐配置
     
     auto errors = config.validate();
-    EXPECT_FALSE(errors.empty());
     
+    // S3J + RoundRobin 应该不产生错误（不再强制 CENTROID）
     bool found_centroid_error = false;
     for (const auto& e : errors) {
         if (e.find("Centroid") != std::string::npos) {
@@ -153,7 +156,7 @@ TEST_F(JoinStrategyConfigTest, ValidateS3JRequiresCentroid) {
             break;
         }
     }
-    EXPECT_TRUE(found_centroid_error);
+    EXPECT_FALSE(found_centroid_error) << "S3J should NOT require CENTROID anymore";
 }
 
 // 测试配置验证 - 参数范围检查

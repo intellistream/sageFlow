@@ -1277,24 +1277,12 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
             }
             
             case JoinAlgorithm::S3J: {
-                // S3J 也使用 CentroidPartitioner，使用 S3J 特有参数
-                // 注意：S3J 的 num_partitions 由 s3j_num_centroids 决定，不受 parallelism 影响
-                CentroidPartitioner::Config cp_config;
-                cp_config.num_partitions = (strategy_config_.s3j_num_centroids > 0)
-                    ? strategy_config_.s3j_num_centroids : 4;  // 默认 4 个质心
-                cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
-                cp_config.dimension = (dimension > 0) 
-                    ? dimension : strategy_config_.dimension;
-                cp_config.seed = 42;
-                cp_config.multicast_k = strategy_config_.clustered_multicast_k;
-                cp_config.training_samples = static_cast<size_t>(strategy_config_.clustered_training_samples);
-                
-                auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
-                // S3J-R: Enable multicast for boundary vector routing (论文 3-Way Partitioning)
-                if (strategy_config_.clustered_multicast_k > 1 || strategy_config_.clustered_multicast_enabled) {
-                    partitioner->setMulticastEnabled(true);
-                }
-                return partitioner;
+                // S3J 内部有独立的 AdaptivePartitioner 管理 Workset 和负载均衡
+                // 外部使用 RoundRobin 分发，避免双重分区器导致质心不一致
+                // 参见：S3J 论文 DEBS'23 - 数据先均匀分发，再由内部 AdaptivePartitioner 路由
+                SAGEFLOW_LOG_INFO("JOIN", "S3J uses internal AdaptivePartitioner, "
+                                 "external routing uses RoundRobin (returning nullptr)");
+                return nullptr;
             }
             
             case JoinAlgorithm::VSJOIN: {

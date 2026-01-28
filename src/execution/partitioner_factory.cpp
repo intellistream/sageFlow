@@ -100,7 +100,8 @@ std::unique_ptr<IPartitioner> PartitionerFactory::create(
       centroid_config.training_samples = static_cast<size_t>(config.clustered_training_samples);
       centroid_config.multicast_k = config.clustered_multicast_k;
       auto partitioner = std::make_unique<CentroidPartitioner>(centroid_config);
-      // S3J-R: Enable multicast when multicast_k > 1 (论文 3-Way Partitioning)
+      // ClusteredJoin: Enable multicast for boundary vector replication
+      // 注意：S3J 使用内部 AdaptivePartitioner，不走此路径
       if (config.clustered_multicast_k > 1 || config.clustered_multicast_enabled) {
         partitioner->setMulticastEnabled(true);
         SAGEFLOW_LOG_INFO("PartitionerFactory",
