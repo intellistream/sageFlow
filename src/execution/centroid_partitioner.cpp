@@ -158,6 +158,30 @@ size_t CentroidPartitioner::partition(const Response& data, size_t num_channels)
   if (config_.enable_cold_start && !trained_.load()) {
     addTrainingSample(*data.record_);
     // 返回 0，由 ResultPartition 检查 isBroadcast() 决定行为
+
+    // debug: print cold-start/broadcast status (env SAGEFLOW_CENTROID_DEBUG=1)
+    if (const char* v = std::getenv("SAGEFLOW_CENTROID_DEBUG")) {
+      if (std::string(v) == "1") {
+        static std::atomic<uint64_t> cold_start_seen{0};
+        uint64_t n = cold_start_seen.fetch_add(1, std::memory_order_relaxed) + 1;
+        if (n == 1 || (n % 20000 == 0)) {
+          auto prog = getTrainingProgress();
+          SAGEFLOW_LOG_INFO("CentroidPartitioner",
+                            "cold_start: this={} seen={} trained={} isBroadcast={} progress={}/{} multicast_enabled={} multicast_k={} num_partitions={} num_channels={}",
+                            static_cast<const void*>(this),
+                            n,
+                            trained_.load() ? 1 : 0,
+                            isBroadcast() ? 1 : 0,
+                            prog.first,
+                            prog.second,
+                            multicast_enabled_ ? 1 : 0,
+                            config_.multicast_k,
+                            config_.num_partitions,
+                            num_channels);
+        }
+      }
+    }
+
     return 0;
   }
   

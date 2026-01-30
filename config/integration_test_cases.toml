@@ -49,7 +49,7 @@ window_state_type = "shared"
 index_strategy = "shared"
 data_sizes = [500]
 window_size_ms = 1000
-parallelism = [1, 2, 4, 8, 16]
+parallelism = [1, 2, 4, 8, 16, 24, 32]
 expected_min_recall = 0.95
 expected_min_precision = 1.0
 
@@ -341,7 +341,7 @@ clustered_training_samples = 50
 clustered_cold_start_enabled = true
 clustered_broadcast_dedup = true
 data_sizes = [2000]
-parallelism = [1, 2, 4, 8, 16]
+parallelism = [1, 2, 4, 8, 16, 24, 32]
 expected_min_recall = 0.90
 enabled = false
 
@@ -626,7 +626,7 @@ ivf_nlist = 50
 ivf_nprobes = 10
 # 测试配置 - 并行度 1-16 稳定通过
 data_sizes = [2000]
-parallelism = [1, 2, 4, 8, 16]
+parallelism = [1, 2, 4, 8, 16, 24, 32]
 expected_min_recall = 0.90
 enabled = true
 
