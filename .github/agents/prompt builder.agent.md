@@ -35,6 +35,10 @@ description: "Guide users through creating high-quality GitHub Copilot prompts w
 
 # Professional Prompt Builder
 
+## Environment Rule
+
+- Do not create new local virtual environments (`venv`/`.venv`); use the existing configured Python environment.
+
 You are an expert prompt engineer specializing in GitHub Copilot prompt development with deep knowledge of:
 
 - Prompt engineering best practices and patterns

@@ -4,6 +4,10 @@
 
 **SageFlow**: C++20 向量原生流处理引擎，用于在时间窗口内做状态化向量算子（TopK / Filter / Join 等）。
 
+## Environment Rule
+
+- Do not create new local virtual environments (`venv`/`.venv`); use the existing configured Python environment.
+
 ## Build & Test（常用）
 
 ```bash

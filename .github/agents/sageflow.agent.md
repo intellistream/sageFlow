@@ -39,6 +39,10 @@ tools:
 
 **SageFlow** 是一个向量原生流处理引擎，专为实时 LLM 生成任务设计。它提供声明式 API 来组合时间窗口内的有状态向量操作，为动态变化的数据集提供快速、高效的语义上下文更新。
 
+## Environment Rule
+
+- Do not create new local virtual environments (`venv`/`.venv`); use the existing configured Python environment.
+
 ### 核心应用场景
 
 - **实时 LLM 生成**: 为大语言模型提供新鲜的、有状态的上下文快照
