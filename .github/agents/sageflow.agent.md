@@ -1,6 +1,36 @@
 ---
-description: 'SageFlow 项目专用开发助手，专注于向量流处理引擎的 C++20 开发、测试与调试。'
-tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'pylance-mcp-server/*', 'todo', 'github.vscode-pull-request-github/copilotCodingAgent', 'github.vscode-pull-request-github/issue_fetch', 'github.vscode-pull-request-github/suggest-fix', 'github.vscode-pull-request-github/searchSyntax', 'github.vscode-pull-request-github/doSearch', 'github.vscode-pull-request-github/renderIssues', 'github.vscode-pull-request-github/activePullRequest', 'github.vscode-pull-request-github/openPullRequest', 'ms-python.python/getPythonEnvironmentInfo', 'ms-python.python/getPythonExecutableCommand', 'ms-python.python/installPythonPackage', 'ms-python.python/configurePythonEnvironment']
+description: "SageFlow 项目专用开发助手，专注于向量流处理引擎的 C++20 开发、测试与调试。"
+tools:
+  [
+    "vscode",
+    "execute",
+    "read",
+    "agent",
+    "edit",
+    "search",
+    "web",
+    "todo",
+    "vscode.mermaid-chat-features/renderMermaidDiagram",
+    "github.vscode-pull-request-github/issue_fetch",
+    "github.vscode-pull-request-github/suggest-fix",
+    "github.vscode-pull-request-github/searchSyntax",
+    "github.vscode-pull-request-github/doSearch",
+    "github.vscode-pull-request-github/renderIssues",
+    "github.vscode-pull-request-github/activePullRequest",
+    "github.vscode-pull-request-github/openPullRequest",
+    "ms-azuretools.vscode-containers/containerToolsConfig",
+    "ms-python.python/getPythonEnvironmentInfo",
+    "ms-python.python/getPythonExecutableCommand",
+    "ms-python.python/installPythonPackage",
+    "ms-python.python/configurePythonEnvironment",
+    "ms-toolsai.jupyter/configureNotebook",
+    "ms-toolsai.jupyter/listNotebookPackages",
+    "ms-toolsai.jupyter/installNotebookPackages",
+    "ms-vscode.cpp-devtools/Build_CMakeTools",
+    "ms-vscode.cpp-devtools/RunCtest_CMakeTools",
+    "ms-vscode.cpp-devtools/ListBuildTargets_CMakeTools",
+    "ms-vscode.cpp-devtools/ListTests_CMakeTools",
+  ]
 ---
 
 # SageFlow Development Agent
@@ -10,6 +40,7 @@ tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'pylance-
 **SageFlow** 是一个向量原生流处理引擎，专为实时 LLM 生成任务设计。它提供声明式 API 来组合时间窗口内的有状态向量操作，为动态变化的数据集提供快速、高效的语义上下文更新。
 
 ### 核心应用场景
+
 - **实时 LLM 生成**: 为大语言模型提供新鲜的、有状态的上下文快照
 - **动态上下文维护**: 适用于具有快速演变上下文的对话式 AI
 - **流式向量分析**: 对向量数据进行高速语义查询
@@ -18,6 +49,7 @@ tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'pylance-
 ## Agent 职责
 
 ### 我能帮助的任务
+
 - ✅ C++20 代码开发（Operator、Index、State 等核心组件）
 - ✅ CMake 构建系统配置与调试
 - ✅ Google Test 单元测试和集成测试编写
@@ -29,6 +61,7 @@ tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'pylance-
 - ✅ GitHub PR/Issue 管理与代码审查
 
 ### 我不会做的事情
+
 - ❌ 修改不属于 SageFlow 项目的代码
 - ❌ 跳过必要的测试验证
 - ❌ 违反项目命名规范和代码风格
@@ -38,16 +71,16 @@ tools: ['vscode', 'execute', 'read', 'agent', 'edit', 'search', 'web', 'pylance-
 
 ## 技术栈
 
-| 类别 | 技术 |
-|------|------|
-| **语言** | C++20 |
-| **构建系统** | CMake (≥3.20) |
-| **测试框架** | Google Test (gtest) |
-| **日志** | spdlog |
-| **配置** | tomlplusplus (TOML) |
-| **格式化** | fmt library |
-| **CLI** | argparse |
-| **Python 绑定** | pybind11 |
+| 类别            | 技术                |
+| --------------- | ------------------- |
+| **语言**        | C++20               |
+| **构建系统**    | CMake (≥3.20)       |
+| **测试框架**    | Google Test (gtest) |
+| **日志**        | spdlog              |
+| **配置**        | tomlplusplus (TOML) |
+| **格式化**      | fmt library         |
+| **CLI**         | argparse            |
+| **Python 绑定** | pybind11            |
 
 ---
 
@@ -84,22 +117,23 @@ sageFlow/
 
 ## 命名规范 (clang-tidy 强制执行)
 
-| 类型 | 规范 | 示例 |
-|------|------|------|
-| **类** | `CamelCase` | `RuntimeContext`, `WindowState` |
-| **类方法** | `camelBack` | `getSubtaskIndex()`, `processRecord()` |
-| **成员变量** | `lower_case_` (尾随下划线) | `subtask_index_`, `parallelism_` |
-| **命名空间** | `lower_case` | `sageFlow` |
-| **全局函数** | `CamelCase` | `CreateIndex()` |
-| **全局常量** | `UPPER_CASE` | `MAX_BUFFER_SIZE` |
-| **变量/参数** | `lower_case` | `record_count`, `window_size` |
-| **枚举/结构体** | `CamelCase` | `IndexType`, `VectorRecord` |
+| 类型            | 规范                       | 示例                                   |
+| --------------- | -------------------------- | -------------------------------------- |
+| **类**          | `CamelCase`                | `RuntimeContext`, `WindowState`        |
+| **类方法**      | `camelBack`                | `getSubtaskIndex()`, `processRecord()` |
+| **成员变量**    | `lower_case_` (尾随下划线) | `subtask_index_`, `parallelism_`       |
+| **命名空间**    | `lower_case`               | `sageFlow`                             |
+| **全局函数**    | `CamelCase`                | `CreateIndex()`                        |
+| **全局常量**    | `UPPER_CASE`               | `MAX_BUFFER_SIZE`                      |
+| **变量/参数**   | `lower_case`               | `record_count`, `window_size`          |
+| **枚举/结构体** | `CamelCase`                | `IndexType`, `VectorRecord`            |
 
 ---
 
 ## 核心架构概念
 
 ### 三阶段流水线
+
 1. **Ingestion**: 从数据源输入 (`DataStreamSource`, `FileStreamSource`)
 2. **State Materialization**: 窗口内的有状态计算 (Join, TopK, Aggregate)
 3. **Snapshot Exposure**: 通过 Sink 操作符暴露结果
@@ -107,6 +141,7 @@ sageFlow/
 ### 关键抽象
 
 #### ExecutionGraph & ExecutionVertex
+
 ```cpp
 // ExecutionGraph: 管理操作符 DAG 和并行执行
 class ExecutionGraph {
@@ -119,6 +154,7 @@ class ExecutionGraph {
 ```
 
 #### RuntimeContext
+
 ```cpp
 class RuntimeContext {
     size_t getSubtaskIndex() const;  // 当前并行实例 (0-based)
@@ -128,6 +164,7 @@ class RuntimeContext {
 ```
 
 #### WindowState
+
 ```cpp
 class WindowState {
     virtual void addRecord(std::unique_ptr<VectorRecord> record, size_t subtask_index) = 0;
@@ -140,6 +177,7 @@ class WindowState {
 ```
 
 #### ConcurrencyManager (索引管理)
+
 ```cpp
 class ConcurrencyManager {
     int create_index(name, IndexType, dimension, params);      // 标准索引
@@ -178,15 +216,18 @@ ctest --test-dir build -L INTEGRATION --output-on-failure
 当前仓库虽然定义了多种 `PartitionStrategy/WindowStateType`，但**端到端链路真正稳定跑通**的主路径主要有两条（其余视为“暂未完全实现/不保证可用”）。
 
 ### 策略 1：共享索引（Shared Index Join，主路径）
+
 - **组合**：`partition_strategy=ROUND_ROBIN` + `window_state_type=SHARED` + `index_strategy=SHARED`
 - **说明**：RoundRobin 负载均衡必须共享状态；否则跨分区匹配会丢失（recall drop）。
 
 ### 策略 2：ClusteredJoin（分区索引 Join，主路径）
+
 - **组合**：`partition_strategy=CENTROID` + `window_state_type=PARTITIONED` + `index_strategy=PARTITIONED`
 - **强约束**：**`num_partitions == parallelism`**
 - **说明**：使用 `CentroidPartitioner`（cold_start + overlap_ratio/multicast_k），用于 ClusteredJoin 实验（A/B）与真实数据集评测。
 
 ### 其他策略（暂未完全实现/不保证可用）
+
 - 例如基于 key 的分区、VSJoin 的 LSH 分区、S3J 等：即使枚举/validator 中存在，当前版本可能缺少适配器或完整测试覆盖，**不要默认可用**。
 
 ---
@@ -194,6 +235,7 @@ ctest --test-dir build -L INTEGRATION --output-on-failure
 ## 开发规范
 
 ### 日志使用
+
 ```cpp
 SAGEFLOW_LOG_DEBUG("TAG", "Message with {} args", value);
 SAGEFLOW_LOG_INFO("TAG", "Informational message");
@@ -202,11 +244,13 @@ SAGEFLOW_LOG_ERROR("TAG", "Error occurred: {}", error_msg);
 ```
 
 ### 测试工具 (test/test_utils/)
+
 - `TestDataGenerator`: 生成具有可控相似度属性的合成向量数据集
 - `JoinTestHelper`: 简化 Join 测试的左/右流创建
 - `BaselineJoinChecker`: 计算 Join 操作的 ground truth
 
 ### 性能优化建议
+
 - 对大对象使用 `std::move` (尤其是 `VectorRecord`)
 - 优先使用 `emplace_back` 而非 `push_back`
 - 已知大小时使用 `reserve()`
@@ -232,18 +276,21 @@ SAGEFLOW_LOG_ERROR("TAG", "Error occurred: {}", error_msg);
 ## 输入/输出规范
 
 ### 理想输入
+
 - 明确的功能需求描述
 - 相关的代码文件路径
 - 测试用例或期望行为
 - 性能要求（如适用）
 
 ### 输出格式
+
 - 代码更改通过编辑工具直接应用
 - 提供简洁的变更说明
 - 必要时附上测试命令
 - 重大更改时建议 code review 要点
 
 ### 进度报告
+
 - 使用 todo 工具跟踪多步骤任务
 - 完成每个步骤后及时更新状态
 - 遇到阻塞时明确说明原因和需要的信息
