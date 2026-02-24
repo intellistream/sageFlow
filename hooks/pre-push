@@ -1,0 +1,183 @@
+#!/bin/bash
+# Pre-push hook — block main push + optional PyPI publish
+#
+# Flow:
+#   1. Block direct push to main branch
+#   2. Display current version
+#   3. Check if version already exists on PyPI
+#   4. Offer to publish after push completes (background job)
+#
+# Version bumping is handled entirely by the post-commit hook.
+# This hook NEVER bumps version or creates additional commits.
+# → Single push only, no double-push.
+
+# Recursion guard (unused now, kept for safety)
+if [ "${_SAGELLM_PP_RUNNING:-0}" = "1" ]; then
+    exit 0
+fi
+
+# Publish mode: "public" for sage-* repos
+PUBLISH_MODE=public
+
+# Colors
+RED='\033[0;31m'
+YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+BLUE='\033[0;34m'
+DIM='\033[2m'
+NC='\033[0m'
+
+REPO_DIR="$(pwd)"
+REPO_NAME="$(basename "$REPO_DIR")"
+PUBLISH_LOG="/tmp/${REPO_NAME}-publish-$$.log"
+
+# --- Block direct push to main ---
+block_main_push=false
+while read -r local_ref local_sha remote_ref remote_sha; do
+    if [ "$local_ref" = "refs/heads/main" ] || [ "$remote_ref" = "refs/heads/main" ]; then
+        block_main_push=true
+        break
+    fi
+done
+
+if [ "$block_main_push" = true ]; then
+    echo -e "${RED}✗ Direct push to main is forbidden${NC}"
+    echo -e "${YELLOW}  Please push to a feature branch and merge via PR.${NC}"
+    exit 1
+fi
+
+# Safe read: falls back to default if /dev/tty is unavailable (SSH, IDE, etc.)
+safe_read() {
+    local varname="$1"
+    local default="$2"
+    if [ -t 0 ] || [ -c /dev/tty ] 2>/dev/null; then
+        read -r "$varname" </dev/tty 2>/dev/null || eval "$varname=\"$default\""
+    else
+        eval "$varname=\"$default\""
+    fi
+}
+
+# Find _version.py — single source of truth
+find_version_file() {
+    find . -maxdepth 4 -name '_version.py' \
+        -not -path '*/node_modules/*' \
+        -not -path '*/.git/*' \
+        -not -path '*/dist/*' \
+        -not -path '*/.egg-info/*' \
+        -not -path '*/build/*' \
+        2>/dev/null | head -1
+}
+
+# Schedule PyPI publish as background job after push completes
+schedule_publish() {
+    local version="$1"
+    local package="$2"
+
+    if ! command -v sage-pypi-publisher &> /dev/null; then
+        echo -e "${YELLOW}⚠ sage-pypi-publisher not found, skipping auto-publish${NC}"
+        echo -e "${DIM}  Install: pip install isage-pypi-publisher${NC}"
+        return
+    fi
+
+    echo -e "${GREEN}📦 PyPI publish scheduled (runs after push)${NC}"
+    echo -e "${DIM}  Log: tail -f ${PUBLISH_LOG}${NC}"
+
+    (
+        # Wait for parent git push to finish
+        GIT_PID="$PPID"
+        while kill -0 "$GIT_PID" 2>/dev/null; do
+            sleep 1
+        done
+        sleep 1
+
+        cd "$REPO_DIR" || exit 1
+
+        {
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            echo "📦 Post-push: Building ${package} ${version}..."
+            echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            rm -rf dist/ build/ *.egg-info 2>/dev/null || true
+
+            if sage-pypi-publisher build . --upload --no-dry-run --mode ${PUBLISH_MODE}; then
+                echo ""
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+                echo "✓ Successfully uploaded ${package} ${version} to PyPI"
+                echo "🔗 https://pypi.org/project/${package}/${version}/"
+                echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            else
+                echo ""
+                echo "✗ Failed to upload to PyPI (exit code: $?)"
+                echo "  Re-run manually: sage-pypi-publisher build . --upload --no-dry-run --mode ${PUBLISH_MODE}"
+            fi
+        } >> "$PUBLISH_LOG" 2>&1
+
+        # Print summary to terminal (user sees it after push output)
+        if grep -q "Successfully uploaded" "$PUBLISH_LOG" 2>/dev/null; then
+            echo -e "\n${GREEN}✓ PyPI: ${package} ${version} published${NC}"
+        else
+            echo -e "\n${RED}✗ PyPI publish failed. See: ${PUBLISH_LOG}${NC}"
+        fi
+    ) &
+    disown
+}
+
+# --- Main Logic ---
+
+if [ ! -f pyproject.toml ]; then
+    exit 0
+fi
+
+PACKAGE_NAME=$(grep -oP '^name = "\K[^"]+' pyproject.toml 2>/dev/null || echo "unknown")
+
+# Get version from _version.py (single source of truth)
+VERSION_FILE=$(find_version_file)
+CURRENT_VERSION=""
+if [ -n "$VERSION_FILE" ]; then
+    CURRENT_VERSION=$(grep -oP '__version__ = "\K[^"]+' "$VERSION_FILE" 2>/dev/null || true)
+fi
+
+if [ -z "$CURRENT_VERSION" ]; then
+    exit 0
+fi
+
+echo -e "${GREEN}✓ [${REPO_NAME}] Version: ${CURRENT_VERSION}${NC}"
+
+# Quick PyPI check (5s timeout, non-blocking)
+PYPI_CHECK_RESULT=1
+if [ "$PACKAGE_NAME" != "unknown" ] && command -v python3 &> /dev/null; then
+    python3 - "$PACKAGE_NAME" "$CURRENT_VERSION" <<'PY' && PYPI_CHECK_RESULT=0 || PYPI_CHECK_RESULT=$?
+import json, sys, urllib.request
+try:
+    with urllib.request.urlopen(f"https://pypi.org/pypi/{sys.argv[1]}/json", timeout=5) as r:
+        sys.exit(0 if sys.argv[2] in json.load(r).get("releases", {}) else 1)
+except urllib.error.HTTPError as e:
+    sys.exit(1 if e.code == 404 else 2)
+except (urllib.error.URLError, OSError, TimeoutError):
+    sys.exit(2)
+except Exception:
+    sys.exit(2)
+PY
+fi
+
+if [ "$PYPI_CHECK_RESULT" -eq 0 ]; then
+    echo -e "${YELLOW}⚠ ${PACKAGE_NAME} ${CURRENT_VERSION} already on PyPI — skipping publish${NC}"
+elif [ "$PYPI_CHECK_RESULT" -eq 2 ]; then
+    echo -e "${DIM}(PyPI check skipped — network/timeout issue)${NC}"
+    echo -e "${BLUE}📦 Publish ${CURRENT_VERSION} to PyPI after push? [Y/n]:${NC}"
+    safe_read response "y"
+    if [[ ! "$response" =~ ^[Nn]$ ]]; then
+        schedule_publish "$CURRENT_VERSION" "$PACKAGE_NAME"
+    fi
+else
+    # Version not on PyPI — offer to publish
+    echo -e "${BLUE}📦 Publish ${CURRENT_VERSION} to PyPI after push? [Y/n]:${NC}"
+    safe_read response "y"
+    if [[ ! "$response" =~ ^[Nn]$ ]]; then
+        schedule_publish "$CURRENT_VERSION" "$PACKAGE_NAME"
+    fi
+fi
+
+# Exit 0 → push proceeds immediately, never blocked by build/upload
+exit 0
