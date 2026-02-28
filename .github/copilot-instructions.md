@@ -110,6 +110,11 @@ auto results = helper.execute();
 double recall = helper.computeRecall(results, ground_truth);
 ```
 
+**Output**:
+- Results: `test/result/datasource_modes/`
+- Reports: `test/result/datasource_modes_report.tsv`
+- Metrics: `build/metrics/`
+
 ---
 
 ## Core Invariants（别踩坑）

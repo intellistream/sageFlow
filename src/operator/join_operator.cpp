@@ -177,6 +177,56 @@ JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
                      toString(config.window_state_type));
 }
 
+// ============================================================
+// E-01: 使用策略配置的新构造函数
+// ============================================================
+
+JoinOperator::JoinOperator(std::unique_ptr<Function> &join_func,
+                           const std::shared_ptr<ConcurrencyManager> &concurrency_manager,
+                           const JoinStrategyConfig& config,
+                           bool enable_profiling,
+                           const std::string& profile_output_path)
+    : Operator(OperatorType::JOIN),
+      concurrency_manager_(concurrency_manager),
+      join_similarity_threshold_(config.similarity_threshold),
+      enable_profiling_(enable_profiling),
+      strategy_config_(config),
+      use_strategy_config_(true) {
+
+    join_func_ = std::unique_ptr<JoinFunction>(dynamic_cast<JoinFunction*>(join_func.release()));
+    if (!join_func_) {
+        throw std::runtime_error("JoinOperator: join_func is not a JoinFunction");
+    }
+    if (!concurrency_manager_) {
+        throw std::runtime_error("JoinOperator: concurrency_manager is a nullptr");
+    }
+
+    // 配置 join_func_ 的窗口参数（如果 config 中有指定）
+    if (config.window_size_ms > 0) {
+        join_func_->setWindow(config.window_size_ms, config.step_size_ms);
+    }
+
+    // Initialize GPERFTOOLS profiler if enabled
+    if (enable_profiling_) {
+        std::string profile_path = profile_output_path.empty()
+            ? "profiles/join_operator_profile.prof"
+            : profile_output_path;
+        profiler_ = std::make_unique<PerformanceMonitor>(profile_path);
+        SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling enabled (strategy config), output={}", profile_path);
+    }
+
+    // 策略配置模式：组件初始化延迟到 open() 中执行
+    // 因为需要 RuntimeContext 获取 parallelism
+    is_eager_ = true;  // 所有方法使用 Eager 模式
+    index_kind_ = InternalIndexKind::NONE;
+    use_index_ = false;
+
+    SAGEFLOW_LOG_INFO("JOIN", "JoinOperator created with strategy config: algorithm={} partition={} window_state={}",
+                     toString(config.algorithm),
+                     toString(config.partition_strategy),
+                     toString(config.window_state_type));
+}
+
 JoinOperator::~JoinOperator() {
     static std::atomic<int> destructor_count{0};
     if (destructor_count.fetch_add(1) == 0) {
