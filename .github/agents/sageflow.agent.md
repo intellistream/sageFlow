@@ -298,3 +298,9 @@ SAGEFLOW_LOG_ERROR("TAG", "Error occurred: {}", error_msg);
 - 使用 todo 工具跟踪多步骤任务
 - 完成每个步骤后及时更新状态
 - 遇到阻塞时明确说明原因和需要的信息
+
+## Polyrepo coordination rules
+
+- Treat this repository as the only local source tree; do not assume sibling repositories exist.
+- If a task spans multiple repositories, implement only this repo and explicitly list follow-up repo/version-bump actions.
+- Do not create `venv`/`.venv`; always use the existing configured Python environment.

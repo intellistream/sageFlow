@@ -191,3 +191,9 @@ Each prompt will be optimized for:
 - **Reliability**: Comprehensive instructions and error handling
 
 Please start by telling me the name and description for the new prompt you want to build.
+
+## Polyrepo coordination rules
+
+- Treat this repository as the only local source tree; do not assume sibling repositories exist.
+- If a task spans multiple repositories, implement only this repo and explicitly list follow-up repo/version-bump actions.
+- Do not create `venv`/`.venv`; always use the existing configured Python environment.
