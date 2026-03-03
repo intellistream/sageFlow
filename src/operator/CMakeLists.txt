@@ -2,6 +2,7 @@ add_lib(
         operator
         filter_operator.cpp
         join_operator.cpp
+        join_operator_vsjoin_routing.cpp
         map_operator.cpp
         operator.cpp
         output_operator.cpp
@@ -25,11 +26,11 @@ add_lib(
         join_operator_methods/clustered_join_method.cpp
         join_operator_methods/s3j_method.cpp
         join_operator_methods/vsjoin_method.cpp
+        join_operator_methods/vsjoin_components/partition_assignment.cpp
+        join_operator_methods/vsjoin_components/load_monitor.cpp
         join_operator_methods/s3j_components/adaptive_partitioner.cpp
         join_operator_methods/s3j_components/adaptive_index_selector.cpp
-        # vsjoin_components/ 子目录 - VSJoin 专用组件
-        join_operator_methods/vsjoin_components/distance_verifier.cpp
-        join_operator_methods/vsjoin_components/async_candidate_generator.cpp
+
 )
 target_link_libraries(
         operator

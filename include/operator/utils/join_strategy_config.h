@@ -1,8 +1,12 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 #include <vector>
+
+
+#include "common/data_types.h"
 
 namespace sageFlow {
 
@@ -58,6 +62,18 @@ enum class ClusteredIndexType {
     BRUTEFORCE,  ///< 暴力扫描（Ground Truth，用于验证）
     IVF,         ///< IVF 索引（默认，推荐用于生产）
     HNSW         ///< HNSW 索引（可选）
+};
+
+/**
+ * @brief VSJoin 索引类型枚举
+ * 
+ * 控制 VSJoin 的 Local/Global 索引类型。
+ * 注意：与 index/index.h 中的 IndexType 类似，但为了避免循环依赖独立定义。
+ */
+enum class VSJoinIndexType {
+    BRUTEFORCE,  ///< 暴力扫描（Local Index 推荐，轻量级）
+    IVF,         ///< IVF 索引（Global Index 推荐，快速查询）
+    HNSW         ///< HNSW 索引（备选）
 };
 
 /**
@@ -136,10 +152,27 @@ struct JoinStrategyConfig {
     uint32_t lsh_seed = 42;            ///< 随机种子，确保可复现
     
     // ==================== VSJoin 参数 ====================
-    int vsjoin_num_hash_functions = 8;    ///< LSH 哈希函数数量
-    double vsjoin_boundary_threshold = 0.1;  ///< 边界判定阈值
-    int vsjoin_async_threads = 2;            ///< 异步处理线程数
-    int64_t vsjoin_allowed_lateness = 1000;  ///< 允许的延迟（毫秒）
+    int vsjoin_multicast_k = 2;               ///< 边界向量多播到 k 个分区（推荐 2-3）
+    int64_t vsjoin_rebuild_interval_ms = 5000;  ///< Global Index 重建间隔
+    size_t vsjoin_rebuild_threshold = 1000;     ///< 触发重建的阈值
+
+    /**
+     * @brief VSJoin Local Index 类型
+     * 
+     * Local Index 用于分区内的近邻查询，推荐使用 BruteForce（轻量级）。
+     */
+    VSJoinIndexType vsjoin_local_index_type = VSJoinIndexType::BRUTEFORCE;
+    
+    /**
+     * @brief VSJoin Global Index 类型
+     * 
+     * Global Index 用于跨分区的候选召回，推荐使用 IVF（快速查询）。
+     */
+    VSJoinIndexType vsjoin_global_index_type = VSJoinIndexType::IVF;
+
+    // LSH 分区器参数
+    int vsjoin_num_hash_functions = 8;         ///< LSH 哈希函数数量
+    double vsjoin_boundary_threshold = 0.1;    ///< 边界向量阈值
     
     // ==================== S3J 参数 ====================
     int s3j_num_centroids = 16;          ///< S3J 质心数量
@@ -282,6 +315,7 @@ std::string toString(WindowStateType ws);
 std::string toString(IndexStrategy is);
 std::string toString(ClusteredIndexType cit);
 std::string toString(SimilarityMode sm);
+std::string toString(VSJoinIndexType vit);
 
 JoinAlgorithm parseJoinAlgorithm(const std::string& s);
 PartitionStrategy parsePartitionStrategy(const std::string& s);
@@ -289,5 +323,6 @@ WindowStateType parseWindowStateType(const std::string& s);
 IndexStrategy parseIndexStrategy(const std::string& s);
 ClusteredIndexType parseClusteredIndexType(const std::string& s);
 SimilarityMode parseSimilarityMode(const std::string& s);
+VSJoinIndexType parseVSJoinIndexType(const std::string& s);
 
 }  // namespace sageFlow

@@ -49,7 +49,7 @@ window_state_type = "shared"
 index_strategy = "shared"
 data_sizes = [500]
 window_size_ms = 1000
-parallelism = [1, 2, 4, 8, 16]
+parallelism = [1, 2, 4, 8, 16, 24, 32]
 expected_min_recall = 0.95
 expected_min_precision = 1.0
 
@@ -341,7 +341,7 @@ clustered_training_samples = 50
 clustered_cold_start_enabled = true
 clustered_broadcast_dedup = true
 data_sizes = [2000]
-parallelism = [1, 2, 4, 8, 16]
+parallelism = [1, 2, 4, 8, 16, 24, 32]
 expected_min_recall = 0.90
 enabled = false
 
@@ -551,63 +551,107 @@ expected_min_recall = 0.85
 enabled = false
 
 # ==================== VSJoin 测试 ====================
-# Full VSJoin with LSH partitioning
+# VSJoin 双层索引（Global IVF + Local BruteForce）+ 后台重建
+# 
+# 架构说明：
+# - Global Index: 2 个 IVF 索引（左/右流各一个），存储历史数据快照
+# - Local Index: 2*P 个 BruteForce 索引（每个分区左/右流各一个），存储实时数据
+# - 后台重建: 定期将 WindowState 中的数据重建到 Global Index
+# - LSH 分区: 使用局部敏感哈希进行向量分区
+
+# VSJoin 基线测试 - 验证基本功能
 [[test_case]]
-name = "vsjoin_complete"
-description = "Full VSJoin with LSH partitioning and partitioned index"
+name = "vsjoin_baseline"
+description = "VSJoin baseline test with two-tier index"
 algorithm = "vsjoin"
 partition_strategy = "lsh"
-window_state_type = "partitioned_vector"
+window_state_type = "two_tier"
 index_strategy = "partitioned"
+num_partitions = 4
+# VSJoin 参数
 vsjoin_num_hash_functions = 8
 vsjoin_boundary_threshold = 0.1
-vsjoin_async_threads = 2
-vsjoin_allowed_lateness = 1000
-num_partitions = 8
+vsjoin_rebuild_interval_ms = 3000
+vsjoin_rebuild_threshold = 500
+# Global Index (IVF) 参数
 ivf_nlist = 50
-ivf_nprobes = 5
+ivf_nprobes = 10
+# 测试配置
 data_sizes = [500, 1000]
-parallelism = [2, 4]
+parallelism = [1, 2, 4]
 expected_min_recall = 0.70
-enabled = false
+enabled = true
 
+# VSJoin 高召回测试 - 更多哈希函数提升分区质量
 [[test_case]]
-name = "vsjoin_high_hash"
-description = "VSJoin with more hash functions for better partitioning"
+name = "vsjoin_high_recall"
+description = "VSJoin with higher hash functions for better recall"
 algorithm = "vsjoin"
 partition_strategy = "lsh"
-window_state_type = "partitioned_vector"
+window_state_type = "two_tier"
 index_strategy = "partitioned"
+num_partitions = 4
+# VSJoin 参数 - 更多哈希函数
 vsjoin_num_hash_functions = 16
-vsjoin_boundary_threshold = 0.1
-vsjoin_async_threads = 2
-vsjoin_allowed_lateness = 1000
-num_partitions = 8
+vsjoin_boundary_threshold = 0.15
+vsjoin_rebuild_interval_ms = 2000
+vsjoin_rebuild_threshold = 300
+# Global Index (IVF) 参数 - 更大的 nprobes
 ivf_nlist = 50
-ivf_nprobes = 5
+ivf_nprobes = 15
+# 测试配置
 data_sizes = [500]
-parallelism = [2, 4]
+parallelism = [1, 2, 4]
 expected_min_recall = 0.75
-enabled = false
+enabled = true
 
+# VSJoin 并行扩展测试 - 测试多并行度下的性能
+# 注意: VSJoin 的 LSH 分区在高并行度下召回率会下降（LSH 算法特性）
+#       当前配置下并行度 1-16 能保持 100% 召回率
+[[test_case]]
+name = "vsjoin_parallelism_scaling"
+description = "VSJoin parallelism scalability test"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 16
+# VSJoin 参数
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_rebuild_interval_ms = 3000
+vsjoin_rebuild_threshold = 500
+# Global Index (IVF) 参数
+ivf_nlist = 50
+ivf_nprobes = 10
+# 测试配置 - 并行度 1-16 稳定通过
+data_sizes = [2000]
+parallelism = [1, 2, 4, 8, 16, 24, 32]
+expected_min_recall = 0.90
+enabled = true
+
+# VSJoin 低延迟测试 - 快速重建
 [[test_case]]
 name = "vsjoin_low_latency"
-description = "VSJoin optimized for low latency"
+description = "VSJoin optimized for low latency with fast rebuild"
 algorithm = "vsjoin"
 partition_strategy = "lsh"
-window_state_type = "partitioned_vector"
+window_state_type = "two_tier"
 index_strategy = "partitioned"
-vsjoin_num_hash_functions = 8
-vsjoin_boundary_threshold = 0.05
-vsjoin_async_threads = 4
-vsjoin_allowed_lateness = 500
 num_partitions = 4
+# VSJoin 参数 - 快速重建
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_rebuild_interval_ms = 1000
+vsjoin_rebuild_threshold = 200
+# Global Index (IVF) 参数
 ivf_nlist = 30
-ivf_nprobes = 3
+ivf_nprobes = 8
+# 测试配置
 data_sizes = [500]
-parallelism = [2, 4]
-expected_min_recall = 0.65
-enabled = false
+parallelism = [1, 2, 4]
+expected_min_recall = 0.60
+enabled = true
 allow_approximate_match = true
 
 # ==================== 混合测试（多并行度/多数据规模）====================

@@ -16,6 +16,7 @@
 #include "stream/stream.h"
 #include "stream/stream_environment.h"
 #include "stream/data_stream_source/simple_stream_source.h"
+#include "stream/data_stream_source/streaming_source.h"
 
 namespace py = pybind11;
 using namespace sageFlow;  // NOLINT
@@ -473,6 +474,50 @@ PYBIND11_MODULE(_sage_flow, m) {
            py::arg("join_method"), py::arg("similarity_threshold"), py::arg("parallelism") = 1,
         "Join with method config: join_method (e.g., 'bruteforce_lazy', 'ivf', 'hnsw')")
 
+        // Join with method, threshold, and window_size_ms
+        .def("join", [](Stream& self, std::shared_ptr<Stream> other_stream, py::function join_cb,
+                        int dim, const std::string& join_method, double similarity_threshold,
+                        int64_t window_size_ms, size_t parallelism) {
+            auto cpp_func = [join_cb](std::unique_ptr<VectorRecord>& left, std::unique_ptr<VectorRecord>& right) 
+                -> std::unique_ptr<VectorRecord> {
+                py::gil_scoped_acquire gil;
+                try {
+                    py::object result = join_cb(
+                        left->uid_, left->timestamp_, extractNumpyFromRecord(*left),
+                        right->uid_, right->timestamp_, extractNumpyFromRecord(*right)
+                    );
+                    if (result.is_none()) {
+                        return nullptr;
+                    }
+                    if (py::isinstance<py::tuple>(result)) {
+                        py::tuple t = result.cast<py::tuple>();
+                        if (t.size() != 3) {
+                            throw std::runtime_error("Join callback must return (uid, timestamp, data) tuple or None");
+                        }
+                        uint64_t uid = t[0].cast<uint64_t>();
+                        int64_t ts = t[1].cast<int64_t>();
+                        py::array_t<float> arr = t[2].cast<py::array_t<float>>();
+                        return std::make_unique<VectorRecord>(uid, ts, createVectorDataFromNumpy(arr));
+                    }
+                    throw std::runtime_error("Join callback must return (uid, timestamp, data) tuple or None");
+                } catch (const py::error_already_set& e) {
+                    throw std::runtime_error(std::string("Python join callback error: ") + e.what());
+                }
+            };
+            auto join_fn = std::make_unique<JoinFunction>("py_join", cpp_func, dim);
+            auto result_stream = self.join(other_stream, std::move(join_fn), join_method, similarity_threshold, parallelism);
+            // Set window_size_ms via JoinStrategyConfig
+            JoinStrategyConfig config;
+            config.window_size_ms = window_size_ms;
+            config.similarity_threshold = similarity_threshold;
+            config.dimension = dim;
+            result_stream->setJoinStrategyConfig(config);
+            return result_stream;
+        }, py::arg("other_stream"), py::arg("join_func"), py::arg("dim"),
+           py::arg("join_method"), py::arg("similarity_threshold"), 
+           py::arg("window_size_ms"), py::arg("parallelism") = 1,
+        "Join with method config and window size: window_size_ms controls the time window for join matching")
+
         // Window operation
         .def("window", [](Stream& self, int window_size, int slide_size, WindowType window_type, 
                           size_t parallelism) {
@@ -631,6 +676,153 @@ PYBIND11_MODULE(_sage_flow, m) {
             return self.writeSink(std::move(fn_ptr));
         }, py::arg("name"), py::arg("callback"));
 
+    // ==================== StreamingSource ====================
+    // StreamingSource 支持动态流式输入：先启动 pipeline，再动态添加数据
+    
+    py::class_<StreamingSource, std::shared_ptr<StreamingSource>, Stream>(m, "StreamingSource", py::module_local(),
+        R"doc(
+        StreamingSource - 支持动态流式输入的数据源
+        
+        与 SimpleStreamSource 不同，StreamingSource 支持：
+        1. 先创建数据源和 pipeline，调用 execute() 启动
+        2. 然后动态添加记录（线程安全）
+        3. 最后调用 finish() 标记流结束
+        
+        Example:
+            >>> import sage_flow as sf
+            >>> import numpy as np
+            >>> 
+            >>> env = sf.StreamEnvironment()
+            >>> source = sf.StreamingSource("my_stream", capacity=1000)
+            >>> 
+            >>> # 构建 pipeline
+            >>> source.filter(lambda uid, ts, data: np.linalg.norm(data) > 0.5)
+            >>>        .writeSink(lambda uid, ts, data: print(f"Got {uid}"))
+            >>> env.addStream(source)
+            >>> 
+            >>> # 启动（非阻塞）
+            >>> env.execute()
+            >>> 
+            >>> # 动态添加数据
+            >>> for i, vec in enumerate(vectors):
+            >>>     source.addRecord(i, int(time.time() * 1000), vec)
+            >>> 
+            >>> # 标记结束并等待
+            >>> source.finish()
+            >>> env.awaitTermination()
+        )doc")
+        .def(py::init<std::string, size_t>(), 
+             py::arg("name"), py::arg("capacity") = 10000,
+             "Create StreamingSource with name and optional capacity (0=unlimited)")
+        
+        // 添加记录 - 阻塞版本
+        .def("addRecord", py::overload_cast<const VectorRecord&>(&StreamingSource::addRecord), 
+             py::arg("record"),
+             "Add a record (blocks if queue is full)")
+        .def("addRecord", [](StreamingSource& self, uint64_t uid, int64_t ts, py::array_t<float> arr) {
+            // 在持有 GIL 时先复制 numpy 数据
+            VectorData vec_data = createVectorDataFromNumpy(arr);
+            // 然后释放 GIL 以允许其他 Python 线程运行（特别是消费者线程）
+            py::gil_scoped_release release;
+            return self.addRecord(uid, ts, std::move(vec_data));
+        }, py::arg("uid"), py::arg("timestamp"), py::arg("data"),
+        "Add record with numpy array (blocks if queue is full)")
+        
+        // 添加记录 - 非阻塞版本
+        .def("tryAddRecord", py::overload_cast<const VectorRecord&>(&StreamingSource::tryAddRecord),
+             py::arg("record"),
+             "Try to add a record without blocking. Returns True if successful.")
+        .def("tryAddRecord", [](StreamingSource& self, uint64_t uid, int64_t ts, py::array_t<float> arr) {
+            return self.tryAddRecord(uid, ts, createVectorDataFromNumpy(arr));
+        }, py::arg("uid"), py::arg("timestamp"), py::arg("data"),
+        "Try to add record without blocking. Returns True if successful.")
+        
+        // 流控制
+        .def("finish", &StreamingSource::finish,
+             "Mark the stream as finished. No more records can be added after this.")
+        .def("isFinished", &StreamingSource::isFinished,
+             "Check if the stream has been marked as finished.")
+        
+        // 状态查询
+        .def("size", &StreamingSource::size,
+             "Get current number of records in the queue.")
+        .def("capacity", &StreamingSource::capacity,
+             "Get queue capacity (0 means unlimited).")
+        .def("setCapacity", &StreamingSource::setCapacity, py::arg("capacity"),
+             "Set queue capacity (0 means unlimited).")
+        
+        // 继承 Stream 的所有方法用于链式调用
+        .def("filter", [](StreamingSource& self, py::function filter_cb, size_t parallelism) {
+            auto cpp_func = [filter_cb](std::unique_ptr<VectorRecord>& rec) -> bool {
+                py::gil_scoped_acquire gil;
+                try {
+                    py::object result = filter_cb(rec->uid_, rec->timestamp_, extractNumpyFromRecord(*rec));
+                    return result.cast<bool>();
+                } catch (const py::error_already_set& e) {
+                    throw std::runtime_error(std::string("Python filter callback error: ") + e.what());
+                }
+            };
+            auto filter_fn = std::make_unique<FilterFunction>("py_filter", cpp_func);
+            return self.filter(std::move(filter_fn), parallelism);
+        }, py::arg("filter_func"), py::arg("parallelism") = 1)
+
+        .def("map", [](StreamingSource& self, py::function map_cb, size_t parallelism) {
+            auto cpp_func = [map_cb](std::unique_ptr<VectorRecord>& rec) -> void {
+                py::gil_scoped_acquire gil;
+                try {
+                    py::object result = map_cb(rec->uid_, rec->timestamp_, extractNumpyFromRecord(*rec));
+                    if (!result.is_none() && py::isinstance<py::array_t<float>>(result)) {
+                        py::array_t<float> new_data = result.cast<py::array_t<float>>();
+                        auto buf = new_data.request();
+                        if (buf.ndim == 1) {
+                            int32_t new_dim = static_cast<int32_t>(buf.shape[0]);
+                            if (new_dim == rec->data_.dim_) {
+                                std::memcpy(rec->data_.data_.get(), buf.ptr, 
+                                           static_cast<size_t>(new_dim) * sizeof(float));
+                            } else {
+                                auto bytes = static_cast<size_t>(new_dim) * sizeof(float);
+                                auto* new_bytes = new char[bytes];
+                                std::memcpy(new_bytes, buf.ptr, bytes);
+                                rec = std::make_unique<VectorRecord>(rec->uid_, rec->timestamp_, 
+                                    VectorData(new_dim, DataType::Float32, new_bytes));
+                            }
+                        }
+                    }
+                } catch (const py::error_already_set& e) {
+                    throw std::runtime_error(std::string("Python map callback error: ") + e.what());
+                }
+            };
+            auto map_fn = std::make_unique<MapFunction>("py_map", cpp_func);
+            return self.map(std::move(map_fn), parallelism);
+        }, py::arg("map_func"), py::arg("parallelism") = 1)
+
+        .def("window", [](StreamingSource& self, int window_size, int slide_size, 
+                          WindowType window_type, size_t parallelism) {
+            auto window_fn = std::make_unique<WindowFunction>("py_window", window_size, slide_size, window_type);
+            return self.window(std::move(window_fn), parallelism);
+        }, py::arg("window_size"), py::arg("slide_size"), 
+           py::arg("window_type") = WindowType::Sliding, py::arg("parallelism") = 1)
+
+        .def("aggregate", [](StreamingSource& self, AggregateType agg_type, size_t parallelism) {
+            auto agg_fn = std::make_unique<AggregateFunction>("py_aggregate", agg_type);
+            return self.aggregate(std::move(agg_fn), parallelism);
+        }, py::arg("aggregate_type") = AggregateType::Avg, py::arg("parallelism") = 1)
+
+        .def("topk", &StreamingSource::topk, py::arg("index_id"), py::arg("k"), py::arg("parallelism") = 1)
+
+        .def("writeSink", [](StreamingSource& self, py::function sink_cb, size_t parallelism) {
+            auto cpp_func = [sink_cb](std::unique_ptr<VectorRecord>& rec) -> void {
+                py::gil_scoped_acquire gil;
+                try {
+                    sink_cb(rec->uid_, rec->timestamp_, extractNumpyFromRecord(*rec));
+                } catch (const py::error_already_set& e) {
+                    throw std::runtime_error(std::string("Python sink callback error: ") + e.what());
+                }
+            };
+            auto sink_fn = std::make_unique<SinkFunction>("py_sink", cpp_func);
+            return self.writeSink(std::move(sink_fn), parallelism);
+        }, py::arg("sink_func"), py::arg("parallelism") = 1);
+
     // ==================== StreamEnvironment ====================
 
     py::class_<StreamEnvironment>(m, "StreamEnvironment", py::module_local())
@@ -638,13 +830,22 @@ PYBIND11_MODULE(_sage_flow, m) {
         .def("addStream", &StreamEnvironment::addStream, py::arg("stream"),
         "Add a stream to the environment")
         .def("execute", &StreamEnvironment::execute,
-        "Execute all registered streams");
+        "Execute all registered streams (non-blocking for StreamingSource)")
+        .def("stop", &StreamEnvironment::stop,
+        "Stop execution")
+        .def("awaitTermination", &StreamEnvironment::awaitTermination,
+        "Wait for execution to complete");
 
     // ==================== Module-level convenience functions ====================
 
     m.def("create_source", [](const std::string& name) {
         return std::make_shared<SimpleStreamSource>(name);
-    }, py::arg("name"), "Create a new SimpleStreamSource");
+    }, py::arg("name"), "Create a new SimpleStreamSource (for batch data)");
+
+    m.def("create_streaming_source", [](const std::string& name, size_t capacity) {
+        return std::make_shared<StreamingSource>(name, capacity);
+    }, py::arg("name"), py::arg("capacity") = 10000, 
+    "Create a new StreamingSource (for dynamic streaming data)");
 
     m.def("create_environment", []() {
         return StreamEnvironment();

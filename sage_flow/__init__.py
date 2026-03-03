@@ -25,9 +25,11 @@ try:
         # Stream Classes
         Stream,
         SimpleStreamSource,
+        StreamingSource,  # 新增：支持动态流式输入
         StreamEnvironment,
         # Convenience Functions
         create_source,
+        create_streaming_source,  # 新增：创建 StreamingSource
         create_environment,
     )
 
@@ -56,9 +58,11 @@ try:
         # Stream Classes
         "Stream",
         "SimpleStreamSource",
+        "StreamingSource",  # 新增
         "StreamEnvironment",
         # Convenience Functions
         "create_source",
+        "create_streaming_source",  # 新增
         "create_environment",
     ]
 except ImportError as e:

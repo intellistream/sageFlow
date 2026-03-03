@@ -161,6 +161,35 @@ SimilarityMode parseSimilarityMode(const std::string& s) {
     return SimilarityMode::FIXED_ALPHA;
 }
 
+// ==================== VSJoinIndexType 转换 ====================
+
+std::string toString(VSJoinIndexType vit) {
+    switch (vit) {
+        case VSJoinIndexType::BRUTEFORCE: return "bruteforce";
+        case VSJoinIndexType::IVF: return "ivf";
+        case VSJoinIndexType::HNSW: return "hnsw";
+        default: return "unknown";
+    }
+}
+
+VSJoinIndexType parseVSJoinIndexType(const std::string& s) {
+    std::string lower = toLower(s);
+    
+    if (lower == "bruteforce" || lower == "brute_force") {
+        return VSJoinIndexType::BRUTEFORCE;
+    }
+    if (lower == "ivf") {
+        return VSJoinIndexType::IVF;
+    }
+    if (lower == "hnsw") {
+        return VSJoinIndexType::HNSW;
+    }
+    
+    // 默认返回 BRUTEFORCE（推荐用于 Local Index）
+    SAGEFLOW_LOG_WARN("Config", "Unknown VSJoinIndexType '{}', defaulting to bruteforce", s);
+    return VSJoinIndexType::BRUTEFORCE;
+}
+
 // ==================== JoinStrategyConfig 方法实现 ====================
 
 std::vector<std::string> JoinStrategyConfig::validate() const {
@@ -174,16 +203,19 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
             "Current: " + toString(window_state_type));
     }
     
-    // 规则2: VSJoin 必须配 LSH + PARTITIONED_VECTOR
+    // 规则2: VSJoin 需要 LSH 分区 + 分区窗口状态（PARTITIONED/TWO_TIER/PARTITIONED_VECTOR）
     if (algorithm == JoinAlgorithm::VSJOIN) {
         if (partition_strategy != PartitionStrategy::LSH) {
             errors.emplace_back(
                 "VSJoin requires LSH partition strategy. "
                 "Current: " + toString(partition_strategy));
         }
-        if (window_state_type != WindowStateType::PARTITIONED_VECTOR) {
+        // 新版设计：支持 PARTITIONED（推荐）、TWO_TIER、PARTITIONED_VECTOR（旧版兼容）
+        if (window_state_type != WindowStateType::PARTITIONED &&
+            window_state_type != WindowStateType::TWO_TIER &&
+            window_state_type != WindowStateType::PARTITIONED_VECTOR) {
             errors.emplace_back(
-                "VSJoin requires PartitionedVectorState. "
+                "VSJoin requires PARTITIONED, TWO_TIER, or PARTITIONED_VECTOR window state. "
                 "Current: " + toString(window_state_type));
         }
         if (index_strategy != IndexStrategy::PARTITIONED) {
@@ -299,8 +331,9 @@ void JoinStrategyConfig::inferDefaults() {
         }
 
         case JoinAlgorithm::VSJOIN:
+            // VSJoin 使用 LSH 分区 + 分区窗口状态（推荐 PARTITIONED）
             partition_strategy = PartitionStrategy::LSH;
-            window_state_type = WindowStateType::PARTITIONED_VECTOR;
+            window_state_type = WindowStateType::PARTITIONED;
             index_strategy = IndexStrategy::PARTITIONED;
             break;
             
@@ -468,12 +501,23 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     if (auto bt = node["vsjoin_boundary_threshold"].value<double>()) {
         config.vsjoin_boundary_threshold = *bt;
     }
-    if (auto at = node["vsjoin_async_threads"].value<int64_t>()) {
-        config.vsjoin_async_threads = static_cast<int>(*at);
+    if (auto mk = node["vsjoin_multicast_k"].value<int64_t>()) {
+        config.vsjoin_multicast_k = static_cast<int>(*mk);
     }
-    if (auto al = node["vsjoin_allowed_lateness"].value<int64_t>()) {
-        config.vsjoin_allowed_lateness = *al;
+    if (auto ri = node["vsjoin_rebuild_interval_ms"].value<int64_t>()) {
+        config.vsjoin_rebuild_interval_ms = *ri;
     }
+    if (auto rt = node["vsjoin_rebuild_threshold"].value<int64_t>()) {
+        config.vsjoin_rebuild_threshold = static_cast<size_t>(*rt);
+    }
+    // VSJoin Local/Global Index 类型
+    if (auto lit = node["vsjoin_local_index_type"].value<std::string>()) {
+        config.vsjoin_local_index_type = parseVSJoinIndexType(*lit);
+    }
+    if (auto git = node["vsjoin_global_index_type"].value<std::string>()) {
+        config.vsjoin_global_index_type = parseVSJoinIndexType(*git);
+    }
+
     
     // S3J 参数
     if (auto nc = node["s3j_num_centroids"].value<int64_t>()) {

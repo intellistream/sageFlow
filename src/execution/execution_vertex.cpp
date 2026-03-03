@@ -38,6 +38,13 @@ void ExecutionVertex::stop() {
   running_ = false;
 }
 
+void ExecutionVertex::stopAndWake() {
+  running_ = false;
+  if (input_gate_) {
+    input_gate_->stop();
+  }
+}
+
 void ExecutionVertex::join() const {
   if (thread_ && thread_->joinable()) {
     thread_->join();
@@ -86,7 +93,12 @@ void ExecutionVertex::run() const {
         // 从输入门读取上游数据
         std::optional<TaggedResponse> data_opt = input_gate_->read();
         if (!data_opt) {
-          // 队列暂无可用数据
+          // 队列暂无可用数据：
+          // - 正常运行中：短暂等待后继续
+          // - stopAndWake() 后：running_ 会被置为 false，队列也被 stop，pop 将持续返回空
+          if (!running_) {
+            break;
+          }
           std::this_thread::sleep_for(std::chrono::microseconds(100));
           continue;
         }
@@ -104,7 +116,7 @@ void ExecutionVertex::run() const {
       }
 
       // 运行标志关闭后，尝试一次性排干剩余队列，避免尚未处理的数据导致状态不一致
-      while (true) {
+      while (running_) {
         std::optional<TaggedResponse> data_opt = input_gate_->read();
         if (!data_opt) break; // 没有残留数据
         Response data = std::move(data_opt->response);

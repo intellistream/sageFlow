@@ -121,6 +121,11 @@ set(UNIT_TEST_SPECS
     test_multicast_partitioner     UnitTest/test_multicast_partitioner.cpp    120 UNIT
     test_clustered_config          UnitTest/test_clustered_config.cpp         120 UNIT
     test_result_partition_switch   UnitTest/test_result_partition_switch.cpp  180 UNIT
+    test_vsjoin_rebuild            UnitTest/test_vsjoin_rebuild.cpp           300 UNIT
+    test_partition_assignment      UnitTest/test_partition_assignment.cpp     120 UNIT
+    test_load_monitor             UnitTest/test_load_monitor.cpp            120 UNIT
+    test_vsjoin_routing           UnitTest/test_vsjoin_routing.cpp          120 UNIT
+    test_vsjoin_load_balancing    UnitTest/test_vsjoin_load_balancing.cpp   120 UNIT
 )
 
 list(LENGTH UNIT_TEST_SPECS _ulen)

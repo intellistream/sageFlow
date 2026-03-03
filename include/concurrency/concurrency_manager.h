@@ -3,7 +3,10 @@
 #include <memory>
 #include <string>
 #include <unordered_map>
+#include <shared_mutex>
+#include <vector>
 
+#include "common/data_types.h"
 #include "concurrency/concurrency_controller.h"
 #include "index/index.h"
 
@@ -75,8 +78,35 @@ class ConcurrencyManager {
    * @return 分区数量，非分区索引返回 0
    */
   auto getPartitionCount(int index_id) const -> size_t;
+
+  // ========== 新增：批量构建 + 原子替换（无阻塞查询） ==========
+
+  /**
+   * @brief 从批量记录构建新索引并返回新 index_id
+   *
+   * 说明：
+   * - 会创建与 create_index 相同类型/参数的 Index，并为每条 record 写入 storage_，再将 uid 插入索引。
+   * - 构建过程不影响已有索引的查询/写入。
+   */
+  auto build_index_from_records(const std::string& name,
+                                const IndexType& index_type,
+                                int dimension,
+                                const IndexParameters& params,
+                                const std::vector<const VectorRecord*>& records) -> int;
+
+  /**
+   * @brief 将 old_index_id 对应的 controller 原子替换为 new_index_id 的 controller
+   *
+   * 语义：
+   * - 对外仍使用 old_index_id 进行 query/insert；替换后这些操作会落到 new_index_id 对应的 Index。
+   * - 替换过程对 query 无阻塞：正在进行的 query 会继续持有旧 controller 的 shared_ptr 并完成。
+   * - new_index_id 条目会从 controller_map_ 中移除，避免两个 id 指向同一 controller。
+   */
+  auto replace_index_by_id(int old_index_id, int new_index_id) -> bool;
   
  private:
+  mutable std::shared_mutex controller_map_mutex_;
+
   std::unordered_map<std::string, IdWithType> index_map_;
   // the controller contains index, each operation will be passed to the controller
   std::unordered_map<int, std::shared_ptr<ConcurrencyController>> controller_map_;  // the controller for each index

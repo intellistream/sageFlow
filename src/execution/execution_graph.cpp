@@ -147,29 +147,13 @@ void ExecutionGraph::start() {
 
 void ExecutionGraph::stop() {
     SAGEFLOW_LOG_INFO("GRAPH", "Stopping ExecutionGraph...");
-    // 先尝试按拓扑顺序：优先停止 Source(OutputOperator) 以停止生产；
-    // 再停止非 Source 以允许其排干剩余数据（ExecutionVertex 内部已有 drain 逻辑）。
-    std::vector<std::shared_ptr<Operator>> sources;
-    std::vector<std::shared_ptr<Operator>> others;
-    for (auto &op : operators_) {
-        if (op->getType() == OperatorType::OUTPUT) sources.push_back(op); else others.push_back(op);
-    }
-    auto stop_group = [this](const std::vector<std::shared_ptr<Operator>>& group){
-        for (auto &op : group) {
-            auto it = operator_infos_.find(op);
-            if (it == operator_infos_.end()) continue;
-            for (auto &vertex : it->second.vertices) {
-                vertex->stop();
-            }
+    // 统一停止所有 vertex，并唤醒其输入队列上可能阻塞的线程
+    for (const auto& [op, info] : operator_infos_) {
+        for (const auto& vertex : info.vertices) {
+            vertex->stopAndWake();
         }
-    };
-    // 停止 source，阻断新数据
-    stop_group(sources);
-    // 稍作等待给下游消费
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    // 再停止其他
-    stop_group(others);
-    // 停止所有队列，唤醒阻塞的消费者/生产者
+    }
+    // 再次停止所有队列，确保无遗漏（例如 ResultPartition 的队列）
     for (auto &q : all_queues_) {
         if (q) q->stop();
     }
@@ -180,7 +164,13 @@ void ExecutionGraph::join() {
     // 等待所有ExecutionVertex完成
     for (const auto& [op, info] : operator_infos_) {
         for (const auto& vertex : info.vertices) {
+            SAGEFLOW_LOG_INFO("GRAPH_JOIN", "Joining vertex op={} idx={}",
+                             op ? op->name : "<null>",
+                             vertex ? vertex->getSubtaskIndex() : 0);
             vertex->join();
+            SAGEFLOW_LOG_INFO("GRAPH_JOIN", "Joined vertex op={} idx={}",
+                             op ? op->name : "<null>",
+                             vertex ? vertex->getSubtaskIndex() : 0);
         }
     }
 

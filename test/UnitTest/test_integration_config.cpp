@@ -149,7 +149,7 @@ TEST_F(IntegrationTestConfigLoaderTest, LoadByAlgorithm_VSJoin) {
     for (const auto& tc : cases) {
         EXPECT_EQ(tc.strategy.algorithm, JoinAlgorithm::VSJOIN);
         EXPECT_EQ(tc.strategy.partition_strategy, PartitionStrategy::LSH);
-        EXPECT_EQ(tc.strategy.window_state_type, WindowStateType::PARTITIONED_VECTOR);
+        EXPECT_EQ(tc.strategy.window_state_type, WindowStateType::TWO_TIER);
     }
 }
 

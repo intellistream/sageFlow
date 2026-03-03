@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <numeric>
 #include <map>
+#include <cstdlib>
 
 #include "test_utils/integration_test_config.h"
 #include "test_utils/join_integration_pipeline_helper.h"
@@ -1158,20 +1159,24 @@ class ReportGeneratorListener : public ::testing::EmptyTestEventListener {
 public:
     void OnTestProgramEnd(const ::testing::UnitTest& unit_test) override {
         if (g_report_generator && g_report_generator->resultCount() > 0) {
-            // 创建输出目录
-            std::filesystem::create_directories("test/result/integration");
+            // 创建输出目录（优先使用环境变量 SAGEFLOW_TEST_OUTPUT_DIR，与 CSV 对齐）
+            std::string output_dir = "test/result/integration";
+            if (const char* env_dir = std::getenv("SAGEFLOW_TEST_OUTPUT_DIR")) {
+                if (env_dir && std::string(env_dir).size() > 0) {
+                    output_dir = env_dir;
+                }
+            }
+            std::filesystem::create_directories(output_dir);
             
-            // 生成 JSON 报告
-            g_report_generator->writeJson("test/result/integration/report.json");
-            
-            // 生成 Markdown 报告
-            g_report_generator->writeMarkdown("test/result/integration/report.md");
+            // 生成 JSON / Markdown 报告到同一目录，避免与其他运行混用
+            g_report_generator->writeJson(std::filesystem::path(output_dir) / "report.json");
+            g_report_generator->writeMarkdown(std::filesystem::path(output_dir) / "report.md");
             
             // 打印摘要到控制台
             g_report_generator->printSummary();
             
             SAGEFLOW_LOG_INFO("IntegrationTest", 
-                "Reports generated: test/result/integration/report.json, report.md");
+                "Reports generated: {}/report.json, report.md", output_dir);
         }
     }
 };
