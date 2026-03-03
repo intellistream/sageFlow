@@ -1,0 +1,44 @@
+\section{Problem Statement and Motivation}
+\label{sec:problem-statement}
+
+We study streaming vector similarity joins over two unbounded streams $L$ and $R$. Each tuple is represented as $(\mathit{uid}, \mathit{ts}, \mathbf{v})$, where $\mathbf{v} \in \mathbb{R}^d$ is an embedding vector and $\mathit{ts}$ is event time. For a given window size $W$ and similarity threshold $\theta$, a join result is an ordered pair $(l, r)$ such that:
+\[
+|l.\mathit{ts} - r.\mathit{ts}| \leq W,
+\qquad
+\mathrm{sim}(l, r) \geq \theta.
+\]
+The system continuously outputs valid pairs as tuples arrive and old tuples expire.
+
+For an arrival $x$ at time $t$, define the opposite-side active set
+\[
+\mathcal{A}_{\bar{s}}(t)=\{y \mid y\in \bar{s},\; t-W \leq y.\mathit{ts} \leq t+W\}.
+\]
+Candidate generation returns $\mathcal{C}(x)\subseteq\mathcal{A}_{\bar{s}}(t)$, and verification outputs
+\[
+\mathcal{J}(x)=\{(x,y)\mid y\in \mathcal{C}(x),\; \mathrm{sim}(x,y)\geq\theta\}.
+\]
+Over a run horizon $T$, let $\mathcal{J}^*$ be exact join results and $\widehat{\mathcal{J}}$ be system output. We measure
+\[
+\mathrm{Recall}=\frac{|\widehat{\mathcal{J}}\cap \mathcal{J}^*|}{|\mathcal{J}^*|},
+\qquad
+\mathrm{Precision}=\frac{|\widehat{\mathcal{J}}\cap \mathcal{J}^*|}{|\widehat{\mathcal{J}}|}.
+\]
+The systems objective is to maximize throughput and minimize tail latency while maintaining high recall/precision under bounded memory.
+
+\paragraph{Motivation.}
+The core tension in this problem is that candidate quality and systems scalability are tightly coupled. High recall prefers broader candidate coverage (more probes, more partitions, more boundary fanout), while low latency prefers tighter local processing and less synchronization. In static ANN settings, one can amortize expensive index construction offline~\cite{jegou2011product,malkov2018efficient}. In streaming settings, however, index and window state evolve continuously, so stale index views, delayed expiration, or inconsistent partition ownership directly affect output quality.
+
+\paragraph{Why existing approaches are insufficient.}
+Existing work can be roughly grouped into three categories, and each category misses at least one requirement of our target setting.
+\begin{itemize}
+	\item \textbf{Multicore stream joins for structured keys.} These systems are strong on low-latency stream execution and concurrency control, but their partitioning logic depends on key orderability and key-based locality. In vector joins, embeddings do not provide a strict total order usable as a stable key, so direct key-partition transfer is ineffective for similarity-aware routing.
+	\item \textbf{Static or batch vector similarity joins/search.} ANN and index-centric methods excel when data are mostly stable~\cite{jegou2011product,malkov2018efficient}, but streaming windows require continuous insert+expire and frequent synchronization between mutable state and query indexes. Without stream-specific maintenance, recall and latency become unstable under update churn.
+	\item \textbf{Distributed vector-stream solutions.} Spatial partitioning and hash-based routing can reduce local compute, but cross-node communication, global coordination, and boundary replication overheads often dominate. These designs do not directly map to single-node shared-memory multicore optimization targets.
+\end{itemize}
+
+Therefore, directly transplanting any single category rarely satisfies all three goals simultaneously: (i) sustained multicore throughput, (ii) low end-to-end latency, and (iii) stable join quality under high-rate sliding-window updates.
+
+\paragraph{Implication for system design.}
+These gaps motivate a unified runtime where partitioning, state maintenance, index organization, and verification semantics are designed together rather than independently tuned. In particular, a practical streaming design must separate \emph{correctness guarantees} from \emph{load-management heuristics}: verification should preserve output semantics, while routing-table updates should be atomic for concurrent readers, but online remapping can still be periodic and heuristic rather than globally optimal at every instant.
+
+The next section presents this architecture and its method-specific execution paths, including baseline routes and the VSJoin-oriented path.

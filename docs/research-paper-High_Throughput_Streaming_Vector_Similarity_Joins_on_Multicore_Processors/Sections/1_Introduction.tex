@@ -1,15 +1,49 @@
 \section{Introduction}
 \label{sec:intro}
 
-High-dimensional embeddings are now first-class data objects in retrieval-augmented generation, recommendation, and real-time observability workloads. In these settings, vector similarity joins are no longer occasional offline operators; they run continuously over high-rate streams and must satisfy sliding-window semantics under strict latency constraints. This requirement fundamentally changes the systems problem relative to static ANN search: the engine must jointly handle continuous ingestion, timely expiration, and parallel query/verification on shared-memory multicore hardware.
+High-dimensional embeddings are now first-class data objects in retrieval-augmented generation, recommendation, and real-time observability workloads~\cite{lewis2020rag}. In these settings, vector similarity joins are no longer occasional offline operators; they run continuously over high-rate streams and must satisfy sliding-window semantics under strict latency constraints, in the spirit of modern unbounded stream processing models~\cite{akidau2015dataflow}. This requirement fundamentally changes the systems problem relative to static ANN search~\cite{jegou2011product,malkov2018efficient}: the engine must jointly handle continuous ingestion, timely expiration, and parallel query/verification on shared-memory multicore hardware.
 
-SageFlow addresses this setting with a strategy-driven join architecture that composes four dimensions---join algorithm, partition strategy, window-state type, and index strategy---within a unified runtime. This design enables apples-to-apples comparison of multiple baselines and system choices in one codebase, including BruteForce, IVF, HNSW, HDR-Tree, LSH, ClusteredJoin, S3J-style methods, and our VSJoin-oriented path. A key practical insight from this implementation is that throughput alone is insufficient: correctness and recall are highly sensitive to partition/state compatibility and runtime routing behavior, especially at high parallelism.
+\begin{figure}[t]
+	\centering
+	\begin{tikzpicture}[font=\footnotesize, node distance=0.2cm]
+		% Left panel: static/batch ANN
+		\node[draw, rounded corners, minimum width=3.55cm, minimum height=2.35cm, align=center] (leftbox) at (0,0) {};
+		\node[anchor=north] at ([yshift=-0.08cm]leftbox.north) {\textbf{Static/Batch ANN}};
+		\node[align=center] at ([yshift=0.32cm]leftbox.center) {Offline index build\\Query-only phase};
+		\node[align=center] at ([yshift=-0.62cm]leftbox.center) {Low state churn\\Amortized build cost};
 
-Our VSJoin-oriented path combines partition-local write-friendly indexes with a global read-oriented index layer, plus boundary-aware multicast routing to reduce cross-partition miss probability near decision borders. During execution, candidate generation is separated from final verification: indexes provide fast candidate retrieval, while window and similarity checks enforce output correctness under temporal constraints. This separation gives a clean place to trade recall and latency, and it allows us to retain a common verification path across algorithms while varying indexing and partitioning policies.
+		% Right panel: streaming join
+		\node[draw, rounded corners, minimum width=3.9cm, minimum height=2.35cm, align=center] (rightbox) at (4.8,0) {};
+		\node[anchor=north] at ([yshift=-0.08cm]rightbox.north) {\textbf{Streaming Vector Join}};
+		\node[align=center] at ([yshift=0.32cm]rightbox.center) {Insert + Expire + Probe\\under sliding windows};
+		\node[align=center] at ([yshift=-0.62cm]rightbox.center) {Concurrent state updates\\Recall-sensitive routing};
 
-Implementation-driven evaluation in SageFlow shows two robust execution regimes in current end-to-end testing: (1) a shared-state/shared-index path centered on RoundRobin routing for classic baselines, and (2) a centroid-partitioned path for ClusteredJoin with explicit partition-count and multicast controls. The VSJoin path is integrated into the same framework with dedicated routing and rebuild mechanisms, and our results show competitive throughput--latency behavior with strong quality in validated workloads. At the same time, we make implementation constraints explicit so that claims remain reproducible under the tested configuration space.
+		% Arrow between panels
+		\draw[->, thick] (1.95,0) -- (2.85,0);
 
-In summary, this paper makes four contributions: (1) a unified multicore streaming vector-join architecture that exposes algorithm, partition, state, and index policies as first-class strategy knobs; (2) a VSJoin-oriented design that combines local/global indexing and boundary-aware routing for sliding-window workloads; (3) an implementation-grounded evaluation framework in SageFlow that includes multiple baselines under shared infrastructure; and (4) practical compatibility and deployment guidelines for maintaining recall and latency stability under high parallelism.
+		% Bottom bottlenecks
+		\node[draw, rounded corners, minimum width=8.15cm, minimum height=0.95cm, align=center] at (2.4,-1.95)
+		{\textbf{Multicore bottleneck in streaming:} synchronization contention + boundary misses + stale index risk};
+	\end{tikzpicture}
+	\caption{Motivation: unlike static ANN pipelines, streaming vector joins must maintain correctness and latency under simultaneous ingestion, expiration, and probing.}
+	\label{fig:intro-motivation}
+\end{figure}
+
+\system addresses this setting with a strategy-driven join architecture that composes four dimensions---join algorithm, partition strategy, window-state type, and index strategy---within a unified runtime. This design enables apples-to-apples comparison of multiple baselines and system choices in one framework, including BruteForce, IVF, HNSW, HDR-Tree, LSH, ClusteredJoin, S3J-style methods, and our VSJoin-oriented path. As illustrated in Figure~\ref{fig:intro-motivation}, a key practical insight is that throughput alone is insufficient: correctness and recall are highly sensitive to partition/state compatibility and runtime routing behavior, especially at high parallelism.
+
+Our VSJoin-oriented path combines partition-local write-friendly indexes with a global read-oriented index layer, plus boundary-aware multicast routing to reduce cross-partition miss probability near decision borders. In the latest implementation, routing uses LSH-based logical partitioning with virtual nodes, where each record is mapped by a stable identity hash and then resolved through an RCU-style assignment table to physical workers. The runtime continuously samples per-subtask load and applies threshold-triggered, bounded remapping using interval load deltas (with smoothed latency/backlog signals), which improves skew robustness without blocking the foreground path. During execution, candidate generation is separated from final verification: indexes provide fast candidate retrieval, while window and similarity checks enforce output correctness under temporal constraints. This separation gives a clean place to trade recall and latency, and it allows us to retain a common verification path across algorithms while varying indexing and partitioning policies.
+
+Implementation-driven evaluation in \system shows two robust execution regimes in current end-to-end testing: (1) a shared-state/shared-index path centered on RoundRobin routing for classic baselines, and (2) a centroid-partitioned path for ClusteredJoin with explicit partition-count and multicast controls. The VSJoin path is integrated into the same runtime with dedicated routing and rebuild mechanisms, and our results show competitive throughput--latency behavior with strong quality in validated workloads. At the same time, we make implementation constraints explicit so that claims remain reproducible under the tested configuration space.
+
+In summary, this paper makes the following contributions:
+\begin{itemize}
+	\item We present a unified multicore streaming vector-join architecture that exposes algorithm, partition, state, and index policies as first-class strategy knobs.
+	\item We design a VSJoin-oriented execution path that combines local/global indexing, LSH-based logical partitioning with virtual nodes, and bounded online remapping for sliding-window workloads.
+	\item We provide an implementation-grounded evaluation in \system for end-to-end comparison across multiple baselines under shared infrastructure.
+	\item We distill practical compatibility and deployment guidelines for maintaining recall and latency stability at high parallelism.
+\end{itemize}
+
+The rest of this paper is organized as follows. Section~\ref{sec:problem-statement} formalizes the problem and motivation. Section~3 presents the core join architecture and method-specific execution paths. Section~4 describes implementation details and experimental methodology. Section~5 discusses related work, and Section~6 concludes.
 % \section{Introduction}
 % \label{sec:intro}
 % \dscf (\dsc) is one of the most important data stream mining operations. 

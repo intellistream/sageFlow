@@ -1,5 +1,7 @@
 #include "operator/join_operator.h"
 
+#include "execution/partitioner_factory.h"
+
 #include "utils/logger.h"
 
 #include <algorithm>
@@ -25,6 +27,20 @@ std::vector<int> JoinOperator::computeVSJoinLogicalPartitions(const Response& re
 
     const size_t P = (num_channels == 0) ? 1 : num_channels;
     const size_t V = (virtual_nodes_per_partition_ == 0) ? 1 : virtual_nodes_per_partition_;
+
+    if (auto* lsh_partitioner = dynamic_cast<LSHIPartitioner*>(partitioner)) {
+        lsh_partitioner->setVirtualNodesPerPartition(V);
+        lsh_partitioner->setLogicalPartitionCount(num_logical_partitions_);
+        auto lsh_logical = lsh_partitioner->getMulticastLogicalPartitionIds(record, P);
+        for (int lp : lsh_logical) {
+            if (lp >= 0 && (num_logical_partitions_ == 0 || static_cast<size_t>(lp) < num_logical_partitions_)) {
+                logical_pids.push_back(lp);
+            }
+        }
+        if (!logical_pids.empty()) {
+            return logical_pids;
+        }
+    }
 
     std::vector<size_t> physical_pids;
     if (partitioner && partitioner->supportsMulticast()) {

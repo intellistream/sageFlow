@@ -1,0 +1,71 @@
+\section{Implementation and Experimental Methodology}
+\label{sec:implementation-methodology}
+
+This section describes the concrete implementation in \system and the evaluation protocol used to ensure reproducible end-to-end comparison.
+
+\subsection{Implementation in \system}
+
+\textbf{Execution model.}
+\system is implemented in modern C++ on a shared-memory multicore runtime with eager processing. Each arriving record triggers immediate state update and opposite-side probe, followed by exact temporal/similarity verification before emission.
+
+\textbf{Strategy composition.}
+Join behavior is instantiated from four coupled dimensions: join algorithm, partition strategy, window-state type, and index strategy. The same runtime hosts baseline methods (BruteForce, IVF, HNSW, HDR-Tree, LSH, ClusteredJoin, S3J-style) and the VSJoin-oriented path.
+
+\textbf{VSJoin routing and indexing path.}
+The VSJoin implementation uses LSH-based partitioning, optional boundary-aware multicast, and logical partition virtualization. A record is first mapped to one or multiple physical partitions and then expanded to logical partitions via a stable identity hash. Logical partitions are resolved to workers through an assignment table with atomic publish semantics. Candidate retrieval probes both local mutable indexes and global read-oriented indexes, then deduplicates by record identity.
+
+\textbf{Background maintenance.}
+The runtime executes a periodic control loop for VSJoin maintenance: (i) evaluate skew from sampled load signals and apply bounded logical remapping when imbalance exceeds threshold, and (ii) rebuild global indexes from state snapshots using event-time-valid windows. The rebuild path skips semantically empty ticks to avoid churn on empty snapshots.
+
+\textbf{Concurrency semantics.}
+Index operations are mediated by a concurrency manager. Routing-map publication is read-optimized: readers do not block on updates, and writers batch changes before atomic swap. Rebalancing updates affect future routing decisions and do not require synchronous full-state migration in the foreground path.
+
+\subsection{Workloads and Configuration Space}
+
+We evaluate both synthetic and dataset-backed stream settings with sliding windows. Each run is defined by:
+\begin{itemize}
+    \item stream rates and inter-arrival characteristics,
+    \item window parameters ($W$ and step size),
+    \item similarity threshold $\theta$,
+    \item method-specific index and routing parameters,
+    \item runtime parallelism $P$.
+\end{itemize}
+
+For VSJoin-specific analysis, we sweep the parameters most tied to recent implementation changes:
+\begin{itemize}
+    \item multicast fanout (or equivalent boundary fanout controls),
+    \item logical virtualization factor $V$,
+    \item rebalance imbalance threshold $\tau$,
+    \item per-round migration cap $M$,
+    \item global rebuild interval.
+\end{itemize}
+
+\subsection{Metrics and Reporting}
+
+We report three metric groups:
+\begin{itemize}
+    \item \textbf{Quality}: recall and precision against exact or strong-reference join outputs,
+    \item \textbf{Efficiency}: throughput and end-to-end latency (including tail behavior),
+    \item \textbf{Robustness}: skew sensitivity and stability under evolving stream distributions.
+\end{itemize}
+
+Latency is measured along the full operator path rather than isolated index queries. Throughput and latency are jointly interpreted to avoid over-optimizing one dimension at the expense of quality.
+
+\subsection{Experimental Protocol}
+
+To ensure fair comparison across methods, all algorithms run in the same runtime and share identical upstream/downstream execution semantics. Unless otherwise stated:
+\begin{itemize}
+    \item hardware and compiler settings are fixed across methods,
+    \item each configuration is repeated across multiple runs,
+    \item reported values are aggregated using robust summaries (e.g., median and spread),
+    \item ablations change one design factor at a time.
+\end{itemize}
+
+We structure experiments into three blocks:
+\begin{enumerate}
+    \item \textbf{End-to-end method comparison}: VSJoin path versus baselines under matched window/query semantics.
+    \item \textbf{Design ablation}: isolate the effect of two-tier indexing, boundary-aware fanout, and logical remapping.
+    \item \textbf{Stress and sensitivity}: evaluate robustness under skew, rate bursts, and parameter sweeps for $\tau$, $M$, $V$, and rebuild interval.
+\end{enumerate}
+
+This protocol is designed to separate algorithmic gains from implementation artifacts and to make the impact of each mechanism measurable in isolation.

@@ -12,6 +12,7 @@
 #include <thread>
 #include <chrono>
 #include <unordered_set>
+#include <unordered_map>
 #include <mutex>
 
 #include "common/data_types.h"
@@ -319,11 +320,20 @@ namespace sageFlow {
                                                     IPartitioner* partitioner,
                                                     size_t num_channels) const;
 
+    void reportVSJoinLoadSample(size_t runtime_subtask_index,
+                                size_t state_subtask_index,
+                                WindowState* current_state,
+                                int64_t record_latency_ns);
+    void maybeRebalanceVSJoinAssignment();
+
     // ==================== VSJoin 后台重建 ====================
     std::once_flag rebuild_thread_started_;
     std::unique_ptr<std::thread> rebuild_thread_;
     std::atomic<bool> rebuild_running_{false};
     std::atomic<int64_t> rebuild_interval_ms_{5000};
+
+    std::vector<size_t> last_rebalance_total_records_;
+    std::atomic<uint64_t> vsjoin_rebalance_rounds_{0};
 
     void globalIndexRebuildLoop();
     void startGlobalIndexRebuilder();

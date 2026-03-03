@@ -4,6 +4,7 @@
 #include "concurrency/concurrency_manager.h"
 #include "state/window_state.h"
 #include "execution/runtime_context.h"
+#include "execution/vector_space_partitioner.h"
 
 #include <vector>
 #include <memory>
@@ -26,6 +27,7 @@ public:
     void setGlobalIndexIds(int left_id, int right_id);
     void setLocalIndexIds(const std::vector<int>& left_ids, const std::vector<int>& right_ids);
     void setWindowStates(WindowState* left_state, WindowState* right_state);
+    void setLocalProbeConfig(int dimension, int num_hash_functions, double boundary_threshold, size_t num_probes);
 
 private:
     std::vector<uint64_t> queryGlobalIndex(const VectorRecord& query, int target_index_id);
@@ -42,6 +44,9 @@ private:
 
     std::vector<int> local_left_ids_;
     std::vector<int> local_right_ids_;
+
+    std::unique_ptr<LSHPartitioner> local_partitioner_;
+    size_t local_num_probes_ = 1;
 
     WindowState* left_state_ = nullptr;
     WindowState* right_state_ = nullptr;

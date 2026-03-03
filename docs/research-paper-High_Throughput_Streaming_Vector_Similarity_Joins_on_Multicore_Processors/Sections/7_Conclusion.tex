@@ -1,0 +1,8 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+This paper presents a multicore streaming vector similarity join design centered on \system and its VSJoin-oriented execution path. The implementation co-designs three mechanisms: read/write-decoupled two-tier indexing, boundary-aware routing, and logical-partition remapping under skew. Together, they provide a practical balance between throughput, latency, and join quality in sliding-window execution.
+
+Our evaluation shows that stable end-to-end behavior in streaming vector joins requires more than fast ANN probing. Routing coverage, maintenance freshness, and skew adaptation directly shape recall and tail latency at runtime. By exposing these mechanisms as explicit strategy knobs in one runtime, \system enables controlled comparison and reproducible tuning across workloads.
+
+Future work includes stronger adaptive control policies for remapping and rebuild scheduling, tighter theoretical bounds for quality under bounded maintenance lag, and broader evaluation on diverse real-world stream distributions.

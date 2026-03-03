@@ -3,7 +3,13 @@
 #include "utils/logger.h"
 
 #include <algorithm>
+#include <cmath>
 #include <numeric>
+
+namespace {
+constexpr double K_LATENCY_EWMA_ALPHA = 0.2;
+constexpr double K_BACKLOG_EWMA_ALPHA = 0.2;
+}
 
 namespace sageFlow {
 
@@ -29,8 +35,24 @@ void VSJoinLoadMonitor::reportLoad(size_t subtask_index,
     auto& stat = subtask_loads_[subtask_index];
     stat.subtask_index = subtask_index;
     stat.record_count = record_count;
-    stat.avg_latency_ms = avg_latency_ms;
-    stat.queue_backlog = queue_backlog;
+    stat.sample_count += 1;
+    stat.total_records += record_count;
+    stat.total_latency_ms += avg_latency_ms;
+    stat.total_backlog += queue_backlog;
+
+    if (stat.sample_count == 1) {
+        stat.avg_latency_ms = avg_latency_ms;
+        stat.queue_backlog = queue_backlog;
+    } else {
+        stat.avg_latency_ms =
+            K_LATENCY_EWMA_ALPHA * avg_latency_ms + (1.0 - K_LATENCY_EWMA_ALPHA) * stat.avg_latency_ms;
+
+        const double smoothed_backlog =
+            K_BACKLOG_EWMA_ALPHA * static_cast<double>(queue_backlog) +
+            (1.0 - K_BACKLOG_EWMA_ALPHA) * static_cast<double>(stat.queue_backlog);
+        stat.queue_backlog = static_cast<size_t>(std::llround(smoothed_backlog));
+    }
+
     stat.last_update = std::chrono::steady_clock::now();
 }
 

@@ -130,6 +130,13 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
         auto* vsjoin = dynamic_cast<VSJoinMethod*>(components.join_method.get());
         if (vsjoin) {
             vsjoin->setLocalIndexIds(components.local_left_ids, components.local_right_ids);
+            const size_t probe_count = static_cast<size_t>(
+                std::max(1, config.vsjoin_multicast_k));
+            vsjoin->setLocalProbeConfig(
+                config.dimension,
+                config.vsjoin_num_hash_functions,
+                config.vsjoin_boundary_threshold,
+                probe_count);
         }
     } else {
         components.join_method = createJoinMethod(config, concurrency_manager,

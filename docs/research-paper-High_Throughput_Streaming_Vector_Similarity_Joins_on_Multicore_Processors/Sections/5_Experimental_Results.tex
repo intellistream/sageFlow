@@ -1,0 +1,37 @@
+\section{Experimental Results}
+\label{sec:results}
+
+This section summarizes the main findings from end-to-end evaluation and targeted ablation.
+
+\subsection{Overall End-to-End Comparison}
+
+Across representative streaming workloads, the VSJoin-oriented path in \system achieves a strong quality--efficiency balance: it maintains competitive throughput and latency while preserving high recall under sliding-window constraints. In contrast, methods optimized primarily for static or single-index settings show larger sensitivity when concurrent insert/expire/probe pressure increases.
+
+The key observation is that throughput alone is not predictive of join quality in streaming multicore execution. Methods with high nominal probe speed can still lose recall when routing coverage, boundary handling, or maintenance freshness is mismatched to workload dynamics.
+
+\subsection{Ablation of the Three Core Designs}
+
+\textbf{Two-tier indexing.}
+Removing either local or global candidate source degrades the quality--latency frontier: local-only paths are more vulnerable to cross-partition misses, while global-only paths increase update pressure and maintenance contention. The combined path consistently provides better robustness under mixed update/query load.
+
+\textbf{Boundary-aware fanout.}
+Disabling boundary multicast reduces duplicate work but can cause recall drops near partition borders, especially as parallelism increases. Moderate fanout restores most of the lost coverage with manageable overhead.
+
+\textbf{Logical remapping.}
+Static partition-to-worker assignment performs adequately on near-uniform streams but degrades under skew. Bounded online remapping improves tail behavior and reduces long-lived hot spots without changing output semantics.
+
+\subsection{Sensitivity to VSJoin Control Parameters}
+
+Parameter sweeps show stable trends:
+\begin{itemize}
+    \item Lower imbalance threshold $\tau$ reacts faster to skew but may increase remapping frequency.
+    \item Larger migration cap $M$ accelerates recovery from severe skew but increases per-round control overhead.
+    \item Larger virtualization factor $V$ improves balancing granularity at the cost of larger routing state.
+    \item Shorter rebuild interval improves freshness but increases background rebuild cost.
+\end{itemize}
+
+These trends indicate that practical tuning should be workload-aware: bursty skew benefits from more aggressive remapping, whereas stable workloads favor lower control-plane churn.
+
+\subsection{Discussion}
+
+Our results support the central claim of this paper: in streaming vector joins, robust performance emerges from coordinating routing, indexing, and maintenance together. No single primitive (index type, partitioner, or scheduler) is sufficient in isolation. The VSJoin-oriented design in \system provides a practical operating region that remains competitive under realistic multicore stream dynamics.

@@ -1,0 +1,16 @@
+\section{Related Work}
+\label{sec:related-work}
+
+We briefly position this paper against three lines of work.
+
+\paragraph{Unbounded stream processing systems.}
+Modern stream processors emphasize correctness under out-of-order arrivals, window semantics, and low-latency continuous execution~\cite{akidau2015dataflow}. Our work is consistent with this perspective but focuses specifically on vector similarity joins, where candidate coverage and semantic locality introduce additional challenges beyond key-based joins.
+
+\paragraph{ANN and vector indexing.}
+ANN methods such as product quantization~\cite{jegou2011product} and graph-based search (e.g., HNSW~\cite{malkov2018efficient}) provide strong performance for static or slowly evolving datasets. Our setting differs in that window contents change continuously, making maintenance policy and synchronization behavior first-class concerns. We therefore treat indexing as one component of a larger streaming execution design.
+
+\paragraph{Vector retrieval in LLM-era systems.}
+Retrieval-centric pipelines for knowledge-intensive workloads~\cite{lewis2020rag} increase demand for low-latency, fresh vector operations. Most such systems optimize point retrieval, whereas this paper targets streaming pairwise join semantics under multicore parallelism and sliding windows.
+
+\paragraph{Summary of distinction.}
+Compared with prior work, this paper emphasizes end-to-end co-design of routing, indexing, and maintenance in one multicore streaming runtime. The contribution is not a standalone new ANN index; it is a practical join execution path that remains quality-stable under continuous update pressure.

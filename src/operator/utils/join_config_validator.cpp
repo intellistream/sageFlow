@@ -741,6 +741,22 @@ void JoinConfigValidator::checkVSJoinConfig(
             "Too small threshold may trigger unnecessary rebuilds.");
     }
 
+    if (config.vsjoin_rebalance_imbalance_ratio < 1.0 ||
+        config.vsjoin_rebalance_imbalance_ratio > 5.0) {
+        result.addError(
+            "vsjoin_rebalance_imbalance_ratio must be in range [1.0, 5.0], got: " +
+            std::to_string(config.vsjoin_rebalance_imbalance_ratio) + ". "
+            "Recommended value: 1.2-1.8 for stable balancing.");
+    }
+
+    if (config.vsjoin_rebalance_max_moves < 1 ||
+        config.vsjoin_rebalance_max_moves > 1024) {
+        result.addError(
+            "vsjoin_rebalance_max_moves must be in range [1, 1024], got: " +
+            std::to_string(config.vsjoin_rebalance_max_moves) + ". "
+            "Recommended value: 4-16 per rebalance round.");
+    }
+
     // 验证 num_hash_functions: [1, 32]
     if (config.vsjoin_num_hash_functions < 1 || config.vsjoin_num_hash_functions > 32) {
         result.addError(

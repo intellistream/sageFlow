@@ -284,6 +284,14 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
         errors.emplace_back("vsjoin_boundary_threshold must be in [0.0, 1.0]");
     }
 
+    if (vsjoin_rebalance_imbalance_ratio < 1.0 || vsjoin_rebalance_imbalance_ratio > 5.0) {
+        errors.emplace_back("vsjoin_rebalance_imbalance_ratio must be in [1.0, 5.0]");
+    }
+
+    if (vsjoin_rebalance_max_moves == 0 || vsjoin_rebalance_max_moves > 1024) {
+        errors.emplace_back("vsjoin_rebalance_max_moves must be in [1, 1024]");
+    }
+
     if (lsh_num_tables <= 0 || lsh_num_tables > 64) {
         errors.emplace_back("lsh_num_tables must be in (0, 64]");
     }
@@ -403,6 +411,15 @@ std::string JoinStrategyConfig::summary() const {
             << "  clustered_multicast_enabled: " << clustered_multicast_enabled << "\n"
             << "  clustered_training_samples: " << clustered_training_samples << "\n";
     }
+
+    if (algorithm == JoinAlgorithm::VSJOIN) {
+        oss << "  -- VSJoin --\n"
+            << "  vsjoin_multicast_k: " << vsjoin_multicast_k << "\n"
+            << "  vsjoin_rebuild_interval_ms: " << vsjoin_rebuild_interval_ms << "\n"
+            << "  vsjoin_rebuild_threshold: " << vsjoin_rebuild_threshold << "\n"
+            << "  vsjoin_rebalance_imbalance_ratio: " << vsjoin_rebalance_imbalance_ratio << "\n"
+            << "  vsjoin_rebalance_max_moves: " << vsjoin_rebalance_max_moves << "\n";
+    }
     
     oss << "}";
     return oss.str();
@@ -509,6 +526,12 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     if (auto rt = node["vsjoin_rebuild_threshold"].value<int64_t>()) {
         config.vsjoin_rebuild_threshold = static_cast<size_t>(*rt);
+    }
+    if (auto rir = node["vsjoin_rebalance_imbalance_ratio"].value<double>()) {
+        config.vsjoin_rebalance_imbalance_ratio = *rir;
+    }
+    if (auto rmm = node["vsjoin_rebalance_max_moves"].value<int64_t>()) {
+        config.vsjoin_rebalance_max_moves = static_cast<size_t>(*rmm);
     }
     // VSJoin Local/Global Index 类型
     if (auto lit = node["vsjoin_local_index_type"].value<std::string>()) {

@@ -1,0 +1,131 @@
+\section{Core Join Architecture and Execution Paths}
+\label{sec:core-architecture}
+
+This section presents the algorithmic core implemented in the current \system codebase. We focus on three designs that are jointly necessary for streaming vector similarity joins on multicore CPUs: (i) read/write-decoupled two-tier indexing, (ii) boundary-aware partition routing, and (iii) logical-partition remapping for skew. Together, they target high throughput, low latency, and robust recall under sliding-window updates.
+
+\subsection{Execution Objective and Contract of \system}
+
+\system operates on two unbounded streams with eager processing. For each incoming vector $x$ from side $s$, \system executes four stages in order: state update, candidate retrieval, verification, and emission. The contract is:
+\begin{enumerate}
+    \item \textbf{Low-overhead update}: ingest $x$ with minimal synchronization on the write path.
+    \item \textbf{High-coverage retrieval}: collect candidates from complementary index views.
+    \item \textbf{Exact verification}: enforce temporal and similarity predicates before output.
+    \item \textbf{Bounded staleness}: refresh read-optimized structures asynchronously.
+\end{enumerate}
+This contract explicitly separates algorithmic approximation (candidate stage) from semantic correctness (verification stage).
+
+Let an arriving record be $x$ from stream side $s \in \{L, R\}$ and let $\bar{s}$ denote the opposite side. \system emits $(x,y)$ only if
+\[
+|x.\mathit{ts} - y.\mathit{ts}| \leq W \quad \land \quad \mathrm{sim}(x,y) \geq \theta.
+\]
+Thus, recall loss can only come from candidate under-coverage, not from output semantics.
+
+\subsection{Mechanism I: Read/Write-Decoupled Two-Tier Indexing}
+
+The first key idea is decoupling update-intensive and query-intensive responsibilities:
+\begin{itemize}
+    \item \textbf{Local mutable indexes} absorb high-frequency inserts with partition-local ownership.
+    \item \textbf{Global read-oriented indexes} provide broad recall-oriented probing.
+\end{itemize}
+
+For each query record $x$, \system probes both sources and merges candidates by identity:
+\[
+\mathcal{C}(x) = \mathrm{Dedup}(\mathcal{C}_{\text{local}}(x) \cup \mathcal{C}_{\text{global}}(x)).
+\]
+This avoids forcing one index to optimize conflicting goals (fast write vs. broad recall).
+
+The local tier is optimized for update throughput and short critical sections. The global tier is optimized for query coverage and is refreshed in the background from window snapshots. Let $\Delta_r$ be rebuild interval and $\Delta_s$ be snapshot-to-query lag; then candidate freshness is bounded by approximately $\Delta_r + \Delta_s$, giving a controllable staleness knob rather than unpredictable drift.
+
+To keep this bound meaningful under sparse or bursty arrivals, the current implementation computes rebuild validity against the latest event-time observed in snapshots (instead of raw wall-clock time). Concretely, if $t_{\max}$ is the maximum timestamp across the sampled left/right snapshots, global rebuild uses $t_{\max}-W$ as the effective lower bound and skips rebuild when both sides have no valid records. This avoids repeatedly rebuilding empty or semantically stale global views.
+
+At high ingest rate, single-tier shared indexes suffer from either lock contention (if fully mutable) or stale views (if infrequently rebuilt). The two-tier design moves this trade-off from an implementation artifact to an explicit algorithm parameterization, where update pressure is absorbed locally and global recall is recovered periodically.
+
+From a cost view, per-record hot-path work is
+\[
+T_{\text{hot}}(x) \approx T_{\text{route}}(x) + T_{\text{insert-local}}(x) + T_{\text{probe}}(x) + T_{\text{verify}}(x),
+\]
+while global rebuild cost is amortized asynchronously. This separation is central for keeping tail latency stable under bursty arrivals.
+
+\subsection{Mechanism II: Boundary-Aware Partition Routing}
+
+The second key idea is similarity-aware routing with controlled multicast. A strict single-partition policy risks missing near-border matches; unrestricted broadcast wastes compute and increases duplicates. In the current implementation, routing is realized in two stages:
+\begin{itemize}
+    \item \textbf{Connection-layer routing}: upstream-to-downstream queue selection through a partitioner (unicast or multicast).
+    \item \textbf{VSJoin runtime routing}: records are mapped to logical partitions and then resolved to physical subtasks before local insert/query.
+\end{itemize}
+For VSJoin, \system uses boundary-aware fanout to navigate the recall/overhead trade-off:
+\begin{itemize}
+    \item Non-boundary vectors are routed to one primary partition.
+    \item Boundary vectors are multicast to a small set of nearby partitions.
+\end{itemize}
+
+Let $\mathcal{P}(x)$ be the target partition set for record $x$. \system enforces:
+\[
+\mathbb{E}[|\mathcal{P}(x)|] \ll P,
+\]
+where $P$ is physical parallelism, while ensuring boundary vectors are replicated enough to prevent systematic misses. In practice, this is controlled by small fanout parameters (e.g., top-$k$ neighbor partitions or threshold-based overlap), and deduplication is applied before emission.
+
+This mechanism addresses a core failure mode of naive partitioned vector joins: recall collapse as parallelism increases. Without boundary-aware fanout, partition granularity improves throughput but can sharply reduce cross-boundary match coverage.
+
+In the implemented VSJoin path, boundary-aware routing is realized as a two-step mapping. First, an LSH partitioner outputs one or multiple physical partition candidates (multicast only for boundary vectors). Second, each selected physical partition is expanded to a logical partition with virtualization:
+\[
+\texttt{logical\_pid} = \texttt{physical\_pid} \times V + h(\texttt{uid}) \bmod V,
+\]
+where $V$ is virtual nodes per physical partition and $h(\cdot)$ is a stable hash. This design keeps routing deterministic for a record identity while enabling finer-grained balancing via logical remapping.
+
+\subsection{Mechanism III: Logical-Partition Remapping for Skew}
+
+The third key idea is decoupling partition semantics from worker placement. With runtime parallelism $P$ and virtualization factor $V$, \system exposes $P\times V$ logical partitions and maps them to physical workers through an assignment table. This indirection supports lightweight online rebalancing under skewed arrivals.
+
+In the current code, logical partition id is computed as
+\[
+\texttt{logical\_pid} = \texttt{physical\_pid} \times V + \texttt{v\_idx},
+\]
+where $\texttt{v\_idx}$ is derived from a stable hash of record identity. Routing then applies
+\[
+\texttt{subtask} = \texttt{AssignmentTable}[\texttt{logical\_pid}].
+\]
+
+If worker load is $\ell_i$ for worker $i$, remapping seeks to reduce imbalance while preserving partition-local processing semantics. In practice, this improves robustness to hot partitions and non-uniform vector distributions, where static partition-to-thread binding often leads to persistent bottlenecks.
+
+Concretely, \system maintains a lightweight load monitor that aggregates per-subtask samples (record volume, smoothed processing latency, and backlog signal when available). At each background tick, interval load is estimated from newly observed records (plus a small backlog weight), and rebalance is triggered when
+\[
+\frac{\max_i \hat{\ell}_i}{\frac{1}{P}\sum_i \hat{\ell}_i} > \tau,
+\]
+where $\tau$ is a configurable imbalance ratio. When triggered, up to $M$ logical partitions are moved from the busiest subtask to the idlest one in one atomic AssignmentTable update ($M$ is also configurable).
+
+More specifically, if $R_i^{(k)}$ is cumulative reported records for worker $i$ at tick $k$, and $B_i^{(k)}$ is the EWMA backlog estimate, the interval load signal is:
+\[
+\hat{\ell}_i^{(k)} = \big(R_i^{(k)}-R_i^{(k-1)}\big) + \beta B_i^{(k)},
+\]
+with a small constant $\beta$ (backlog weight). The migration count in one round is bounded by
+\[
+m = \min\big(M,\; \text{overload\_partitions},\; \text{movable\_candidates}\big),
+\]
+which guarantees predictable remapping overhead.
+
+The AssignmentTable uses an RCU-style double-buffer swap: reads are lock-free, while updates are batched and atomically published.
+
+The table update path is fail-safe in the current code: invalid logical/physical sizes disable remapping gracefully, and each update applies to a copied snapshot before atomic pointer publication. This keeps concurrent readers wait-free and avoids transient partial mappings.
+
+The present rebalancer is intentionally lightweight and heuristic: it uses sampled per-subtask load signals and caps migration count per round. Therefore, it improves robustness under skew but does not claim globally optimal balancing each round.
+
+In the current implementation, remapping updates routing metadata only (i.e., future routing decisions) and avoids synchronous full-state migration on the foreground path. This design keeps rebalance overhead predictable under high ingest pressure.
+
+This mechanism is essential for real streams where data distribution drifts over time. A fixed mapping can be optimal at startup but degrade later; remapping keeps throughput more stable over time without changing query semantics.
+
+\subsection{End-to-End Pipeline in \system}
+
+Combining the three mechanisms yields the following pipeline for each record: (i) route with boundary-aware fanout to one or multiple logical partitions, (ii) map logical partitions to physical subtasks via AssignmentTable, (iii) insert into local mutable index/state at target subtasks, (iv) retrieve from local+global candidate sources, (v) deduplicate and verify, and (vi) emit exact-threshold join pairs. Concurrently, a background task rebuilds global indexes from fresh window snapshots and triggers periodic rebalance checks.
+
+The current implementation executes these background actions in a single periodic control loop: each tick first evaluates skew and optionally remaps logical partitions, then performs global-index refresh using event-time-valid snapshots. This ordering prioritizes routing adaptation before rebuilding read-optimized structures, so subsequent rebuilds better reflect updated placement.
+
+This pipeline is the core algorithmic contribution of \system: it turns the classical trade-off between shared-index contention and partition-induced recall loss into a controllable design space using decoupled indexing, bounded multicast, and logical remapping.
+
+From a systems perspective, the current implementation provides three concrete guarantees: (1) semantic correctness is enforced at verification time; (2) routing-map updates are atomic for concurrent readers; and (3) rebalance overhead is bounded by per-round migration limits. At the same time, we do not assume perfect balance under all skews; observed balance quality depends on load signal quality, rebalance interval, and workload drift speed.
+
+\subsection{Role of Baselines}
+
+BruteForce, IVF, HNSW, HDR-Tree, ClusteredJoin, and S3J-style paths are included as comparison targets under the same execution semantics. They are not the narrative center of this paper; instead, they quantify how each \system key design contributes to quality and performance in the same workload and hardware setting.
+
+The next section presents implementation and evaluation details used to measure these effects.
