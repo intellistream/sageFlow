@@ -46,6 +46,7 @@ log.cfg
 
 # IDE and editor files
 .vscode/
+!.vscode/settings.json
 .cursor/
 .idea/
 *.swp

@@ -4,6 +4,10 @@
 
 **SageFlow**: C++20 向量原生流处理引擎，用于在时间窗口内做状态化向量算子（TopK / Filter / Join 等）。
 
+## Environment Rule
+
+- Do not create new local virtual environments (`venv`/`.venv`); use the existing configured Python environment.
+
 ## Build & Test（常用）
 
 ```bash
@@ -106,6 +110,11 @@ auto results = helper.execute();
 double recall = helper.computeRecall(results, ground_truth);
 ```
 
+**Output**:
+- Results: `test/result/datasource_modes/`
+- Reports: `test/result/datasource_modes_report.tsv`
+- Metrics: `build/metrics/`
+
 ---
 
 ## Core Invariants（别踩坑）
@@ -184,3 +193,17 @@ SAGEFLOW_LOG_WARN("TAG", "Warning: {}", issue);
 SAGEFLOW_LOG_ERROR("TAG", "Error occurred: {}", error_msg);
 ```
 
+## Polyrepo coordination (mandatory)
+
+- This repository is an independent SAGE sub-repository and is developed/released independently.
+- Do not assume sibling source directories exist locally in `intellistream/SAGE`.
+- For cross-repo rollout, publish this repo/package first, then bump the version pin in `SAGE/packages/sage/pyproject.toml` when applicable.
+- Do not add local editable installs of other SAGE sub-packages in setup scripts or docs.
+
+
+## 🚫 NEVER_CREATE_DOT_VENV_MANDATORY
+
+- 永远不要创建 `.venv` 或 `venv`（无任何例外）。
+- NEVER create `.venv`/`venv` in this repository under any circumstance.
+- 必须复用当前已配置的非-venv Python 环境（如现有 conda 环境）。
+- If any script/task suggests creating a virtualenv, skip that step and continue with the existing environment.
