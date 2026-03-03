@@ -10,6 +10,13 @@
 -   **Optimized Three-Phase Pipeline**: Abstracts stream processing into three distinct phases—ingestion, state materialization, and snapshot exposure—unlocking significant optimization opportunities.
 -   **Stateful and Windowed Operations**: Natively supports windowing to create time-bound semantic snapshots from continuous data streams.
 
+## Owners & Contact
+
+-   **Owners**: @ZeroJustMe (ziao), @Pygone (xincai)
+-   **Primary Contact**: @ZeroJustMe, @Pygone
+
+For repository governance, release coordination, and external communication, use the two owners above as the official contacts.
+
 ## Key Use Cases
 
 -   **Real-time LLM Generation**: Provide large language models with fresh, stateful context snapshots for more accurate and timely responses.
