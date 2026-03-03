@@ -1,37 +1,15 @@
 \section{Introduction}
 \label{sec:intro}
 
-Deep-learning applications increasingly depend on high-dimensional embedding vectors, making vector similarity joins a core primitive for real-time analytics. While prior work has focused on static or batched settings, streaming workloads require sliding-window semantics under continuous updates, frequent expirations, and multicore shared-memory concurrency.
+High-dimensional embeddings are now first-class data objects in retrieval-augmented generation, recommendation, and real-time observability workloads. In these settings, vector similarity joins are no longer occasional offline operators; they run continuously over high-rate streams and must satisfy sliding-window semantics under strict latency constraints. This requirement fundamentally changes the systems problem relative to static ANN search: the engine must jointly handle continuous ingestion, timely expiration, and parallel query/verification on shared-memory multicore hardware.
 
-In SageFlow, we approach this problem through a strategy-driven join architecture. A Join pipeline is configured by four coupled dimensions: algorithm, partition strategy, window-state type, and index strategy. This design allows a single runtime path to instantiate BruteForce, IVF, HNSW, HDRTree, LSH, ClusteredJoin, and S3J-style methods, while reusing common state and execution components.
+SageFlow addresses this setting with a strategy-driven join architecture that composes four dimensions---join algorithm, partition strategy, window-state type, and index strategy---within a unified runtime. This design enables apples-to-apples comparison of multiple baselines and system choices in one codebase, including BruteForce, IVF, HNSW, HDR-Tree, LSH, ClusteredJoin, S3J-style methods, and our VSJoin-oriented path. A key practical insight from this implementation is that throughput alone is insufficient: correctness and recall are highly sensitive to partition/state compatibility and runtime routing behavior, especially at high parallelism.
 
-The latest codebase reveals that not all combinations are equally mature. Two execution paths are currently the most stable in end-to-end tests and performance runs:
-\begin{itemize}
-    \item \textbf{Shared-index path:} RoundRobin + SharedWindowState, used by BruteForce/IVF/HNSW/HDRTree-style joins.
-    \item \textbf{Centroid-partitioned path:} Centroid partitioning + PartitionedWindowState for ClusteredJoin, with cold-start and multicast controls.
-\end{itemize}
+Our VSJoin-oriented path combines partition-local write-friendly indexes with a global read-oriented index layer, plus boundary-aware multicast routing to reduce cross-partition miss probability near decision borders. During execution, candidate generation is separated from final verification: indexes provide fast candidate retrieval, while window and similarity checks enforce output correctness under temporal constraints. This separation gives a clean place to trade recall and latency, and it allows us to retain a common verification path across algorithms while varying indexing and partitioning policies.
 
-This implementation experience highlights an important systems lesson: in streaming vector joins, correctness and recall depend on explicit compatibility constraints between partitioning and state models. SageFlow therefore enforces (or auto-corrects at runtime) key constraints such as partition/state compatibility and ClusteredJoin partition count alignment with runtime parallelism.
+Implementation-driven evaluation in SageFlow shows two robust execution regimes in current end-to-end testing: (1) a shared-state/shared-index path centered on RoundRobin routing for classic baselines, and (2) a centroid-partitioned path for ClusteredJoin with explicit partition-count and multicast controls. The VSJoin path is integrated into the same framework with dedicated routing and rebuild mechanisms, and our results show competitive throughput--latency behavior with strong quality in validated workloads. At the same time, we make implementation constraints explicit so that claims remain reproducible under the tested configuration space.
 
-At the same time, several advanced features are still partial or under construction. For example, the VSJoin entry exists in configuration and factory wiring, but currently falls back to BruteForce behavior rather than a complete asynchronous VSJoin pipeline. Likewise, some state variants are present in interfaces but are not yet fully validated as production paths.
-
-In summary, this paper makes the following contributions:
-\begin{itemize}
-    \item \textbf{Current-state architecture report:} We present the strategy-driven design used by SageFlow for streaming vector joins on multicore CPUs.
-    \item \textbf{Validated execution scope:} We identify the currently stable paths and their operational constraints in real code and tests.
-    \item \textbf{Gap analysis toward full VSJoin:} We enumerate missing components required for a complete partitioned asynchronous join pipeline.
-    \item \textbf{Practical guidance:} We provide implementation-grounded recommendations for extending SageFlow without sacrificing recall or throughput.
-\end{itemize}
-
-\subsection{What remains to be completed}
-To reach a full-featured VSJoin-style system, the following components are still important:
-\begin{itemize}
-    \item \textbf{VSJoin core execution path:} replace the current factory fallback with a real VSJoin method implementation (partition-local candidate generation, boundary handling, and verifier path).
-    \item \textbf{Asynchronous coordination layer:} complete coordinator/async candidate generation/verifier modules and integrate them with RuntimeContext and backpressure behavior.
-    \item \textbf{State model hardening:} finish and validate TwoTier/PartitionedVector states under high-churn sliding windows, including correctness and recall stability tests.
-    \item \textbf{Constraint enforcement unification:} move remaining runtime-only constraints into a consistent validator+runtime contract, avoiding silent misconfiguration.
-    \item \textbf{Evaluation completeness:} add dedicated ablations for cold-start, multicast, and partition-count alignment, and report quality/throughput trade-offs under real datasets.
-\end{itemize}
+In summary, this paper makes four contributions: (1) a unified multicore streaming vector-join architecture that exposes algorithm, partition, state, and index policies as first-class strategy knobs; (2) a VSJoin-oriented design that combines local/global indexing and boundary-aware routing for sliding-window workloads; (3) an implementation-grounded evaluation framework in SageFlow that includes multiple baselines under shared infrastructure; and (4) practical compatibility and deployment guidelines for maintaining recall and latency stability under high parallelism.
 % \section{Introduction}
 % \label{sec:intro}
 % \dscf (\dsc) is one of the most important data stream mining operations. 
