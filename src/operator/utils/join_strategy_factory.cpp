@@ -8,6 +8,7 @@
 #include "operator/join_operator_methods/clustered_join_method.h"
 #include "operator/join_operator_methods/s3j_method.h"
 #include "operator/join_operator_methods/vsjoin_method.h"
+#include "operator/utils/join_method_registry.h"
 #include "state/shared_window_state.h"
 #include "state/partitioned_window_state.h"
 #include "state/two_tier_window_state.h"
@@ -187,6 +188,19 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createJoinMethod(
     std::shared_ptr<ConcurrencyManager> concurrency_manager,
     int left_index_id,
     int right_index_id) {
+
+    // 统一入口：优先走注册中心（已注册方法）。
+    // 对未注册算法（例如部分开发中的方法）保留 switch 兜底，确保向后兼容。
+    auto& registry = JoinMethodRegistry::instance();
+    if (registry.hasMethod(config.algorithm)) {
+        return registry.createMethod(
+            config.algorithm,
+            config,
+            concurrency_manager,
+            config.dimension,
+            left_index_id,
+            right_index_id);
+    }
     
     switch (config.algorithm) {
         case JoinAlgorithm::BRUTEFORCE:
@@ -386,12 +400,6 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createVSJoinMethod(
 std::unique_ptr<WindowState> JoinStrategyFactory::createWindowState(
     const JoinStrategyConfig& config,
     size_t parallelism) {
-
-    if (config.algorithm == JoinAlgorithm::VSJOIN) {
-        return std::make_unique<TwoTierWindowState>(
-            parallelism,
-            config.two_tier_compact_threshold);
-    }
     
     switch (config.window_state_type) {
         case WindowStateType::SHARED:

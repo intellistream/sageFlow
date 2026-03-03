@@ -1645,27 +1645,18 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
             }
             
             case JoinAlgorithm::VSJOIN: {
-                // 临时方案：VSJoin 先复用 ClusteredJoin 的 CentroidPartitioner 以获得多播能力（multicast_k）。
-                // TODO(vsjoin): 实现 LSHPartitionerAdapter 的多播接口（supportsMulticast/partitionMulti + k），
-                // Issue URL: https://github.com/intellistream/sageFlow/issues/102
-                // 再切回 LSH 分区。
-                CentroidPartitioner::Config cp_config;
-                cp_config.num_partitions = (num_partitions > 0)
-                    ? num_partitions
-                    : strategy_config_.num_partitions;
-                cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
-                cp_config.dimension = (dimension > 0)
-                    ? dimension
-                    : strategy_config_.dimension;
-                cp_config.seed = 42;
-                cp_config.rebalance_threshold = strategy_config_.clustered_rebalance_threshold;
-                cp_config.multicast_k = strategy_config_.clustered_multicast_k;
-                cp_config.training_samples = static_cast<size_t>(strategy_config_.clustered_training_samples);
-                cp_config.enable_cold_start = strategy_config_.enable_cold_start;
-
-                auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
-                partitioner->setMulticastEnabled(strategy_config_.clustered_multicast_enabled);
-                return partitioner;
+                // VSJoin 按配置契约选择分区器，不在运行时隐式改写策略。
+                auto cfg = strategy_config_;
+                if (dimension > 0) {
+                    cfg.dimension = dimension;
+                }
+                if (num_partitions > 0) {
+                    cfg.num_partitions = num_partitions;
+                }
+                return PartitionerFactory::create(cfg.partition_strategy,
+                                                 cfg.dimension,
+                                                 cfg.num_partitions,
+                                                 cfg);
             }
             
             case JoinAlgorithm::BRUTEFORCE:

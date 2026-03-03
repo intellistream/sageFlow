@@ -1,0 +1,24 @@
+\begin{abstract}
+Approximate vector similarity joins on multicore CPUs have been extensively studied for static and 
+batched datasets, where pre-built indexes or static clustering schemes amortize candidate generation cost. 
+In contrast, streaming workloads require sliding-window semantics over continuously arriving vectors, 
+introducing a second axis of complexity: dynamic state maintenance, frequent expiration, and 
+fine-grained synchronization on shared-memory hardware.
+
+In this paper, we present \system, a parallel join mechanism for high-throughput streaming
+ vector similarity joins on multicore processors. The first key idea is a 
+ \textbf{partitioned two-tier index organization} that separates write-heavy 
+ ingestion from read-optimized probing. The second is a \textbf{vector-space partitioning strategy} 
+ that serves as a concurrency-control mechanism by assigning spatial shards to workers, 
+ so that most updates and probes remain thread-local and synchronization contention is reduced.
+
+To preserve sliding-window correctness under partitioned execution, 
+\system introduces lightweight boundary coordination for vectors near partition borders. 
+The framework further decouples candidate generation from distance verification, enabling 
+shard-local approximate search structures to scale with core count while controlling recall degradation.
+
+Implemented in \sageflow, experiments on representative streaming vector workloads show that \system 
+improves throughput and end-to-end latency over multicore window-join baselines and streaming 
+adaptations of static ANN indexes across diverse window sizes and similarity thresholds, 
+while maintaining high-quality join results.
+\end{abstract}

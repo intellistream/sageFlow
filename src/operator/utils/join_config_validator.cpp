@@ -147,7 +147,7 @@ std::vector<WindowStateType> JoinConfigValidator::getRecommendedWindowStates(
             return {WindowStateType::PARTITIONED};
 
         case PartitionStrategy::LSH:
-            return {WindowStateType::PARTITIONED_VECTOR};
+            return {WindowStateType::PARTITIONED, WindowStateType::TWO_TIER, WindowStateType::PARTITIONED_VECTOR};
 
         case PartitionStrategy::CENTROID:
             return {WindowStateType::PARTITIONED};

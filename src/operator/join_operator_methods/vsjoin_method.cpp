@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/vsjoin_method.h"
+#include "operator/utils/join_method_registry.h"
 #include "utils/logger.h"
 
 #include <unordered_set>
@@ -113,3 +114,28 @@ std::vector<std::unique_ptr<VectorRecord>> VSJoinMethod::resolveUidsToRecords(
 }
 
 }  // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::VSJOIN,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "VSJoin",
+        "VSJoin two-tier index method with global/local candidate retrieval.",
+        sageFlow::JoinAlgorithm::VSJOIN,
+        true,   // supports_eager
+        false,  // supports_lazy
+        sageFlow::PartitionStrategy::LSH,
+        sageFlow::WindowStateType::PARTITIONED,
+        ""
+    }),
+    [](const sageFlow::JoinStrategyConfig& /*config*/,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int left_idx,
+       int right_idx) {
+        auto method = std::make_unique<sageFlow::VSJoinMethod>();
+        sageFlow::RuntimeContext ctx(0, 1);
+        method->initialize(ctx, cm);
+        method->setGlobalIndexIds(left_idx, right_idx);
+        return method;
+    });
