@@ -1,16 +1,24 @@
 \section{Related Work}
 \label{sec:related-work}
 
-We briefly position this paper against three lines of work.
+We organize related work by conflict points and complementarity with the VSJoin objective: streaming vector similarity joins under multicore sliding-window execution.
 
-\paragraph{Unbounded stream processing systems.}
-Modern stream processors emphasize correctness under out-of-order arrivals, window semantics, and low-latency continuous execution~\cite{akidau2015dataflow}. Our work is consistent with this perspective but focuses specifically on vector similarity joins, where candidate coverage and semantic locality introduce additional challenges beyond key-based joins.
+\paragraph{(1) Multicore and distributed stream joins for structured data.}
+Prior stream processing research provides the execution foundation for correctness and low-latency operation under unbounded inputs~\cite{akidau2015dataflow}. Representative join designs such as Low-latency Handshake Join~\cite{roy2014llhj}, scalable distributed stream join execution~\cite{lin2015scalable}, adaptive distributed stream join models~\cite{wang2024lowlatency}, and PIM-Tree-based multicore joins~\cite{shahvarani2020pimtree} are highly relevant on concurrency control, indexing under updates, and execution-pipeline discipline.
 
-\paragraph{ANN and vector indexing.}
-ANN methods such as product quantization~\cite{jegou2011product} and graph-based search (e.g., HNSW~\cite{malkov2018efficient}) provide strong performance for static or slowly evolving datasets. Our setting differs in that window contents change continuously, making maintenance policy and synchronization behavior first-class concerns. We therefore treat indexing as one component of a larger streaming execution design.
+\textit{Conflict point.} Their routing and locality assumptions are primarily key-centric, while vector similarity joins require neighborhood-aware routing and boundary coverage controls.
 
-\paragraph{Vector retrieval in LLM-era systems.}
-Retrieval-centric pipelines for knowledge-intensive workloads~\cite{lewis2020rag} increase demand for low-latency, fresh vector operations. Most such systems optimize point retrieval, whereas this paper targets streaming pairwise join semantics under multicore parallelism and sliding windows.
+\textit{Complementarity.} We inherit the stream-execution perspective (window semantics, continuous correctness, low-latency operation), but extend the control surface to vector-specific routing/index maintenance trade-offs.
+
+\paragraph{(2) Similarity join methods and set-similarity streaming lines.}
+Approximate vector indexing methods such as product quantization~\cite{jegou2011product} and graph-based search such as HNSW~\cite{malkov2018efficient} provide strong retrieval performance and are essential components in modern vector systems. In parallel, streaming set-similarity efforts study distributed candidate generation and filtering under token/set semantics~\cite{yang2020distributed,rafiei2020similarity,morales2016streaming}. The main conflict with our target is data and maintenance regime: token-set pipelines and static/batch vector assumptions amortize updates differently from continuous insert/expire/probe traffic under sliding windows with dense-vector threshold predicates.
+
+\textit{Complementarity.} VSJoin does not compete with these methods as standalone indexes; instead, it composes index behavior with routing and control-plane policies so quality/latency remain stable under update churn.
+
+\paragraph{(3) Streaming vector pipelines and retrieval-centric workloads.}
+LLM-era retrieval workloads increase demand for fresh, low-latency vector processing~\cite{lewis2020rag}. Dynamic vector maintenance systems such as SPFresh~\cite{xu2023spfresh} are close in spirit, but they focus on vector serving and online index freshness at large scale, rather than single-node multicore stream-stream threshold joins with explicit coverage/control co-design.
+
+\textit{Conflict point.} Our focus is not general vector serving or set-overlap filtering; it is pairwise thresholded vector join under window constraints, where boundary fanout, periodic freshness control, and skew-sensitive remapping must be coordinated explicitly.
 
 \paragraph{Summary of distinction.}
-Compared with prior work, this paper emphasizes end-to-end co-design of routing, indexing, and maintenance in one multicore streaming runtime. The contribution is not a standalone new ANN index; it is a practical join execution path that remains quality-stable under continuous update pressure.
+Compared with prior work, our contribution is an implementation-aligned co-design of three mechanisms in one runtime: bounded-staleness read/write decoupling, budgeted boundary coverage routing, and predictable control-plane remapping. In our evaluated setting, this combination provides a more direct answer to streaming vector-join tensions than any single prior axis alone (stream runtime, ANN index, or retrieval pipeline).

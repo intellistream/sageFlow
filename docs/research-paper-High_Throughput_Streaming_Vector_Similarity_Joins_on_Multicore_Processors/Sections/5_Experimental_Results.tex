@@ -1,24 +1,68 @@
 \section{Experimental Results}
 \label{sec:results}
 
-This section summarizes the main findings from end-to-end evaluation and targeted ablation.
+This section first describes the experimental methodology and then summarizes the main findings from end-to-end evaluation and targeted ablation.
+
+\subsection{Experimental Methodology}
+
+\textbf{Workloads and configuration space.}
+We evaluate both synthetic and dataset-backed stream settings with sliding windows. Each run is defined by stream rate/inter-arrival properties, window parameters ($W$ and step size), similarity threshold $\theta$, method-specific index/routing parameters, and runtime parallelism $P$.
+
+For VSJoin-specific analysis, we sweep the parameters most tied to the current implementation:
+\begin{itemize}
+    \item boundary fanout controls (including multicast-related settings),
+    \item logical virtualization factor $V$,
+    \item rebalance imbalance threshold $\tau$,
+    \item per-round migration cap $M$,
+    \item global rebuild interval.
+\end{itemize}
+
+\textbf{Metrics and reporting.}
+We report three metric groups: quality (recall/precision), efficiency (throughput and end-to-end latency including tail), and robustness (skew sensitivity and stability under evolving distributions). Latency is measured along the full operator path rather than isolated index calls. Throughput and latency are jointly interpreted with quality metrics.
+
+\textbf{Protocol and fairness.}
+All methods run in the same runtime and share identical upstream/downstream semantics. Unless otherwise stated, hardware/compiler settings are fixed, each configuration is repeated across multiple runs, and ablations modify one design factor at a time. We structure evaluation into three blocks: (1) end-to-end method comparison, (2) design ablation of two-tier indexing/routing/remapping, and (3) stress/sensitivity under skew and rate bursts.
 
 \subsection{Overall End-to-End Comparison}
 
-Across representative streaming workloads, the VSJoin-oriented path in \system achieves a strong quality--efficiency balance: it maintains competitive throughput and latency while preserving high recall under sliding-window constraints. In contrast, methods optimized primarily for static or single-index settings show larger sensitivity when concurrent insert/expire/probe pressure increases.
+Across evaluated workloads, the VSJoin-oriented path in \system remains in a favorable quality--efficiency operating region: it sustains competitive throughput and tail latency while maintaining high recall under sliding-window semantics. Baseline paths remain important boundary references, but their behavior is typically more sensitive when insert/expire/probe pressure and skew increase.
 
-The key observation is that throughput alone is not predictive of join quality in streaming multicore execution. Methods with high nominal probe speed can still lose recall when routing coverage, boundary handling, or maintenance freshness is mismatched to workload dynamics.
+The key system-level observation is that throughput alone does not predict join quality in streaming multicore execution. Methods with high nominal probe speed can still lose recall when routing coverage, boundary handling, or freshness control is mismatched to workload dynamics.
 
-\subsection{Ablation of the Three Core Designs}
+\subsection{P1: Decoupled Indexing under Update Churn}
 
-\textbf{Two-tier indexing.}
-Removing either local or global candidate source degrades the quality--latency frontier: local-only paths are more vulnerable to cross-partition misses, while global-only paths increase update pressure and maintenance contention. The combined path consistently provides better robustness under mixed update/query load.
+\textbf{Claim under test.}
+Bounded-staleness read/write decoupling improves throughput--latency behavior under sustained update churn while preserving join quality in evaluated settings.
 
-\textbf{Boundary-aware fanout.}
-Disabling boundary multicast reduces duplicate work but can cause recall drops near partition borders, especially as parallelism increases. Moderate fanout restores most of the lost coverage with manageable overhead.
+\textbf{Evidence pattern.}
+Our ablation removes one candidate source at a time. Local-only retrieval is more vulnerable to cross-partition misses, while global-only retrieval increases update pressure and maintenance contention. Under identical runtime semantics, combining local mutable and global read-oriented tiers consistently yields a better throughput--latency--recall frontier.
 
-\textbf{Logical remapping.}
-Static partition-to-worker assignment performs adequately on near-uniform streams but degrades under skew. Bounded online remapping improves tail behavior and reduces long-lived hot spots without changing output semantics.
+When we sweep rebuild interval, we observe the expected bounded-staleness trend: shorter intervals usually improve freshness-sensitive recall but increase rebuild overhead and may raise p99 latency; longer intervals reduce maintenance cost but can widen freshness lag under fast churn. This supports P1 as a controllable trade-off rather than a single globally optimal point.
+
+\textbf{Boundary statement.}
+This conclusion is scoped to our implementation and evaluated workloads; it does not claim universally optimal rebuild cadence across all hardware or stream regimes.
+
+\subsection{P2: Budgeted Coverage versus Routing Extremes}
+
+\textbf{Claim under test.}
+Budgeted boundary coverage routing provides a better quality--cost trade-off than strict unicast and full-broadcast extremes under evaluated fanout budgets.
+
+\textbf{Evidence pattern.}
+We compare strict unicast, budgeted multicast, and broadcast-like routing under shared semantics. Disabling boundary multicast lowers duplicate work but causes recall loss near partition borders, increasingly so at higher parallelism. Moderate fanout budgets recover most boundary coverage with manageable overhead, while aggressive fanout shifts behavior toward broadcast-like duplication and compute inflation.
+
+\textbf{Boundary statement.}
+The observed balance point depends on workload geometry and selected budget range; we therefore report a bounded operating region, not a universal best fanout.
+
+\subsection{P3: Predictable Skew Control with Bounded Overhead}
+
+\textbf{Claim under test.}
+Periodic, threshold-triggered, bounded logical remapping improves skew robustness while keeping control overhead predictable and foreground reads lock-light.
+
+\textbf{Evidence pattern.}
+Static mapping is acceptable on near-uniform streams but degrades under skew. In contrast, AssignmentTable-based periodic remapping improves tail behavior and reduces long-lived hotspots without changing output semantics in evaluated runs. Because each round is capped by a migration budget, control-plane cost remains bounded by design.
+
+\textbf{Boundary statement.}
+This is a heuristic control plane rather than a per-interval global optimum; effectiveness depends on sampling quality, control interval, and drift speed.
 
 \subsection{Sensitivity to VSJoin Control Parameters}
 
@@ -32,6 +76,14 @@ Parameter sweeps show stable trends:
 
 These trends indicate that practical tuning should be workload-aware: bursty skew benefits from more aggressive remapping, whereas stable workloads favor lower control-plane churn.
 
+We also observe a boundary case: when $\tau$ is set too low together with a large $M$, control churn increases and can erode throughput gains even if imbalance recovers faster.
+
+\subsection{Negative Findings and Degradation Boundaries}
+
+We explicitly report non-monotonic and degraded regimes in our evaluated setting. First, excessively aggressive control settings (small $\tau$ with large $M$) can induce control churn that offsets skew-recovery benefits. Second, overly small fanout budgets under-cover boundary regions and reduce recall; overly large budgets increase duplicate processing and may degrade latency. Third, rebuild intervals at either extreme can hurt one side of the freshness--overhead balance.
+
+These negative results are central to our interpretation of Issue 120: the three VSJoin mechanisms are useful as coordinated controls, but none should be treated as an unconditional win outside tested ranges.
+
 \subsection{Discussion}
 
-Our results support the central claim of this paper: in streaming vector joins, robust performance emerges from coordinating routing, indexing, and maintenance together. No single primitive (index type, partitioner, or scheduler) is sufficient in isolation. The VSJoin-oriented design in \system provides a practical operating region that remains competitive under realistic multicore stream dynamics.
+Our results support the central claim of this paper under evaluated workloads: robust streaming vector-join behavior emerges from coordinating indexing, routing, and control-plane maintenance together. No single primitive (index type, partitioner, or scheduler) is sufficient in isolation. The VSJoin-oriented path in \system provides a practical operating region with explicit trade-offs and explicit degradation boundaries.

@@ -5,45 +5,41 @@ High-dimensional embeddings are now first-class data objects in retrieval-augmen
 
 \begin{figure}[t]
 	\centering
-	\begin{tikzpicture}[font=\footnotesize, node distance=0.2cm]
-		% Left panel: static/batch ANN
-		\node[draw, rounded corners, minimum width=3.55cm, minimum height=2.35cm, align=center] (leftbox) at (0,0) {};
-		\node[anchor=north] at ([yshift=-0.08cm]leftbox.north) {\textbf{Static/Batch ANN}};
-		\node[align=center] at ([yshift=0.32cm]leftbox.center) {Offline index build\\Query-only phase};
-		\node[align=center] at ([yshift=-0.62cm]leftbox.center) {Low state churn\\Amortized build cost};
+	\begin{tikzpicture}[font=\footnotesize]
+		\node[draw, rounded corners, minimum width=3.35cm, minimum height=2.1cm, align=center] (leftbox) at (0,0)
+		{\textbf{Static/Batch ANN}\\[0.12cm]
+		Offline build + query phase\\
+		Low state churn};
 
-		% Right panel: streaming join
-		\node[draw, rounded corners, minimum width=3.9cm, minimum height=2.35cm, align=center] (rightbox) at (4.8,0) {};
-		\node[anchor=north] at ([yshift=-0.08cm]rightbox.north) {\textbf{Streaming Vector Join}};
-		\node[align=center] at ([yshift=0.32cm]rightbox.center) {Insert + Expire + Probe\\under sliding windows};
-		\node[align=center] at ([yshift=-0.62cm]rightbox.center) {Concurrent state updates\\Recall-sensitive routing};
+		\node[draw, rounded corners, minimum width=3.35cm, minimum height=2.1cm, align=center] (rightbox) at (4.35,0)
+		{\textbf{Streaming Vector Join}\\[0.12cm]
+		Insert + expire + probe\\
+		Concurrent mutable state};
 
-		% Arrow between panels
-		\draw[->, thick] (1.95,0) -- (2.85,0);
+		\draw[->, thick] (1.75,0) -- (2.6,0);
 
-		% Bottom bottlenecks
-		\node[draw, rounded corners, minimum width=8.15cm, minimum height=0.95cm, align=center] at (2.4,-1.95)
-		{\textbf{Multicore bottleneck in streaming:} synchronization contention + boundary misses + stale index risk};
+		\node[draw, rounded corners, minimum width=7.85cm, minimum height=1.1cm, align=center] (tension) at (2.175,-1.85)
+		{\textbf{Streaming multicore tension}\\
+		Synchronization overhead \textbar\ boundary miss risk \textbar\ index staleness};
 	\end{tikzpicture}
-	\caption{Motivation: unlike static ANN pipelines, streaming vector joins must maintain correctness and latency under simultaneous ingestion, expiration, and probing.}
+	\caption{Motivating contrast: streaming vector joins must preserve join quality while sustaining throughput and tail-latency under continuous insert/expire/probe updates.}
+	\Description{A two-panel comparison between static or batch ANN and streaming vector joins. The static panel shows offline build with low churn; the streaming panel shows concurrent insert, expire, and probe. A bottom box summarizes the multicore tension: synchronization overhead, boundary misses, and index staleness.}
 	\label{fig:intro-motivation}
 \end{figure}
 
-\system addresses this setting with a strategy-driven join architecture that composes four dimensions---join algorithm, partition strategy, window-state type, and index strategy---within a unified runtime. This design enables apples-to-apples comparison of multiple baselines and system choices in one framework, including BruteForce, IVF, HNSW, HDR-Tree, LSH, ClusteredJoin, S3J-style methods, and our VSJoin-oriented path. As illustrated in Figure~\ref{fig:intro-motivation}, a key practical insight is that throughput alone is insufficient: correctness and recall are highly sensitive to partition/state compatibility and runtime routing behavior, especially at high parallelism.
+Our VSJoin design addresses this setting through three coupled mechanisms. First, \emph{Bounded-Staleness Read/Write Decoupling} separates foreground mutable updates from read-optimized global query structures, so insert/probe hot paths remain short while periodic rebuild controls staleness. Second, \emph{Budgeted Boundary Coverage Routing} uses LSH-based logical partitioning with bounded multicast fanout to reduce boundary misses without paying full broadcast cost. Third, \emph{Predictable Control Plane for Skew} applies lock-free reads over an RCU-style (read-copy-update) AssignmentTable and performs periodic, threshold-triggered bounded remapping based on sampled load signals. Together, these mechanisms target the three-way tension in Figure~\ref{fig:intro-motivation}: throughput, tail latency, and join quality.
 
-Our VSJoin-oriented path combines partition-local write-friendly indexes with a global read-oriented index layer, plus boundary-aware multicast routing to reduce cross-partition miss probability near decision borders. In the latest implementation, routing uses LSH-based logical partitioning with virtual nodes, where each record is mapped by a stable identity hash and then resolved through an RCU-style assignment table to physical workers. The runtime continuously samples per-subtask load and applies threshold-triggered, bounded remapping using interval load deltas (with smoothed latency/backlog signals), which improves skew robustness without blocking the foreground path. During execution, candidate generation is separated from final verification: indexes provide fast candidate retrieval, while window and similarity checks enforce output correctness under temporal constraints. This separation gives a clean place to trade recall and latency, and it allows us to retain a common verification path across algorithms while varying indexing and partitioning policies.
+\system in \sageflow serves as the implementation and evaluation substrate for VSJoin and for baseline execution paths (BruteForce, IVF, HNSW, HDR-Tree, LSH, ClusteredJoin, and S3J-style paths) under shared runtime assumptions. Consistent with the abstract, we scope all claims to the evaluated setting: verification remains the correctness layer, while routing and remapping are control heuristics designed for stable behavior rather than global optimality at every instant.
 
-Implementation-driven evaluation in \system shows two robust execution regimes in current end-to-end testing: (1) a shared-state/shared-index path centered on RoundRobin routing for classic baselines, and (2) a centroid-partitioned path for ClusteredJoin with explicit partition-count and multicast controls. The VSJoin path is integrated into the same runtime with dedicated routing and rebuild mechanisms, and our results show competitive throughput--latency behavior with strong quality in validated workloads. At the same time, we make implementation constraints explicit so that claims remain reproducible under the tested configuration space.
-
-In summary, this paper makes the following contributions:
+In summary, this paper makes the following \textbf{testable contributions}:
 \begin{itemize}
-	\item We present a unified multicore streaming vector-join architecture that exposes algorithm, partition, state, and index policies as first-class strategy knobs.
-	\item We design a VSJoin-oriented execution path that combines local/global indexing, LSH-based logical partitioning with virtual nodes, and bounded online remapping for sliding-window workloads.
-	\item We provide an implementation-grounded evaluation in \system for end-to-end comparison across multiple baselines under shared infrastructure.
-	\item We distill practical compatibility and deployment guidelines for maintaining recall and latency stability at high parallelism.
+	\item \textbf{Proposition P1 (Decoupled indexing under update churn).} We evaluate whether bounded-staleness read/write decoupling can preserve join quality while improving throughput--latency behavior under continuous insert/expire/probe pressure, relative to a single-path update/query coupling baseline in the same runtime.
+	\item \textbf{Proposition P2 (Budgeted coverage versus routing extremes).} We evaluate whether bounded multicast routing provides a better quality--cost trade-off than unicast-only and full-broadcast extremes under evaluated fanout budgets and workload skew.
+	\item \textbf{Proposition P3 (Predictable skew control with bounded overhead).} We evaluate whether RCU-published logical remapping with periodic heuristic triggering improves load stability while keeping control overhead bounded and the foreground join path lock-light.
+	\item \textbf{Evidence scope and degradation boundaries.} We report implementation-aligned evidence with explicit boundaries, including degradation cases under high skew and tight fanout budgets, and limit conclusions to tested hardware, runtime settings, and workloads.
 \end{itemize}
 
-The rest of this paper is organized as follows. Section~\ref{sec:problem-statement} formalizes the problem and motivation. Section~3 presents the core join architecture and method-specific execution paths. Section~\ref{sec:implementation-methodology} describes implementation details and experimental methodology. Section~\ref{sec:results} reports experimental results. Section~\ref{sec:related-work} discusses related work, and Section~\ref{sec:conclusion} concludes.
+The rest of this paper is organized as follows. Section~\ref{sec:problem-statement} formalizes the problem and motivation. Section~\ref{sec:core-architecture} presents the core join architecture and method-specific execution paths. Section~\ref{sec:implementation-details} presents implementation details. Section~\ref{sec:results} starts with experimental methodology and then reports results. Section~\ref{sec:related-work} discusses related work, and Section~\ref{sec:conclusion} concludes.
 % \section{Introduction}
 % \label{sec:intro}
 % \dscf (\dsc) is one of the most important data stream mining operations. 

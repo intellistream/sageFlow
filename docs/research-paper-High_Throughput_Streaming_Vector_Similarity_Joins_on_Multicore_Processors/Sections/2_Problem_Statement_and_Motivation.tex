@@ -1,7 +1,7 @@
 \section{Problem Statement and Motivation}
 \label{sec:problem-statement}
 
-We study streaming vector similarity joins over two unbounded streams $L$ and $R$. Each tuple is represented as $(\mathit{uid}, \mathit{ts}, \mathbf{v})$, where $\mathbf{v} \in \mathbb{R}^d$ is an embedding vector and $\mathit{ts}$ is event time. For a given window size $W$ and similarity threshold $\theta$, a join result is an ordered pair $(l, r)$ such that:
+We study streaming vector similarity joins over two unbounded streams $L$ and $R$. Each tuple is represented as $(\mathit{uid}, \mathit{ts}, \mathbf{v})$, where $\mathbf{v} \in \mathbb{R}^d$ is an embedding vector and $\mathit{ts}$ is event time. For a given window size $W$ and similarity threshold $\theta$, a join result is an ordered pair $(l, r)$ such that
 \[
 |l.\mathit{ts} - r.\mathit{ts}| \leq W,
 \qquad
@@ -23,10 +23,18 @@ Over a run horizon $T$, let $\mathcal{J}^*$ be exact join results and $\widehat{
 \qquad
 \mathrm{Precision}=\frac{|\widehat{\mathcal{J}}\cap \mathcal{J}^*|}{|\widehat{\mathcal{J}}|}.
 \]
-The systems objective is to maximize throughput and minimize tail latency while maintaining high recall/precision under bounded memory.
+The system objective is to maximize throughput and minimize tail latency while maintaining high recall/precision under bounded memory.
+
+\paragraph{Two-layer semantics: correctness vs. coverage/control.}
+To avoid conflating result semantics with optimization heuristics, we separate the runtime into two logical layers.
+\begin{itemize}
+\item \textbf{Correctness layer.} This layer defines whether an emitted pair is semantically valid: window-time validity, similarity-threshold verification, and duplicate-safe output semantics. It is the source of precision guarantees and the anchor for recall evaluation against $\mathcal{J}^*$.
+\item \textbf{Coverage/control layer.} This layer determines how candidates are discovered and how work is distributed: partition routing, bounded boundary fanout, and skew-control remapping. Its role is to improve quality--cost behavior, not to redefine correctness.
+\end{itemize}
+This separation is central to VSJoin: candidate routing and remapping may be heuristic and periodic, but final pair acceptance remains governed by the correctness layer.
 
 \paragraph{Motivation.}
-The core tension in this problem is that candidate quality and systems scalability are tightly coupled. High recall prefers broader candidate coverage (more probes, more partitions, more boundary fanout), while low latency prefers tighter local processing and less synchronization. In static ANN settings, one can amortize expensive index construction offline~\cite{jegou2011product,malkov2018efficient}. In streaming settings, however, index and window state evolve continuously, so stale index views, delayed expiration, or inconsistent partition ownership directly affect output quality.
+The core tension in this problem is that candidate quality and systems scalability are tightly coupled. High recall prefers broader candidate coverage (more probes, more partitions, more boundary fanout), while low latency prefers tighter local processing and less synchronization. In static ANN settings, one can amortize expensive index construction offline~\cite{jegou2011product,malkov2018efficient}. In streaming settings, index and window state evolve continuously, so stale read structures, delayed expiration, or unstable routing ownership directly perturb quality--latency behavior.
 
 \paragraph{Why existing approaches are insufficient.}
 Existing work can be roughly grouped into three categories, and each category misses at least one requirement of our target setting.
@@ -38,7 +46,13 @@ Existing work can be roughly grouped into three categories, and each category mi
 
 Therefore, directly transplanting any single category rarely satisfies all three goals simultaneously: (i) sustained multicore throughput, (ii) low end-to-end latency, and (iii) stable join quality under high-rate sliding-window updates.
 
-\paragraph{Implication for system design.}
-These gaps motivate a unified runtime where partitioning, state maintenance, index organization, and verification semantics are designed together rather than independently tuned. In particular, a practical streaming design must separate \emph{correctness guarantees} from \emph{load-management heuristics}: verification should preserve output semantics, while routing-table updates should be atomic for concurrent readers, but online remapping can still be periodic and heuristic rather than globally optimal at every instant.
+\paragraph{Implication for VSJoin design.}
+These gaps motivate a unified runtime where partitioning, state maintenance, index organization, and verification semantics are co-designed. In our implementation, this leads to three mechanism-level design questions that match the introduction propositions:
+\begin{itemize}
+\item \textbf{P1 / decoupled indexing:} how to keep the foreground read/write path short while bounding staleness from periodic rebuild.
+\item \textbf{P2 / budgeted coverage:} how to improve boundary coverage without paying full broadcast cost.
+\item \textbf{P3 / predictable control:} how to adapt to skew with lock-light reads and bounded control overhead.
+\end{itemize}
+Accordingly, we treat verification as the correctness anchor, while routing and remapping operate as coverage/control policies with explicit cost budgets and scope-limited claims under evaluated workloads.
 
 The next section presents this architecture and its method-specific execution paths, including baseline routes and the VSJoin-oriented path.
