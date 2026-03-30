@@ -6,6 +6,12 @@
 
 namespace sageFlow {
 
+void InputGate::stop() {
+  for (auto &q : input_queues_) {
+    if (q) q->stop();
+  }
+}
+
 void InputGate::setup(const std::vector<QueuePtr>& queues) {
   input_queues_ = queues;
 }

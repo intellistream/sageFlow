@@ -33,6 +33,9 @@ public:
   // 停止执行顶点
   void stop();
 
+  // 停止并唤醒（用于避免在 stop 后仍阻塞在队列 pop）
+  void stopAndWake();
+
   // 等待执行完成
   void join()const;
 

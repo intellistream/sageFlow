@@ -9,6 +9,9 @@ _codeql_detected_source_root
 # Profiling outputs
 profiles/
 *.prof
+vtune_results/
+vtune-keys
+log.cfg
 
 # Experiment outputs
 *.png
@@ -43,6 +46,8 @@ profiles/
 
 # IDE and editor files
 .vscode/
+!.vscode/settings.json
+.cursor/
 .idea/
 *.swp
 *.swo
@@ -94,6 +99,8 @@ coverage.xml
 *.cover
 *.log
 htmlcov/
+Testing/Temporary/
+Testing/Temporary/CTestCostData.txt
 
 # Documentation
 docs/_build/

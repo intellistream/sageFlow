@@ -4,24 +4,66 @@ from ._version import __author__, __email__, __version__
 
 try:
     from ._sage_flow import (
+        # Data Types
         DataType,
-        SimpleStreamSource,
-        Stream,
-        StreamEnvironment,
         VectorData,
         VectorRecord,
+        # Enums
+        FunctionType,
+        WindowType,
+        AggregateType,
+        # Function Classes
+        Function,
+        FilterFunction,
+        MapFunction,
+        JoinFunction,
+        WindowFunction,
+        AggregateFunction,
+        TopkFunction,
+        ITopkFunction,
+        SinkFunction,
+        # Stream Classes
+        Stream,
+        SimpleStreamSource,
+        StreamingSource,  # 新增：支持动态流式输入
+        StreamEnvironment,
+        # Convenience Functions
+        create_source,
+        create_streaming_source,  # 新增：创建 StreamingSource
+        create_environment,
     )
 
     __all__ = [
         "__version__",
         "__author__",
         "__email__",
-        "StreamEnvironment",
-        "Stream",
-        "SimpleStreamSource",
+        # Data Types
+        "DataType",
         "VectorData",
         "VectorRecord",
-        "DataType",
+        # Enums
+        "FunctionType",
+        "WindowType",
+        "AggregateType",
+        # Function Classes
+        "Function",
+        "FilterFunction",
+        "MapFunction",
+        "JoinFunction",
+        "WindowFunction",
+        "AggregateFunction",
+        "TopkFunction",
+        "ITopkFunction",
+        "SinkFunction",
+        # Stream Classes
+        "Stream",
+        "SimpleStreamSource",
+        "StreamingSource",  # 新增
+        "StreamEnvironment",
+        # Convenience Functions
+        "create_source",
+        "create_streaming_source",  # 新增
+        "create_environment",
     ]
 except ImportError as e:
     import warnings
@@ -33,3 +75,4 @@ except ImportError as e:
         stacklevel=2,
     )
     __all__ = ["__version__", "__author__", "__email__"]
+

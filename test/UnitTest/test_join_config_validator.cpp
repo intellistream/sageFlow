@@ -129,7 +129,7 @@ TEST_F(JoinConfigValidatorTest, VSJoinRequiresLSH) {
 TEST_F(JoinConfigValidatorTest, VSJoinValidConfig) {
     valid_config_.algorithm = JoinAlgorithm::VSJOIN;
     valid_config_.partition_strategy = PartitionStrategy::LSH;
-    valid_config_.window_state_type = WindowStateType::PARTITIONED_VECTOR;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;  // 新版推荐
     valid_config_.index_strategy = IndexStrategy::PARTITIONED;
 
     auto result = JoinConfigValidator::validate(valid_config_);
@@ -313,6 +313,168 @@ TEST_F(JoinConfigValidatorTest, InvalidVSJoinBoundaryThreshold) {
     auto result = JoinConfigValidator::validate(valid_config_);
 
     EXPECT_FALSE(result.valid);
+}
+
+// ============================================================
+// VSJoin V2 新配置字段测试
+// ============================================================
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_ValidConfig) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_multicast_k = 2;
+    valid_config_.vsjoin_rebuild_interval_ms = 5000;
+    valid_config_.vsjoin_rebuild_threshold = 1000;
+    valid_config_.vsjoin_local_index_type = VSJoinIndexType::BRUTEFORCE;
+    valid_config_.vsjoin_global_index_type = VSJoinIndexType::IVF;
+    valid_config_.vsjoin_num_hash_functions = 8;
+    valid_config_.vsjoin_boundary_threshold = 0.1;
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    EXPECT_TRUE(result.valid);
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidMulticastK_TooSmall) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_multicast_k = 0;  // 无效：< 1
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    EXPECT_FALSE(result.valid);
+    // 验证错误信息包含 multicast_k
+    bool found = false;
+    for (const auto& err : result.errors) {
+        if (err.find("multicast_k") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidMulticastK_TooLarge) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_multicast_k = 15;  // 无效：> 10
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    EXPECT_FALSE(result.valid);
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidRebuildInterval) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_rebuild_interval_ms = 500;  // 无效：< 1000
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    EXPECT_FALSE(result.valid);
+    // 验证错误信息包含 rebuild_interval
+    bool found = false;
+    for (const auto& err : result.errors) {
+        if (err.find("rebuild_interval") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidRebuildThreshold) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_rebuild_threshold = 50;  // 无效：< 100
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    EXPECT_FALSE(result.valid);
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidGlobalIndexType) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_global_index_type = VSJoinIndexType::BRUTEFORCE;  // 无效
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    EXPECT_FALSE(result.valid);
+    // 验证错误信息包含 global_index_type
+    bool found = false;
+    for (const auto& err : result.errors) {
+        if (err.find("global_index_type") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_NonBruteforceLocalIndexWarning) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_local_index_type = VSJoinIndexType::IVF;  // 有警告
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    // 有效但有警告
+    EXPECT_TRUE(result.valid);
+    EXPECT_TRUE(result.hasWarnings());
+    // 验证警告信息包含 local_index_type
+    bool found = false;
+    for (const auto& warn : result.warnings) {
+        if (warn.find("local_index_type") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_RebuildIntervalTooLargeWarning) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.window_size_ms = 10000;
+    valid_config_.vsjoin_rebuild_interval_ms = 50000;  // 5x window_size
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    // 有效但有警告
+    EXPECT_TRUE(result.valid);
+    EXPECT_TRUE(result.hasWarnings());
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_MulticastKTooLargeWarning) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.num_partitions = 4;
+    valid_config_.vsjoin_multicast_k = 3;  // > num_partitions/2
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    // 有效但有警告
+    EXPECT_TRUE(result.valid);
+    EXPECT_TRUE(result.hasWarnings());
 }
 
 TEST_F(JoinConfigValidatorTest, InvalidHDRProjectedDim) {

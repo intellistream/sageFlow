@@ -8,6 +8,7 @@
 #include "spdlog/spdlog.h"
 #include <spdlog/fmt/fmt.h>
 #include "utils/logger.h"
+#include <mutex>
 
 namespace sageFlow {
 
@@ -37,6 +38,13 @@ void ExecutionVertex::stop() {
   running_ = false;
 }
 
+void ExecutionVertex::stopAndWake() {
+  running_ = false;
+  if (input_gate_) {
+    input_gate_->stop();
+  }
+}
+
 void ExecutionVertex::join() const {
   if (thread_ && thread_->joinable()) {
     thread_->join();
@@ -51,8 +59,21 @@ void ExecutionVertex::run() const {
 
   auto source_op = dynamic_cast<OutputOperator*>(operator_.get());
   try {
-    // 打开算子，传入运行时上下文
-    operator_->open(runtime_context);
+    // ------------------------------------------------------------------
+    // Operator lifecycle coordination:
+    // ExecutionGraph currently creates N ExecutionVertex threads that share
+    // the SAME Operator instance (shared_ptr). If each thread calls open()/close(),
+    // it causes data races and nondeterministic behavior (especially in Join).
+    //
+    // We therefore:
+    // - open() exactly once (call_once) using a deterministic context (subtask 0)
+    // - close() exactly once when the LAST vertex thread finishes
+    // ------------------------------------------------------------------
+    operator_->active_vertices_.fetch_add(1, std::memory_order_acq_rel);
+    std::call_once(operator_->open_once_, [this] {
+      RuntimeContext open_ctx(0, operator_->get_parallelism());
+      operator_->open(open_ctx);
+    });
     
     // 创建collector，将emit操作注册到collector中
     Collector collector([this](std::unique_ptr<Response> response, int slot) {
@@ -72,7 +93,12 @@ void ExecutionVertex::run() const {
         // 从输入门读取上游数据
         std::optional<TaggedResponse> data_opt = input_gate_->read();
         if (!data_opt) {
-          // 队列暂无可用数据
+          // 队列暂无可用数据：
+          // - 正常运行中：短暂等待后继续
+          // - stopAndWake() 后：running_ 会被置为 false，队列也被 stop，pop 将持续返回空
+          if (!running_) {
+            break;
+          }
           std::this_thread::sleep_for(std::chrono::microseconds(100));
           continue;
         }
@@ -90,7 +116,7 @@ void ExecutionVertex::run() const {
       }
 
       // 运行标志关闭后，尝试一次性排干剩余队列，避免尚未处理的数据导致状态不一致
-      while (true) {
+      while (running_) {
         std::optional<TaggedResponse> data_opt = input_gate_->read();
         if (!data_opt) break; // 没有残留数据
         Response data = std::move(data_opt->response);
@@ -108,8 +134,10 @@ void ExecutionVertex::run() const {
     SAGEFLOW_LOG_ERROR("VERTEX", "Exception name={} what={} ", name_, e.what());
   }
 
-  // 关闭算子
-  operator_->close();
+  // 关闭算子：仅由最后一个 vertex 线程负责
+  if (operator_->active_vertices_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
+    operator_->close();
+  }
 
   SAGEFLOW_LOG_INFO("VERTEX", "{} finished", name_);
 }

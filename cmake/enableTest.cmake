@@ -23,10 +23,12 @@ macro(add_gtest TARGET_NAME SOURCE_FILE)
     add_test(NAME ${TARGET_NAME} COMMAND ${TARGET_NAME})
 
     # 让 CLion 能枚举单测用例
+    # 注意: 使用 POST_BUILD 模式避免并行构建时的 race condition
     if(COMMAND gtest_discover_tests)
         gtest_discover_tests(${TARGET_NAME}
             WORKING_DIRECTORY ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}
             DISCOVERY_TIMEOUT 30
+            DISCOVERY_MODE PRE_TEST
         )
     endif()
 endmacro()

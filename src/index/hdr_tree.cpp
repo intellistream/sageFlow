@@ -594,7 +594,8 @@ void HDRTree::searchRTreeNode(const RTreeNode* node, const std::vector<float>& q
 }
 
 auto HDRTree::verifyCandidates(const VectorRecord& query, const std::vector<uint64_t>& candidates,
-                                double threshold) const -> std::vector<uint64_t> {
+                                double threshold,
+                                double similarity_alpha) const -> std::vector<uint64_t> {
   std::vector<uint64_t> results;
   if (!storage_manager_ || !storage_manager_->engine_) return results;
 
@@ -603,7 +604,7 @@ auto HDRTree::verifyCandidates(const VectorRecord& query, const std::vector<uint
     if (!rec) continue;
     
     // 计算真实相似度
-    float sim = storage_manager_->engine_->Similarity(query.data_, rec->data_);
+    float sim = storage_manager_->engine_->Similarity(query.data_, rec->data_, similarity_alpha);
     if (sim >= threshold) {
       results.push_back(uid);
     }
@@ -615,9 +616,9 @@ auto HDRTree::query(const VectorRecord& record, int k) -> std::vector<uint64_t> 
   return query(record, {}, k);
 }
 
-auto HDRTree::query_for_join(const VectorRecord& record, double threshold)
+auto HDRTree::query_for_join(const VectorRecord& record, double threshold, double similarity_alpha)
     -> std::vector<uint64_t> {
-  return query_for_join(record, {}, threshold);
+  return query_for_join(record, {}, threshold, similarity_alpha);
 }
 
 
@@ -645,7 +646,8 @@ auto HDRTree::query(const VectorRecord& record, const std::vector<float>& projec
   for (uint64_t uid : candidates) {
     auto rec = storage_manager_->getVectorByUid(uid);
     if (!rec) continue;
-    float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_);
+    // query(kNN) 路径目前没有暴露 alpha 参数；这里固定使用 alpha=0.1（与历史行为一致）
+    float sim = storage_manager_->engine_->Similarity(record.data_, rec->data_, 0.1);
     distances.emplace_back(uid, 1.0 - sim);
   }
 
@@ -662,7 +664,7 @@ auto HDRTree::query(const VectorRecord& record, const std::vector<float>& projec
   return results;
 }
 
-auto HDRTree::query_for_join(const VectorRecord& record, const std::vector<float>& projected, double threshold) -> std::vector<uint64_t> {                                                                                                                std::shared_lock lock(mutex_);
+auto HDRTree::query_for_join(const VectorRecord& record, const std::vector<float>& projected, double threshold, double similarity_alpha) -> std::vector<uint64_t> {                                                                                                                std::shared_lock lock(mutex_);
   if (!pca_training_done_) return {};
 
   std::vector<float> projected_query;
@@ -676,7 +678,7 @@ auto HDRTree::query_for_join(const VectorRecord& record, const std::vector<float
   float projected_threshold = distance_threshold * config_.distance_bound_ratio; 
 
   auto candidates = searchRTree(projected_query, projected_threshold);
-  return verifyCandidates(record, candidates, threshold);
+  return verifyCandidates(record, candidates, threshold, similarity_alpha);
 }
 
 }  // namespace sageFlow

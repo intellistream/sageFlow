@@ -8,6 +8,11 @@
 #include <atomic>
 #include <string>
 #include <algorithm>
+#include <vector>
+#include <thread>
+#include <chrono>
+#include <unordered_set>
+#include <mutex>
 
 #include "common/data_types.h"
 #include "operator/operator.h"
@@ -17,6 +22,8 @@
 #include "state/window_state.h"
 #include "state/partitioned_window_state.h"
 #include "state/shared_window_state.h"
+#include "operator/join_operator_methods/vsjoin_components/partition_assignment.h"
+#include "operator/join_operator_methods/vsjoin_components/load_monitor.h"
 
 namespace sageFlow {
   // Forward declaration for PerformanceMonitor
@@ -197,6 +204,20 @@ namespace sageFlow {
     JoinStrategyConfig strategy_config_;       // 策略配置
     bool use_strategy_config_ = false;         // 是否使用策略配置模式
     size_t parallelism_ = 1;                   // 并行度（从 RuntimeContext 获取）
+    
+    /**
+     * @brief 检查是否使用分区策略
+     * 
+     * 分区策略（Centroid/LSH）使用 PartitionedWindowState + 分区索引，
+     * 分区内无锁竞争，可以直接使用 IQ 逻辑。
+     * 
+     * @return true 表示使用分区策略
+     */
+    bool isPartitionedStrategy() const {
+        if (!use_strategy_config_) return false;
+        return strategy_config_.partition_strategy == PartitionStrategy::CENTROID ||
+               strategy_config_.partition_strategy == PartitionStrategy::LSH;
+    }
 
     // 线程安全的初始化标志
     std::once_flag init_flag_;
@@ -274,6 +295,39 @@ namespace sageFlow {
     static constexpr size_t kMinBatchDeleteThreshold = 50;   ///< 最小批量删除阈值
     static constexpr size_t kBatchDeleteDivisor = 10;         ///< 批量删除除数因子
     size_t batch_delete_threshold_ = kMinBatchDeleteThreshold; ///< 实际使用的批量删除阈值
+
+    // ==================== VSJoin 专用 ====================
+    // Local Index ID 数组（每分区独立）
+    std::vector<int> vsjoin_local_left_ids_;   // size = parallelism_
+    std::vector<int> vsjoin_local_right_ids_;  // size = parallelism_
+
+    // Global Index ID（共享只读）
+    int vsjoin_global_left_id_ = -1;
+    int vsjoin_global_right_id_ = -1;
+
+    // ==================== VSJoin 负载均衡（Task08: Logical Partition Routing） ====================
+    std::unique_ptr<VSJoinPartitionAssignment> partition_assignment_;
+    std::unique_ptr<VSJoinLoadMonitor> load_monitor_;
+    size_t num_logical_partitions_ = 0;
+    size_t virtual_nodes_per_partition_ = 8;
+
+    std::vector<size_t> routeToPhysicalSubtasks(const std::vector<int>& logical_pids) const;
+
+    int computeVirtualNodeIndexForVSJoin(uint64_t uid) const;
+
+    std::vector<int> computeVSJoinLogicalPartitions(const Response& record,
+                                                    IPartitioner* partitioner,
+                                                    size_t num_channels) const;
+
+    // ==================== VSJoin 后台重建 ====================
+    std::once_flag rebuild_thread_started_;
+    std::unique_ptr<std::thread> rebuild_thread_;
+    std::atomic<bool> rebuild_running_{false};
+    std::atomic<int64_t> rebuild_interval_ms_{5000};
+
+    void globalIndexRebuildLoop();
+    void startGlobalIndexRebuilder();
+    void stopGlobalIndexRebuilder();
     
     // GPERFTOOLS profiling support
     std::unique_ptr<PerformanceMonitor> profiler_;

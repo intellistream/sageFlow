@@ -474,4 +474,47 @@ std::vector<uint64_t> PartitionedVectorState::collectEvictedUids(
     return {};
 }
 
+// ==================== 时间戳追踪接口实现 ====================
+
+void PartitionedVectorState::updateMaxSeenTimestamp(int64_t timestamp, size_t /*subtask_index*/) {
+    // PartitionedVectorState 使用全局时间戳（跨所有分区）
+    int64_t current_max = max_seen_timestamp_.load(std::memory_order_relaxed);
+    while (timestamp > current_max && 
+           !max_seen_timestamp_.compare_exchange_weak(
+               current_max, timestamp,
+               std::memory_order_release,
+               std::memory_order_relaxed)) {
+        // 重试直到成功或发现更大的值
+    }
+}
+
+int64_t PartitionedVectorState::getMaxSeenTimestamp(size_t /*subtask_index*/) const {
+    return max_seen_timestamp_.load(std::memory_order_acquire);
+}
+
+int64_t PartitionedVectorState::getSafeEvictTimestamp(size_t /*subtask_index*/, 
+                                                       const WindowState* other_state) const {
+    // PartitionedVectorState 作为整体使用，取 min(this_max, other_max)
+    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    
+    int64_t this_max = max_seen_timestamp_.load(std::memory_order_acquire);
+    
+    if (!other_state) {
+        return this_max;
+    }
+    
+    int64_t other_max = other_state->getMaxSeenTimestamp(0);
+    
+    // 处理初始状态
+    if (this_max == kMinTimestamp && other_max == kMinTimestamp) {
+        return kMinTimestamp;
+    } else if (this_max == kMinTimestamp) {
+        return other_max;
+    } else if (other_max == kMinTimestamp) {
+        return this_max;
+    } else {
+        return std::min(this_max, other_max);
+    }
+}
+
 } // namespace sageFlow

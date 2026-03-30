@@ -1,0 +1,111 @@
+# VSJoin 配置示例
+# 
+# VSJoin 是一种基于双层索引的向量流 Join 算法，使用 LSH 分区和 Local/Global 索引。
+# 
+# 关键特性：
+# - Local Index: 分区内的轻量级索引（推荐 BruteForce）
+# - Global Index: 跨分区的候选召回索引（推荐 IVF）
+# - 后台重建: 定期重建 Global Index 保持索引新鲜度
+# - 边界向量多播: 处理分区边界的向量以保证召回率
+
+[default]
+# 基础配置
+algorithm = "vsjoin"
+is_eager = true
+similarity_threshold = 0.8
+dimension = 128
+
+# 分区配置
+partition_strategy = "lsh"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+
+# 窗口配置
+window_size_ms = 10000
+step_size_ms = 1000
+
+# VSJoin 核心参数
+vsjoin_multicast_k = 2              # 边界向量多播到 k 个分区（推荐 2-3）
+vsjoin_rebuild_interval_ms = 5000   # Global Index 重建间隔（毫秒）
+vsjoin_rebuild_threshold = 1000     # 触发重建的记录数阈值
+
+# VSJoin 索引类型
+vsjoin_local_index_type = "bruteforce"  # Local Index 类型（推荐 bruteforce）
+vsjoin_global_index_type = "ivf"        # Global Index 类型（推荐 ivf）
+
+# LSH 分区器参数
+vsjoin_num_hash_functions = 8       # LSH 哈希函数数量
+vsjoin_boundary_threshold = 0.1     # 边界向量阈值
+
+# IVF 参数（用于 Global Index）
+ivf_nlist = 100
+ivf_nprobes = 10
+
+# HNSW 参数（备选 Global Index）
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
+
+# ==================== 策略变体 ====================
+
+[strategies.vsjoin_default]
+# 默认 VSJoin 配置
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+vsjoin_multicast_k = 2
+vsjoin_rebuild_interval_ms = 5000
+vsjoin_rebuild_threshold = 1000
+vsjoin_local_index_type = "bruteforce"
+vsjoin_global_index_type = "ivf"
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+
+[strategies.vsjoin_high_recall]
+# 高召回率配置（更多多播）
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+vsjoin_multicast_k = 3              # 更多多播提高召回
+vsjoin_rebuild_interval_ms = 3000   # 更频繁的重建
+vsjoin_rebuild_threshold = 500      # 更小的阈值
+vsjoin_local_index_type = "bruteforce"
+vsjoin_global_index_type = "ivf"
+vsjoin_num_hash_functions = 12      # 更多哈希函数
+vsjoin_boundary_threshold = 0.15    # 更宽的边界
+ivf_nprobes = 20                    # 更多探测提高召回
+
+[strategies.vsjoin_high_throughput]
+# 高吞吐量配置（减少多播开销）
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+vsjoin_multicast_k = 1              # 减少多播
+vsjoin_rebuild_interval_ms = 10000  # 较少的重建
+vsjoin_rebuild_threshold = 2000     # 更大的阈值
+vsjoin_local_index_type = "bruteforce"
+vsjoin_global_index_type = "ivf"
+vsjoin_num_hash_functions = 6       # 较少哈希函数
+vsjoin_boundary_threshold = 0.05    # 更窄的边界
+ivf_nprobes = 5                     # 较少探测提高速度
+
+[strategies.vsjoin_hnsw_global]
+# 使用 HNSW 作为 Global Index
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+vsjoin_multicast_k = 2
+vsjoin_rebuild_interval_ms = 5000
+vsjoin_rebuild_threshold = 1000
+vsjoin_local_index_type = "bruteforce"
+vsjoin_global_index_type = "hnsw"   # 使用 HNSW
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 100                # HNSW 搜索参数

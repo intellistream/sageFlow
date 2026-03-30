@@ -133,7 +133,8 @@ TEST_F(HDRForestTest, QueryForJoin) {
     auto query_rec = createRecord(999, {0.9f, 0.0f, 0.0f, 0.0f});
     
     double threshold = 0.8;
-    auto results = index_->query_for_join(*query_rec, threshold); 
+    // 方案A：alpha 由上层绑定并显式传入，这里测试沿用默认 alpha=0.1
+    auto results = index_->query_for_join(*query_rec, threshold, 0.1);
     std::cout << "[   INFO   ] Join query (thresh " << threshold << ") found " << results.size() << " results" << std::endl;
     
     bool found_1 = false;

@@ -466,7 +466,9 @@ auto Ivf::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
     return final_ids;
 }
 
-auto Ivf::query_for_join(const VectorRecord &record, double join_similarity_threshold) -> std::vector<uint64_t> {
+auto Ivf::query_for_join(const VectorRecord &record,
+                         double join_similarity_threshold,
+                         double similarity_alpha) -> std::vector<uint64_t> {
   std::priority_queue<std::pair<double, int>> probe_indices;
   std::unordered_set<uint64_t> local_deleted_uids;
   {
@@ -505,7 +507,7 @@ auto Ivf::query_for_join(const VectorRecord &record, double join_similarity_thre
         continue;
       }
       if (auto candidate = storage_manager_->getVectorByUid(id_val)) {
-        double similarity = storage_manager_->engine_->Similarity(record.data_, candidate->data_);
+        double similarity = storage_manager_->engine_->Similarity(record.data_, candidate->data_, similarity_alpha);
         if (similarity - join_similarity_threshold > epsilon) {
           results.emplace_back(id_val);
         }

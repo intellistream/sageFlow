@@ -16,6 +16,9 @@ private:
   size_t poll_index_ = 0;
 
 public:
+  // 停止所有输入队列，唤醒可能阻塞的消费者线程（用于执行图 stop/join 收敛）
+  void stop();
+
   // 在部署时，由调度器调用
   void setup(const std::vector<QueuePtr>& queues);
   void setup(std::vector<QueuePtr>&& queues);

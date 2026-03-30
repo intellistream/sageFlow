@@ -5,6 +5,7 @@
 #include <vector>
 #include <atomic>
 #include "operator/join_operator_methods/base_method.h"
+#include "operator/utils/join_strategy_config.h"
 #include "state/window_state.h"
 #include "execution/runtime_context.h"
 #include "concurrency/concurrency_manager.h"
@@ -114,11 +115,13 @@ public:
      * @brief Eager 模式：对单个查询向量执行匹配
      * @param query_record 查询向量记录
      * @param query_slot 查询来源槽位 (0=左流, 1=右流)
+     * @param subtask_index 当前执行的 subtask 索引
      * @return 匹配结果列表
      */
     std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
         const VectorRecord& query_record,
-        int query_slot) override;
+        int query_slot,
+        size_t subtask_index = 0) override;
     
     /**
      * @brief 关闭方法，释放资源
@@ -163,6 +166,18 @@ public:
     void setIndexIds(int32_t left_index_id, int32_t right_index_id) {
         left_index_id_ = left_index_id;
         right_index_id_ = right_index_id;
+    }
+
+    /**
+     * @brief 设置 ConcurrencyManager
+     * @param cm ConcurrencyManager 指针
+     */
+    void setConcurrencyManager(ConcurrencyManager* cm) {
+        concurrency_manager_ = cm;
+    }
+    
+    void setConcurrencyManager(std::shared_ptr<ConcurrencyManager> cm) {
+        concurrency_manager_ = cm.get();
     }
 
 private:

@@ -1,4 +1,5 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
+#include "operator/utils/join_method_registry.h"
 #include "compute_engine/simd_distance.h"
 #include "utils/logger.h"
 
@@ -32,13 +33,35 @@ std::vector<float> extractVector(const VectorRecord& record) {
 } // anonymous namespace
 
 BruteForceBaseline::BruteForceBaseline(double threshold)
-    : BaseMethod(threshold) {
+    : BaseMethod(threshold),
+      similarity_mode_(SimilarityMode::FIXED_ALPHA),
+      similarity_alpha_(0.1) {
     // 验证阈值范围
     if (threshold < 0.0 || threshold > 1.0) {
         SAGEFLOW_LOG_WARN("BruteForceBaseline", 
             "Threshold {} out of range [0.0, 1.0], clamping", threshold);
         join_similarity_threshold_ = std::clamp(threshold, 0.0, 1.0);
     }
+}
+
+BruteForceBaseline::BruteForceBaseline(double threshold, 
+                                       SimilarityMode similarity_mode,
+                                       double similarity_alpha)
+    : BaseMethod(threshold),
+      similarity_mode_(similarity_mode),
+      similarity_alpha_(similarity_alpha) {
+    // 验证阈值范围
+    if (threshold < 0.0 || threshold > 1.0) {
+        SAGEFLOW_LOG_WARN("BruteForceBaseline", 
+            "Threshold {} out of range [0.0, 1.0], clamping", threshold);
+        join_similarity_threshold_ = std::clamp(threshold, 0.0, 1.0);
+    }
+    
+    SAGEFLOW_LOG_INFO("BruteForceBaseline", 
+        "Initialized with threshold={:.4f}, mode={}, alpha={:.6f}",
+        join_similarity_threshold_,
+        toString(similarity_mode_),
+        similarity_alpha_);
 }
 
 void BruteForceBaseline::open(
@@ -62,7 +85,8 @@ void BruteForceBaseline::open(
 
 std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteEager(
     const VectorRecord& query_record,
-    int query_slot) {
+    int query_slot,
+    size_t subtask_index) {
     
     std::vector<std::unique_ptr<VectorRecord>> results;
     
@@ -78,22 +102,24 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteEager(
     }
     
     // 获取目标窗口的快照（线程安全）
+    // 使用传入的 subtask_index 而不是内部存储的 subtask_index_
     // 使用 getRecordsSnapshot 而不是 getRecords，因为 SharedWindowState::getRecords 
     // 返回的引用在锁释放后可能被其他线程修改
-    auto records_snapshot = target_state->getRecordsSnapshot(subtask_index_);
+    auto records_snapshot = target_state->getRecordsSnapshot(subtask_index);
     
-    // 调试：记录窗口大小
+    // 调试：记录窗口大小和状态指针
     static std::atomic<uint64_t> query_count{0};
     static std::atomic<uint64_t> total_window_size{0};
     uint64_t qc = query_count.fetch_add(1, std::memory_order_relaxed);
     total_window_size.fetch_add(records_snapshot.size(), std::memory_order_relaxed);
     if (qc % 500 == 0) {
         SAGEFLOW_LOG_INFO("BruteForceBaseline",
-            "ExecuteEager: subtask={}/{} query_uid={} slot={} window_size={} avg_window={:.1f} shared={}",
+            "ExecuteEager: subtask={}/{} query_uid={} slot={} window_size={} avg_window={:.1f} shared={} state_ptr={}",
             subtask_index_, parallelism_, query_record.uid_, query_slot, 
             records_snapshot.size(), 
             static_cast<double>(total_window_size.load()) / (qc + 1),
-            target_state->isShared());
+            target_state->isShared(),
+            static_cast<void*>(target_state));
     }
     
     SAGEFLOW_LOG_DEBUG("BruteForceBaseline",
@@ -133,8 +159,35 @@ double BruteForceBaseline::computeSimilarity(
         return 0.0;
     }
     
-    // 使用 L2 距离 + 指数衰减转换为相似度
-    // 与 ComputeEngine::Similarity 保持一致
+    // 根据相似度模式选择计算方式
+    if (similarity_mode_ == SimilarityMode::NORMALIZED) {
+        // 归一化模式：先归一化向量，再计算 L2 距离
+        double norm_a = 0.0, norm_b = 0.0;
+        for (size_t i = 0; i < a.size(); ++i) {
+            norm_a += static_cast<double>(a[i]) * static_cast<double>(a[i]);
+            norm_b += static_cast<double>(b[i]) * static_cast<double>(b[i]);
+        }
+        norm_a = std::sqrt(norm_a);
+        norm_b = std::sqrt(norm_b);
+        
+        if (norm_a < 1e-10 || norm_b < 1e-10) {
+            return 0.0;
+        }
+        
+        // 计算归一化后的 L2 距离
+        double distance_sq = 0.0;
+        for (size_t i = 0; i < a.size(); ++i) {
+            double diff = static_cast<double>(a[i]) / norm_a - 
+                         static_cast<double>(b[i]) / norm_b;
+            distance_sq += diff * diff;
+        }
+        double distance = std::sqrt(distance_sq);
+        
+        // 使用配置的 alpha 参数（归一化后 L2 范围 [0, 2]）
+        return std::exp(-similarity_alpha_ * distance);
+    }
+    
+    // FIXED_ALPHA 或 ADAPTIVE_ALPHA 模式：使用配置的 alpha
     double distance_sq = 0.0;
     for (size_t i = 0; i < a.size(); ++i) {
         double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
@@ -142,9 +195,8 @@ double BruteForceBaseline::computeSimilarity(
     }
     double distance = std::sqrt(distance_sq);
     
-    // alpha = 0.1 是默认值，与 ComputeEngine 一致
-    constexpr double kAlpha = 0.1;
-    return std::exp(-kAlpha * distance);
+    // 使用配置的 alpha 参数
+    return std::exp(-similarity_alpha_ * distance);
 }
 
 std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecordsSnapshot(
@@ -238,3 +290,28 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecords(
 }
 
 } // namespace sageFlow
+
+// ==================== 方法自注册 ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::BRUTEFORCE,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "BruteForce",
+        "Ground truth baseline with brute-force scan. "
+        "Provides 100% recall rate. Suitable for small windows or as reference.",
+        sageFlow::JoinAlgorithm::BRUTEFORCE,
+        true,   // supports_eager
+        true,   // supports_lazy
+        sageFlow::PartitionStrategy::ROUND_ROBIN,
+        sageFlow::WindowStateType::SHARED,
+        ""      // paper_reference
+    }),
+    [](const sageFlow::JoinStrategyConfig& config,
+       std::shared_ptr<sageFlow::ConcurrencyManager> /*cm*/,
+       int /*dim*/,
+       int /*left_idx*/,
+       int /*right_idx*/) {
+        return std::make_unique<sageFlow::BruteForceBaseline>(
+            config.similarity_threshold,
+            config.similarity_mode,
+            config.similarity_alpha);
+    });

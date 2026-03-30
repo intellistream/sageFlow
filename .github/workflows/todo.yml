@@ -7,22 +7,23 @@ on:
 
 jobs:
   todo_to_issue:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
     # 使用 GitHub 托管的 Runner
     runs-on: ubuntu-latest
 
     # 需要创建 Issue 和（在同仓库分支上）提交回链路
     permissions:
-      contents: write   # 允许 push 回 PR 分支（仅当来自同仓库分支时）
-      issues: write     # 允许创建/更新 Issue
+      contents: write # 允许 push 回 PR 分支（仅当来自同仓库分支时）
+      issues: write # 允许创建/更新 Issue
       pull-requests: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # 获取完整的git历史
-          # 若是 PR 事件，检出 PR 的来源分支，便于在其上提交更改（仅同仓库 PR 有权限）
-          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
-          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          fetch-depth: 0 # 获取完整的git历史
+          # 已通过 job if 保障仅在 workflow_dispatch 或同仓库 PR 运行
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref || github.ref_name }}
+          repository: ${{ github.repository }}
 
       - name: TODO to Issue
         uses: alstr/todo-to-issue-action@v5
