@@ -1,6 +1,8 @@
-# Backward-compatible import surface for SAGE-Flow component
+"""Compatibility import surface for the repository root package."""
 
-# Re-export python package so imports like
-#   from sage.middleware.components.sage_flow.sage_flow import StreamEnvironment
-# continue to work even after restructuring under python/
-from .python.sage_flow import *  # noqa: F401,F403  # type: ignore
+try:
+	# Preferred modern layout used by this repository.
+	from .sage_flow import *  # noqa: F401,F403
+except ImportError:
+	# Legacy layout kept for older downstream paths.
+	from .python.sage_flow import *  # noqa: F401,F403  # type: ignore
