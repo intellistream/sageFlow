@@ -31,16 +31,10 @@ public:
     void setLocalProbeConfig(int dimension, int num_hash_functions, double boundary_threshold, size_t num_probes);
 
 private:
-    // Collect candidates from index (uses ConcurrencyManager query_for_join)
+    // Collect candidates from index, dedup by UID, copy into output
     void collectFromIndex(int index_id, const VectorRecord& query,
                           std::unordered_set<uint64_t>& seen,
                           std::vector<std::unique_ptr<VectorRecord>>& out);
-    
-    // Collect candidates from WindowState partition (fallback when index is sparse)
-    void collectFromWindowState(WindowState* state, size_t subtask_index,
-                                const VectorRecord& query,
-                                std::unordered_set<uint64_t>& seen,
-                                std::vector<std::unique_ptr<VectorRecord>>& out);
 
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
     
