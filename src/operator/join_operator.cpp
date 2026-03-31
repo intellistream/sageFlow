@@ -140,20 +140,28 @@ void JoinOperator::globalIndexRebuildLoop() {
         valid_left_records.reserve(unique_left_records.size());
         valid_right_records.reserve(unique_right_records.size());
 
-        for (const auto* r : unique_left_records) {
-            if (!r || r->timestamp_ < window_lower) continue;
+        uint64_t staleness_sum = 0;
+        uint64_t staleness_max = 0;
+        uint64_t staleness_samples = 0;
+        uint64_t filtered_by_staleness = 0;
+
+        auto classify_record = [&](const VectorRecord* r, std::vector<const VectorRecord*>& out) {
+            if (!r || r->timestamp_ < window_lower) return;
+            const uint64_t age = static_cast<uint64_t>(reference_ts - r->timestamp_);
             if (filter_policy != VSJoinSnapshotFilterPolicy::WINDOW_ONLY && max_staleness_ms > 0) {
-                if (reference_ts - r->timestamp_ > max_staleness_ms) continue;
+                if (static_cast<int64_t>(age) > max_staleness_ms) {
+                    ++filtered_by_staleness;
+                    return;
+                }
             }
-            valid_left_records.push_back(r);
-        }
-        for (const auto* r : unique_right_records) {
-            if (!r || r->timestamp_ < window_lower) continue;
-            if (filter_policy != VSJoinSnapshotFilterPolicy::WINDOW_ONLY && max_staleness_ms > 0) {
-                if (reference_ts - r->timestamp_ > max_staleness_ms) continue;
-            }
-            valid_right_records.push_back(r);
-        }
+            staleness_sum += age;
+            staleness_max = std::max(staleness_max, age);
+            ++staleness_samples;
+            out.push_back(r);
+        };
+
+        for (const auto* r : unique_left_records) classify_record(r, valid_left_records);
+        for (const auto* r : unique_right_records) classify_record(r, valid_right_records);
 
         // ====== 3. 构建新的 Global Index（离线）并原子切换 ======
         if (concurrency_manager_ && vsjoin_global_left_id_ >= 0 && vsjoin_global_right_id_ >= 0) {
@@ -215,6 +223,17 @@ void JoinOperator::globalIndexRebuildLoop() {
             SAGEFLOW_LOG_INFO("VSJOIN_REBUILD",
                 "Rebuild stats: duration={}ms, total_rebuilds={}, staleness_filter={}",
                 duration_ms, rebuild_count_.load(), toString(strategy_config_.vsjoin_snapshot_filter_policy));
+
+#ifdef SAGEFLOW_ENABLE_METRICS
+            auto& m = JoinMetrics::instance();
+            m.vsjoin_rebuild_count.fetch_add(1, std::memory_order_relaxed);
+            m.vsjoin_rebuild_duration_ns.fetch_add(
+                static_cast<uint64_t>(duration_ms) * 1'000'000ULL, std::memory_order_relaxed);
+            m.vsjoin_staleness_sum_ms.fetch_add(staleness_sum, std::memory_order_relaxed);
+            m.vsjoin_staleness_sample_count.fetch_add(staleness_samples, std::memory_order_relaxed);
+            m.vsjoin_staleness_max_ms.store(staleness_max, std::memory_order_relaxed);
+            m.vsjoin_records_filtered_staleness.fetch_add(filtered_by_staleness, std::memory_order_relaxed);
+#endif
         } else {
             SAGEFLOW_LOG_INFO(
                 "VSJOIN_REBUILD",
@@ -390,6 +409,14 @@ void JoinOperator::maybeRebalanceVSJoinAssignment() {
     rebalance_cooldown_initialized_ = true;
 
     const uint64_t round = vsjoin_rebalance_rounds_.fetch_add(1, std::memory_order_relaxed) + 1;
+
+#ifdef SAGEFLOW_ENABLE_METRICS
+    auto& m = JoinMetrics::instance();
+    m.vsjoin_rebalance_rounds.fetch_add(1, std::memory_order_relaxed);
+    m.vsjoin_rebalance_moves.fetch_add(move_count, std::memory_order_relaxed);
+    m.vsjoin_imbalance_ratio_x100.store(
+        static_cast<uint64_t>(imbalance_ratio * 100.0), std::memory_order_relaxed);
+#endif
     SAGEFLOW_LOG_INFO(
         "VSJOIN_REBALANCE",
         "round={} moved={} logical_partitions {}->{} load(busiest={:.2f}, idlest={:.2f}, avg={:.2f}, ratio={:.2f}, threshold={:.2f}) assigned(busiest={}, idlest={}) smoothed={}",

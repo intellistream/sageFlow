@@ -1,9 +1,11 @@
 #include "operator/join_operator_methods/vsjoin_method.h"
 #include "operator/utils/join_method_registry.h"
+#include "operator/join_metrics.h"
 #include "utils/logger.h"
 
 #include <unordered_set>
 #include <algorithm>
+#include <chrono>
 
 namespace sageFlow {
 
@@ -51,17 +53,31 @@ void VSJoinMethod::collectFromIndex(int index_id, const VectorRecord& query,
     if (index_id < 0 || !concurrency_manager_) return;
     auto records = concurrency_manager_->query_for_join(
         index_id, query, join_similarity_threshold_, similarity_alpha_);
+#ifdef SAGEFLOW_ENABLE_METRICS
+    JoinMetrics::instance().vsjoin_dedup_candidates_before.fetch_add(
+        records.size(), std::memory_order_relaxed);
+#endif
+    size_t added = 0;
     for (const auto& r : records) {
         if (r && seen.insert(r->uid_).second) {
             out.push_back(std::make_unique<VectorRecord>(*r));
+            ++added;
         }
     }
+#ifdef SAGEFLOW_ENABLE_METRICS
+    JoinMetrics::instance().vsjoin_dedup_candidates_after.fetch_add(
+        added, std::memory_order_relaxed);
+#endif
 }
 
 std::vector<std::unique_ptr<VectorRecord>> VSJoinMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
+
+#ifdef SAGEFLOW_ENABLE_METRICS
+    const auto probe_start = std::chrono::steady_clock::now();
+#endif
 
     std::unordered_set<uint64_t> seen;
     std::vector<std::unique_ptr<VectorRecord>> results;
@@ -93,6 +109,13 @@ std::vector<std::unique_ptr<VectorRecord>> VSJoinMethod::ExecuteEager(
         int global_target = (query_slot == 0) ? global_right_id_ : global_left_id_;
         collectFromIndex(global_target, query_record, seen, results);
     }
+
+#ifdef SAGEFLOW_ENABLE_METRICS
+    const auto probe_end = std::chrono::steady_clock::now();
+    JoinMetrics::instance().recordVSJoinProbeLatency(
+        static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            probe_end - probe_start).count()));
+#endif
 
     return results;
 }

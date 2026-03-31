@@ -1,6 +1,7 @@
 #include "operator/join_operator.h"
 
 #include "execution/partitioner_factory.h"
+#include "operator/join_metrics.h"
 
 #include "utils/logger.h"
 
@@ -152,6 +153,19 @@ std::vector<size_t> JoinOperator::routeToPhysicalSubtasks(const std::vector<int>
         SAGEFLOW_LOG_DEBUG("VSJOIN_ROUTING", "route logical_pids={} -> subtasks={} (P={}, V={})",
                            logical_pids.size(), physical_subtasks.size(), parallelism_, virtual_nodes_per_partition_);
     }
+
+#ifdef SAGEFLOW_ENABLE_METRICS
+    auto& m = JoinMetrics::instance();
+    m.vsjoin_route_total_probes.fetch_add(1, std::memory_order_relaxed);
+    m.vsjoin_route_total_partitions.fetch_add(physical_subtasks.size(), std::memory_order_relaxed);
+    if (physical_subtasks.size() <= 1) {
+        m.vsjoin_route_unicast_count.fetch_add(1, std::memory_order_relaxed);
+    } else if (physical_subtasks.size() >= parallelism_) {
+        m.vsjoin_route_broadcast_count.fetch_add(1, std::memory_order_relaxed);
+    } else {
+        m.vsjoin_route_multicast_count.fetch_add(1, std::memory_order_relaxed);
+    }
+#endif
 
     return physical_subtasks;
 }
