@@ -35,6 +35,9 @@ public:
     size_t getBusiestSubtask() const;
     size_t getIdlestSubtask() const;
 
+    /// Get EWMA-smoothed load for a subtask (latency + weighted backlog)
+    double getSmoothedLoad(size_t subtask_index, double backlog_weight = 0.25) const;
+
 private:
     size_t num_subtasks_;
     mutable std::mutex stats_mutex_;

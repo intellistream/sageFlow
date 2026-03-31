@@ -96,4 +96,11 @@ size_t VSJoinLoadMonitor::getIdlestSubtask() const {
     return it->subtask_index;
 }
 
+double VSJoinLoadMonitor::getSmoothedLoad(size_t subtask_index, double backlog_weight) const {
+    std::lock_guard<std::mutex> lock(stats_mutex_);
+    if (subtask_index >= subtask_loads_.size()) return 0.0;
+    const auto& s = subtask_loads_[subtask_index];
+    return s.avg_latency_ms + backlog_weight * static_cast<double>(s.queue_backlog);
+}
+
 }  // namespace sageFlow

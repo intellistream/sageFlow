@@ -28,13 +28,63 @@ std::vector<int> JoinOperator::computeVSJoinLogicalPartitions(const Response& re
     const size_t P = (num_channels == 0) ? 1 : num_channels;
     const size_t V = (virtual_nodes_per_partition_ == 0) ? 1 : virtual_nodes_per_partition_;
 
+    // Mechanism II: route mode dispatch
+    const auto route_mode = strategy_config_.vsjoin_route_mode;
+
+    if (route_mode == VSJoinRouteMode::BROADCAST) {
+        // Broadcast: route to all logical partitions
+        const int v_idx = computeVirtualNodeIndexForVSJoin(record.record_->uid_);
+        std::unordered_set<int> dedup;
+        for (size_t p = 0; p < P; ++p) {
+            const int lp = static_cast<int>(p * V + static_cast<size_t>(v_idx));
+            if (lp >= 0 && (num_logical_partitions_ == 0 || static_cast<size_t>(lp) < num_logical_partitions_)) {
+                if (dedup.insert(lp).second) {
+                    logical_pids.push_back(lp);
+                }
+            }
+        }
+        return logical_pids;
+    }
+
+    if (route_mode == VSJoinRouteMode::UNICAST) {
+        // Unicast: route to single best partition
+        if (auto* lsh_partitioner = dynamic_cast<LSHIPartitioner*>(partitioner)) {
+            lsh_partitioner->setVirtualNodesPerPartition(V);
+            lsh_partitioner->setLogicalPartitionCount(num_logical_partitions_);
+            auto lsh_logical = lsh_partitioner->getMulticastLogicalPartitionIds(record, P);
+            if (!lsh_logical.empty()) {
+                int best = lsh_logical[0];
+                if (best >= 0 && (num_logical_partitions_ == 0 || static_cast<size_t>(best) < num_logical_partitions_)) {
+                    logical_pids.push_back(best);
+                    return logical_pids;
+                }
+            }
+        }
+        // Fallback: hash to single partition
+        const int v_idx = computeVirtualNodeIndexForVSJoin(record.record_->uid_);
+        size_t primary = partitioner ? partitioner->partition(record, P) : 0;
+        const int lp = static_cast<int>((primary % P) * V + static_cast<size_t>(v_idx));
+        if (lp >= 0 && (num_logical_partitions_ == 0 || static_cast<size_t>(lp) < num_logical_partitions_)) {
+            logical_pids.push_back(lp);
+        }
+        return logical_pids;
+    }
+
+    // BUDGETED mode (default): route to up to fanout_budget partitions
+    const int fanout_budget = std::max(1, strategy_config_.vsjoin_fanout_budget);
+
     if (auto* lsh_partitioner = dynamic_cast<LSHIPartitioner*>(partitioner)) {
         lsh_partitioner->setVirtualNodesPerPartition(V);
         lsh_partitioner->setLogicalPartitionCount(num_logical_partitions_);
         auto lsh_logical = lsh_partitioner->getMulticastLogicalPartitionIds(record, P);
+
+        // Deterministic top-k selection: take first fanout_budget candidates
+        int count = 0;
         for (int lp : lsh_logical) {
+            if (count >= fanout_budget) break;
             if (lp >= 0 && (num_logical_partitions_ == 0 || static_cast<size_t>(lp) < num_logical_partitions_)) {
                 logical_pids.push_back(lp);
+                ++count;
             }
         }
         if (!logical_pids.empty()) {
@@ -42,6 +92,7 @@ std::vector<int> JoinOperator::computeVSJoinLogicalPartitions(const Response& re
         }
     }
 
+    // Fallback: use partitioner with budget cap
     std::vector<size_t> physical_pids;
     if (partitioner && partitioner->supportsMulticast()) {
         physical_pids = partitioner->partitionMulti(record, P);
@@ -55,12 +106,15 @@ std::vector<int> JoinOperator::computeVSJoinLogicalPartitions(const Response& re
 
     std::unordered_set<int> dedup;
     dedup.reserve(physical_pids.size());
+    int count = 0;
 
     for (size_t physical_pid : physical_pids) {
+        if (count >= fanout_budget) break;
         const int lp = static_cast<int>((physical_pid % P) * V + static_cast<size_t>(v_idx));
         if (lp >= 0 && (num_logical_partitions_ == 0 || static_cast<size_t>(lp) < num_logical_partitions_)) {
             if (dedup.insert(lp).second) {
                 logical_pids.push_back(lp);
+                ++count;
             }
         }
     }

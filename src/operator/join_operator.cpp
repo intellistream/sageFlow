@@ -83,6 +83,8 @@ void JoinOperator::globalIndexRebuildLoop() {
 
         maybeRebalanceVSJoinAssignment();
 
+        const auto rebuild_start = std::chrono::steady_clock::now();
+
         // 保持快照的所有权直到 rebuild 完成，避免悬空指针
         std::vector<std::vector<std::shared_ptr<const VectorRecord>>> left_snapshots;
         std::vector<std::vector<std::shared_ptr<const VectorRecord>>> right_snapshots;
@@ -129,20 +131,28 @@ void JoinOperator::globalIndexRebuildLoop() {
 
         const int64_t window_lower = logicalWindowLowerBound(reference_ts);
 
+        // Mechanism I: staleness-aware filtering
+        const int64_t max_staleness_ms = strategy_config_.vsjoin_max_staleness_ms;
+        const auto filter_policy = strategy_config_.vsjoin_snapshot_filter_policy;
+
         std::vector<const VectorRecord*> valid_left_records;
         std::vector<const VectorRecord*> valid_right_records;
         valid_left_records.reserve(unique_left_records.size());
         valid_right_records.reserve(unique_right_records.size());
 
         for (const auto* r : unique_left_records) {
-            if (r && r->timestamp_ >= window_lower) {
-                valid_left_records.push_back(r);
+            if (!r || r->timestamp_ < window_lower) continue;
+            if (filter_policy != VSJoinSnapshotFilterPolicy::WINDOW_ONLY && max_staleness_ms > 0) {
+                if (reference_ts - r->timestamp_ > max_staleness_ms) continue;
             }
+            valid_left_records.push_back(r);
         }
         for (const auto* r : unique_right_records) {
-            if (r && r->timestamp_ >= window_lower) {
-                valid_right_records.push_back(r);
+            if (!r || r->timestamp_ < window_lower) continue;
+            if (filter_policy != VSJoinSnapshotFilterPolicy::WINDOW_ONLY && max_staleness_ms > 0) {
+                if (reference_ts - r->timestamp_ > max_staleness_ms) continue;
             }
+            valid_right_records.push_back(r);
         }
 
         // ====== 3. 构建新的 Global Index（离线）并原子切换 ======
@@ -190,6 +200,21 @@ void JoinOperator::globalIndexRebuildLoop() {
                 unique_right_records.size(), valid_right_records.size(),
                 left_swapped ? 1 : 0,
                 right_swapped ? 1 : 0);
+
+            // Mechanism I: record rebuild timing
+            const auto rebuild_end = std::chrono::steady_clock::now();
+            const int64_t duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                rebuild_end - rebuild_start).count();
+            last_rebuild_duration_ms_.store(duration_ms, std::memory_order_release);
+            last_rebuild_timestamp_ms_.store(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count(),
+                std::memory_order_release);
+            rebuild_count_.fetch_add(1, std::memory_order_relaxed);
+
+            SAGEFLOW_LOG_INFO("VSJOIN_REBUILD",
+                "Rebuild stats: duration={}ms, total_rebuilds={}, staleness_filter={}",
+                duration_ms, rebuild_count_.load(), toString(strategy_config_.vsjoin_snapshot_filter_policy));
         } else {
             SAGEFLOW_LOG_INFO(
                 "VSJOIN_REBUILD",
@@ -227,6 +252,19 @@ void JoinOperator::maybeRebalanceVSJoinAssignment() {
         return;
     }
 
+    // Mechanism III: cooldown enforcement
+    const auto now = std::chrono::steady_clock::now();
+    if (rebalance_cooldown_initialized_) {
+        const int64_t cooldown_ms = strategy_config_.vsjoin_rebalance_cooldown_ms;
+        if (cooldown_ms > 0) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - last_rebalance_time_).count();
+            if (elapsed < cooldown_ms) {
+                return;
+            }
+        }
+    }
+
     const auto stats = load_monitor_->getLoadStats();
     const size_t num_subtasks = stats.size();
     if (num_subtasks <= 1 || num_logical_partitions_ == 0) {
@@ -238,6 +276,8 @@ void JoinOperator::maybeRebalanceVSJoinAssignment() {
         for (size_t i = 0; i < num_subtasks; ++i) {
             last_rebalance_total_records_[i] = stats[i].total_records;
         }
+        rebalance_cooldown_initialized_ = true;
+        last_rebalance_time_ = now;
         return;
     }
 
@@ -246,14 +286,23 @@ void JoinOperator::maybeRebalanceVSJoinAssignment() {
     size_t busiest = 0;
     size_t idlest = 0;
 
-    for (size_t i = 0; i < num_subtasks; ++i) {
-        const size_t current_total = stats[i].total_records;
-        const size_t last_total = last_rebalance_total_records_[i];
-        const size_t delta_records = (current_total >= last_total) ? (current_total - last_total) : 0;
-        last_rebalance_total_records_[i] = current_total;
+    const bool use_smoothed = strategy_config_.vsjoin_use_smoothed_load;
 
-        const double load = static_cast<double>(delta_records) +
-            K_VSJOIN_BACKLOG_WEIGHT * static_cast<double>(stats[i].queue_backlog);
+    for (size_t i = 0; i < num_subtasks; ++i) {
+        double load;
+        if (use_smoothed) {
+            // Mechanism III: use EWMA-smoothed latency as primary signal
+            load = stats[i].avg_latency_ms +
+                K_VSJOIN_BACKLOG_WEIGHT * static_cast<double>(stats[i].queue_backlog);
+        } else {
+            // Legacy: use delta records
+            const size_t current_total = stats[i].total_records;
+            const size_t last_total = last_rebalance_total_records_[i];
+            const size_t delta_records = (current_total >= last_total) ? (current_total - last_total) : 0;
+            load = static_cast<double>(delta_records) +
+                K_VSJOIN_BACKLOG_WEIGHT * static_cast<double>(stats[i].queue_backlog);
+        }
+        last_rebalance_total_records_[i] = stats[i].total_records;
         interval_loads[i] = load;
         load_sum += load;
 
@@ -337,11 +386,13 @@ void JoinOperator::maybeRebalanceVSJoinAssignment() {
     }
 
     partition_assignment_->updateMapping(updates);
+    last_rebalance_time_ = now;
+    rebalance_cooldown_initialized_ = true;
 
     const uint64_t round = vsjoin_rebalance_rounds_.fetch_add(1, std::memory_order_relaxed) + 1;
     SAGEFLOW_LOG_INFO(
         "VSJOIN_REBALANCE",
-        "round={} moved={} logical_partitions {}->{} load(busiest={:.2f}, idlest={:.2f}, avg={:.2f}, ratio={:.2f}, threshold={:.2f}) assigned(busiest={}, idlest={})",
+        "round={} moved={} logical_partitions {}->{} load(busiest={:.2f}, idlest={:.2f}, avg={:.2f}, ratio={:.2f}, threshold={:.2f}) assigned(busiest={}, idlest={}) smoothed={}",
         round,
         move_count,
         busiest,
@@ -352,7 +403,8 @@ void JoinOperator::maybeRebalanceVSJoinAssignment() {
         imbalance_ratio,
         imbalance_threshold,
         busiest_assigned,
-        idlest_assigned);
+        idlest_assigned,
+        use_smoothed ? 1 : 0);
 }
 
 bool JoinOperator::createIndexPair(IndexType type, const std::string& prefix) {

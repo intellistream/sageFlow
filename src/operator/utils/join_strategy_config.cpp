@@ -185,9 +185,44 @@ VSJoinIndexType parseVSJoinIndexType(const std::string& s) {
         return VSJoinIndexType::HNSW;
     }
     
-    // 默认返回 BRUTEFORCE（推荐用于 Local Index）
     SAGEFLOW_LOG_WARN("Config", "Unknown VSJoinIndexType '{}', defaulting to bruteforce", s);
     return VSJoinIndexType::BRUTEFORCE;
+}
+
+std::string toString(VSJoinRouteMode rm) {
+    switch (rm) {
+        case VSJoinRouteMode::UNICAST: return "unicast";
+        case VSJoinRouteMode::BUDGETED: return "budgeted";
+        case VSJoinRouteMode::BROADCAST: return "broadcast";
+        default: return "unknown";
+    }
+}
+
+VSJoinRouteMode parseVSJoinRouteMode(const std::string& s) {
+    std::string lower = toLower(s);
+    if (lower == "unicast") return VSJoinRouteMode::UNICAST;
+    if (lower == "budgeted") return VSJoinRouteMode::BUDGETED;
+    if (lower == "broadcast") return VSJoinRouteMode::BROADCAST;
+    SAGEFLOW_LOG_WARN("Config", "Unknown VSJoinRouteMode '{}', defaulting to budgeted", s);
+    return VSJoinRouteMode::BUDGETED;
+}
+
+std::string toString(VSJoinSnapshotFilterPolicy sp) {
+    switch (sp) {
+        case VSJoinSnapshotFilterPolicy::WINDOW_ONLY: return "window_only";
+        case VSJoinSnapshotFilterPolicy::MAX_STALENESS: return "max_staleness";
+        case VSJoinSnapshotFilterPolicy::AGGRESSIVE: return "aggressive";
+        default: return "unknown";
+    }
+}
+
+VSJoinSnapshotFilterPolicy parseVSJoinSnapshotFilterPolicy(const std::string& s) {
+    std::string lower = toLower(s);
+    if (lower == "window_only") return VSJoinSnapshotFilterPolicy::WINDOW_ONLY;
+    if (lower == "max_staleness") return VSJoinSnapshotFilterPolicy::MAX_STALENESS;
+    if (lower == "aggressive") return VSJoinSnapshotFilterPolicy::AGGRESSIVE;
+    SAGEFLOW_LOG_WARN("Config", "Unknown VSJoinSnapshotFilterPolicy '{}', defaulting to window_only", s);
+    return VSJoinSnapshotFilterPolicy::WINDOW_ONLY;
 }
 
 // ==================== JoinStrategyConfig 方法实现 ====================
@@ -539,6 +574,27 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     }
     if (auto git = node["vsjoin_global_index_type"].value<std::string>()) {
         config.vsjoin_global_index_type = parseVSJoinIndexType(*git);
+    }
+    // Mechanism I: staleness config
+    if (auto v = node["vsjoin_snapshot_filter_policy"].value<std::string>()) {
+        config.vsjoin_snapshot_filter_policy = parseVSJoinSnapshotFilterPolicy(*v);
+    }
+    if (auto v = node["vsjoin_max_staleness_ms"].value<int64_t>()) {
+        config.vsjoin_max_staleness_ms = *v;
+    }
+    // Mechanism II: routing config
+    if (auto v = node["vsjoin_route_mode"].value<std::string>()) {
+        config.vsjoin_route_mode = parseVSJoinRouteMode(*v);
+    }
+    if (auto v = node["vsjoin_fanout_budget"].value<int64_t>()) {
+        config.vsjoin_fanout_budget = static_cast<int>(*v);
+    }
+    // Mechanism III: skew control
+    if (auto v = node["vsjoin_rebalance_cooldown_ms"].value<int64_t>()) {
+        config.vsjoin_rebalance_cooldown_ms = *v;
+    }
+    if (auto v = node["vsjoin_use_smoothed_load"].value<bool>()) {
+        config.vsjoin_use_smoothed_load = *v;
     }
 
     

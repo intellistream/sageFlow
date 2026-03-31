@@ -335,6 +335,15 @@ namespace sageFlow {
     std::vector<size_t> last_rebalance_total_records_;
     std::atomic<uint64_t> vsjoin_rebalance_rounds_{0};
 
+    // Mechanism I: staleness metrics
+    std::atomic<int64_t> last_rebuild_timestamp_ms_{0};   ///< Wall-clock ms of last successful rebuild
+    std::atomic<int64_t> last_rebuild_duration_ms_{0};    ///< Duration of last rebuild in ms
+    std::atomic<uint64_t> rebuild_count_{0};              ///< Total number of rebuilds completed
+
+    // Mechanism III: rebalance cooldown
+    std::chrono::steady_clock::time_point last_rebalance_time_{};
+    bool rebalance_cooldown_initialized_{false};
+
     void globalIndexRebuildLoop();
     void startGlobalIndexRebuilder();
     void stopGlobalIndexRebuilder();

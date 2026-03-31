@@ -8,6 +8,7 @@
 
 #include <vector>
 #include <memory>
+#include <unordered_set>
 
 namespace sageFlow {
 
@@ -30,13 +31,17 @@ public:
     void setLocalProbeConfig(int dimension, int num_hash_functions, double boundary_threshold, size_t num_probes);
 
 private:
-    std::vector<uint64_t> queryGlobalIndex(const VectorRecord& query, int target_index_id);
-    std::vector<uint64_t> queryLocalIndex(const VectorRecord& query, int query_slot, size_t subtask_index);
+    // Collect candidates from index (uses ConcurrencyManager query_for_join)
+    void collectFromIndex(int index_id, const VectorRecord& query,
+                          std::unordered_set<uint64_t>& seen,
+                          std::vector<std::unique_ptr<VectorRecord>>& out);
+    
+    // Collect candidates from WindowState partition (fallback when index is sparse)
+    void collectFromWindowState(WindowState* state, size_t subtask_index,
+                                const VectorRecord& query,
+                                std::unordered_set<uint64_t>& seen,
+                                std::vector<std::unique_ptr<VectorRecord>>& out);
 
-    std::vector<std::unique_ptr<VectorRecord>> resolveUidsToRecords(
-        const std::vector<uint64_t>& uids, WindowState* state, size_t subtask_index);
-
-private:
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
     
     int global_left_id_ = -1;
