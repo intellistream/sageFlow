@@ -1,0 +1,8 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We studied VSJoin as a multicore streaming vector-similarity join path and evaluated it under sliding-window semantics. In our implementation and evaluated workloads, the results support three bounded conclusions: (i) bounded-staleness read/write decoupling (P1) improves the quality--efficiency operating region under update churn, (ii) budgeted boundary coverage routing (P2) is more reliable than strict unicast and less wasteful than broad broadcast-like fanout, and (iii) predictable logical remapping with bounded control actions (P3) improves skew robustness while keeping control overhead manageable.
+
+The experiments also identify explicit degradation boundaries rather than universal wins: overly aggressive control settings can increase churn, extreme fanout budgets can either under-cover boundaries or inflate duplicates, and rebuild intervals at either extreme can hurt freshness--overhead balance.
+
+Our future work directly follows these observed limitations: (1) improve adaptive controllers for rebalance and rebuild to reduce control-churn sensitivity, (2) derive tighter quality/cost bounds for budgeted routing and bounded staleness, and (3) extend evaluation to broader real-world drift patterns and hardware settings. We do not claim global optimality beyond tested configurations.
