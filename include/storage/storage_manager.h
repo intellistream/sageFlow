@@ -17,35 +17,49 @@ using idx_t = int32_t;
 
 class StorageManager {
  public:
-  // 写 private HNSW 访问不了
+  static constexpr int GLOBAL_SHARD = -1;
+
   std::shared_ptr<ComputeEngine> engine_ = nullptr;
-  // data
-  std::unordered_map<uint64_t, int32_t> map_;
-  std::vector<std::shared_ptr<VectorRecord>> records_;
+
   // Constructor
   StorageManager() = default;
 
   // Destructor
   ~StorageManager() = default;
 
-  auto insert(std::unique_ptr<VectorRecord> record) -> void;
+  // ---- Shard lifecycle ----
+  void createShard(int shard_id);
+  void removeShard(int shard_id);
+  bool hasShard(int shard_id) const;
 
-  // auto insert(std::shared_ptr<VectorRecord> record) -> void;
+  // ---- Data operations (shard_id defaults to GLOBAL_SHARD for backward compatibility) ----
+  auto insert(std::unique_ptr<VectorRecord> record, int shard_id = GLOBAL_SHARD) -> void;
 
-  auto erase(uint64_t vector_id) -> bool;
+  auto erase(uint64_t vector_id, int shard_id = GLOBAL_SHARD) -> bool;
 
-  auto getVectorByUid(uint64_t vector_id) -> std::shared_ptr<const VectorRecord>;
+  auto getVectorByUid(uint64_t vector_id, int shard_id = GLOBAL_SHARD) -> std::shared_ptr<const VectorRecord>;
 
-  auto getVectorsByUids(const std::vector<uint64_t> &vector_ids) -> std::vector<std::shared_ptr<const VectorRecord>>;
+  auto getVectorsByUids(const std::vector<uint64_t> &vector_ids, int shard_id = GLOBAL_SHARD) -> std::vector<std::shared_ptr<const VectorRecord>>;
 
-  auto topk(const VectorRecord &record, int k) const -> std::vector<uint64_t>;
+  auto topk(const VectorRecord &record, int k, int shard_id = GLOBAL_SHARD) const -> std::vector<uint64_t>;
 
   auto similarityJoinQuery(const VectorRecord &record,
                            double join_similarity_threshold,
-                           double similarity_alpha) const -> std::vector<uint64_t>;
+                           double similarity_alpha,
+                           int shard_id = GLOBAL_SHARD) const -> std::vector<uint64_t>;
 
  private:
-  mutable std::shared_mutex map_mutex_;
-  int begin_ = 0;
+  struct Shard {
+    std::vector<std::shared_ptr<VectorRecord>> records;
+    std::unordered_map<uint64_t, int32_t> map;
+    mutable std::shared_mutex mutex;
+  };
+
+  Shard global_shard_;
+  std::unordered_map<int, std::unique_ptr<Shard>> shards_;
+  mutable std::shared_mutex shards_map_mutex_;  // protects shards_ map structure only
+
+  auto resolveShard(int shard_id) -> Shard*;
+  auto resolveShard(int shard_id) const -> const Shard*;
 };
 }  // namespace sageFlow

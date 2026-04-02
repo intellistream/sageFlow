@@ -12,6 +12,7 @@
 #include <thread>
 #include <chrono>
 #include <unordered_set>
+#include <unordered_map>
 #include <mutex>
 
 #include "common/data_types.h"
@@ -305,6 +306,18 @@ namespace sageFlow {
     int vsjoin_global_left_id_ = -1;
     int vsjoin_global_right_id_ = -1;
 
+    // Per-subtask dedup for multicast duplicate filtering (lock-free per partition)
+    struct SubtaskDedupSet {
+        std::unordered_set<uint64_t> seen;  // combined_id = hash(left_uid, right_uid)
+    };
+    std::vector<SubtaskDedupSet> subtask_dedup_sets_;  // size = parallelism_
+
+    static uint64_t combinedMatchId(uint64_t left_uid, uint64_t right_uid) {
+        // splitmix64-style hash combining
+        uint64_t x = left_uid ^ (right_uid + 0x9e3779b97f4a7c15ULL + (left_uid << 6) + (left_uid >> 2));
+        return x;
+    }
+
     // ==================== VSJoin 负载均衡（Task08: Logical Partition Routing） ====================
     std::unique_ptr<VSJoinPartitionAssignment> partition_assignment_;
     std::unique_ptr<VSJoinLoadMonitor> load_monitor_;
@@ -319,11 +332,29 @@ namespace sageFlow {
                                                     IPartitioner* partitioner,
                                                     size_t num_channels) const;
 
+    void reportVSJoinLoadSample(size_t runtime_subtask_index,
+                                size_t state_subtask_index,
+                                WindowState* current_state,
+                                int64_t record_latency_ns);
+    void maybeRebalanceVSJoinAssignment();
+
     // ==================== VSJoin 后台重建 ====================
     std::once_flag rebuild_thread_started_;
     std::unique_ptr<std::thread> rebuild_thread_;
     std::atomic<bool> rebuild_running_{false};
     std::atomic<int64_t> rebuild_interval_ms_{5000};
+
+    std::vector<size_t> last_rebalance_total_records_;
+    std::atomic<uint64_t> vsjoin_rebalance_rounds_{0};
+
+    // Mechanism I: staleness metrics
+    std::atomic<int64_t> last_rebuild_timestamp_ms_{0};   ///< Wall-clock ms of last successful rebuild
+    std::atomic<int64_t> last_rebuild_duration_ms_{0};    ///< Duration of last rebuild in ms
+    std::atomic<uint64_t> rebuild_count_{0};              ///< Total number of rebuilds completed
+
+    // Mechanism III: rebalance cooldown
+    std::chrono::steady_clock::time_point last_rebalance_time_{};
+    bool rebalance_cooldown_initialized_{false};
 
     void globalIndexRebuildLoop();
     void startGlobalIndexRebuilder();

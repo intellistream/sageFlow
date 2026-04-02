@@ -1,0 +1,51 @@
+\section{Implementation Details}
+\label{sec:implementation-details}
+
+This section maps the mechanism-level design in Section~\ref{sec:core-architecture} to concrete code-level behavior in our current VSJoin implementation in \system. We keep the same one-to-one structure as P1--P3 so that claims, implementation, and evidence remain aligned.
+
+\subsection{Implementation in \system}
+
+\textbf{Execution model.}
+\system is implemented in modern C++ on a shared-memory multicore runtime with eager processing. Each arriving record triggers immediate state update and opposite-side probe, followed by exact temporal/similarity verification before emission.
+
+\textbf{Strategy composition.}
+Join behavior is instantiated from four coupled dimensions: join algorithm, partition strategy, window-state type, and index strategy. The same runtime hosts baseline methods (BruteForce, IVF, HNSW, HDR-Tree, LSH, ClusteredJoin, S3J-style) and the VSJoin-oriented path.
+
+\subsection{Mechanism-I Realization: Bounded-Staleness Read/Write Decoupling (P1)}
+
+\textbf{Hot path versus background path.}
+Our VSJoin path keeps foreground operations (insert/probe/verify) on mutable local state and partition-local indexes, while a background thread periodically rebuilds global read-oriented indexes from snapshots. This separation is explicit in the implementation: rebuild is driven by a periodic loop parameterized by \texttt{vsjoin\_rebuild\_interval\_ms}, rather than by per-event triggers.
+
+\textbf{Staleness sources and control knobs.}
+Staleness in the global tier mainly comes from rebuild cadence and scheduler delay between publish rounds. In our implementation, the principal knobs are rebuild interval and snapshot validity filtering. Before rebuilding, the loop computes a logical window lower bound and filters snapshot records by event time, so semantically expired records are not promoted into the refreshed global tier.
+
+\textbf{Operational boundary.}
+This implementation targets a bounded freshness--overhead trade-off, not strict always-fresh global views. Correctness remains anchored in final window/similarity verification; the global tier is a coverage/performance aid under bounded staleness.
+
+\subsection{Mechanism-II Realization: Budgeted Boundary Coverage Routing (P2)}
+
+\textbf{Routing modes under one interface.}
+VSJoin supports strict unicast, budgeted multicast, and broadcast-like extremes through partitioner capabilities and fanout configuration (e.g., \texttt{vsjoin\_multicast\_k}). In the VSJoin path, LSH routing first selects physical partition candidates, then expands them into logical partitions using virtualization.
+
+\textbf{Logical partition virtualization and dedup semantics.}
+The implementation applies a stable UID-based virtual-node mapping to derive logical partition IDs from physical candidates. This gives finer routing/control granularity than physical partitions alone. Duplicate logical/physical targets are removed during routing, and candidate identities are deduplicated again after local+global retrieval before final verification/emission.
+
+\textbf{Operational boundary.}
+Boundary fanout budgeting is treated as a controllable quality--cost dial in evaluated settings, not as a universal optimum. Very small budgets can miss boundary matches; very large budgets approach broadcast-like overhead.
+
+\subsection{Mechanism-III Realization: Predictable Control Plane for Skew (P3)}
+
+\textbf{RCU-style AssignmentTable publication.}
+Logical-to-physical mapping is maintained by a double-buffer AssignmentTable. Readers access the current table through an atomic pointer without locks; writers update an inactive copy, then atomically publish via pointer swap. This realizes read-light routing with batch update publication.
+
+\textbf{Sampled load signals and heuristic triggering.}
+LoadMonitor aggregates per-subtask sampled signals and maintains both cumulative counters and smoothed telemetry (e.g., EWMA latency/backlog). Rebalance decisions are interval-based and heuristic: load is computed from recent record deltas plus a bounded backlog term, then compared against \texttt{vsjoin\_rebalance\_imbalance\_ratio}.
+
+\textbf{Bounded adaptation cost and migration semantics.}
+Each rebalance round migrates at most \texttt{vsjoin\_rebalance\_max\_moves} logical partitions. Importantly, current remapping updates routing metadata for future records; the foreground path does not perform synchronous full-state migration. This gives predictable control overhead at the cost of potentially delayed convergence under abrupt drift.
+
+\subsection{Consistency and Scope}
+
+The implementation above is intentionally aligned with Section~\ref{sec:core-architecture}: Mechanism I (bounded staleness), Mechanism II (budgeted coverage), and Mechanism III (predictable control). We therefore interpret results in Section~\ref{sec:results} as implementation-scoped evidence under evaluated workloads and runtime settings, not as universal guarantees.
+
+The implementation above is intentionally designed so that method-level differences can be evaluated under shared execution semantics. The next section presents the experimental methodology and then reports results.

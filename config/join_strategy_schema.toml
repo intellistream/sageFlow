@@ -179,6 +179,16 @@ is_eager = false
 # 约束: vsjoin_allowed_lateness >= 0
 # 默认: 1000
 
+# vsjoin_rebalance_imbalance_ratio: 触发重平衡的负载失衡比（max/avg）
+# 类型: double
+# 范围: [1.0, 5.0]
+# 默认: 1.35
+
+# vsjoin_rebalance_max_moves: 每轮重平衡最多迁移的 logical partition 数
+# 类型: int
+# 范围: [1, 1024]
+# 默认: 8
+
 # ------------------ S3J 参数 ------------------
 
 # s3j_num_centroids: S3J 质心数量
@@ -303,6 +313,8 @@ index_strategy = "partitioned"
 num_partitions = 8
 vsjoin_num_hash_functions = 8
 vsjoin_boundary_threshold = 0.1
+vsjoin_rebalance_imbalance_ratio = 1.35
+vsjoin_rebalance_max_moves = 8
 
 # 示例 5: S3J 自适应配置
 [[strategies_examples]]

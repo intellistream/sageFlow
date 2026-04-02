@@ -4,9 +4,11 @@
 #include "concurrency/concurrency_manager.h"
 #include "state/window_state.h"
 #include "execution/runtime_context.h"
+#include "execution/vector_space_partitioner.h"
 
 #include <vector>
 #include <memory>
+#include <unordered_set>
 
 namespace sageFlow {
 
@@ -26,15 +28,14 @@ public:
     void setGlobalIndexIds(int left_id, int right_id);
     void setLocalIndexIds(const std::vector<int>& left_ids, const std::vector<int>& right_ids);
     void setWindowStates(WindowState* left_state, WindowState* right_state);
+    void setLocalProbeConfig(int dimension, int num_hash_functions, double boundary_threshold, size_t num_probes);
 
 private:
-    std::vector<uint64_t> queryGlobalIndex(const VectorRecord& query, int target_index_id);
-    std::vector<uint64_t> queryLocalIndex(const VectorRecord& query, int query_slot, size_t subtask_index);
+    // Collect candidates from index, dedup by UID, copy into output
+    void collectFromIndex(int index_id, const VectorRecord& query,
+                          std::unordered_set<uint64_t>& seen,
+                          std::vector<std::unique_ptr<VectorRecord>>& out);
 
-    std::vector<std::unique_ptr<VectorRecord>> resolveUidsToRecords(
-        const std::vector<uint64_t>& uids, WindowState* state, size_t subtask_index);
-
-private:
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
     
     int global_left_id_ = -1;
@@ -42,6 +43,9 @@ private:
 
     std::vector<int> local_left_ids_;
     std::vector<int> local_right_ids_;
+
+    std::unique_ptr<LSHPartitioner> local_partitioner_;
+    size_t local_num_probes_ = 1;
 
     WindowState* left_state_ = nullptr;
     WindowState* right_state_ = nullptr;

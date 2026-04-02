@@ -40,6 +40,30 @@ class LSHIPartitioner : public IPartitioner {
    */
   size_t partition(const Response& data, size_t num_channels) override;
 
+  bool supportsMulticast() const override { return multicast_k_ > 1; }
+
+  std::vector<size_t> partitionMulti(const Response& data,
+                                     size_t num_channels) override;
+
+  void setMulticastK(size_t multicast_k);
+
+  void setLogicalPartitionCount(size_t num_logical_partitions);
+
+  void setVirtualNodesPerPartition(size_t virtual_nodes_per_partition);
+
+  int getLogicalPartitionId(const Response& data, size_t num_channels);
+
+  std::vector<int> getMulticastLogicalPartitionIds(const Response& data,
+                                                   size_t num_channels);
+
+  [[nodiscard]] size_t getLogicalPartitionCount() const {
+    return num_logical_partitions_;
+  }
+
+  [[nodiscard]] size_t getVirtualNodesPerPartition() const {
+    return virtual_nodes_per_partition_;
+  }
+
   /**
    * @brief 获取向量的所有相关分区（包含邻近分区）
    * @param data Response 数据
@@ -66,8 +90,13 @@ class LSHIPartitioner : public IPartitioner {
   const LSHPartitioner* getLSHPartitioner() const;
 
  private:
+  int computeVirtualNodeIndex(uint64_t uid) const;
+
   std::unique_ptr<LSHPartitioner> lsh_partitioner_;
   int num_partitions_;
+  size_t num_logical_partitions_ = 0;
+  size_t virtual_nodes_per_partition_ = 1;
+  size_t multicast_k_ = 1;
 };
 
 /**

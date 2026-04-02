@@ -1,22 +1,39 @@
-//
-// Created by Pygon on 25-4-17.
-//
 #include "index/knn.h"
-#include <iostream>
+#include "storage/storage_manager.h"
 
-sageFlow::Knn::~Knn() = default;
+namespace sageFlow {
 
-auto sageFlow::Knn::insert(uint64_t id) -> bool { return true; }
+Knn::~Knn() = default;
 
-auto sageFlow::Knn::erase(uint64_t id) -> bool { return true; }
-
-auto sageFlow::Knn::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
-  auto idxes = storage_manager_->topk(record, k);
-  return idxes;
+auto Knn::insert(uint64_t /*id*/) -> bool {
+  // Data is managed by StorageManager shard; index only needs uid tracking
+  // which is handled at the shard level. No-op here.
+  return true;
 }
 
-auto sageFlow::Knn::query_for_join(const VectorRecord &record,
-                    double join_similarity_threshold,
-                    double similarity_alpha) -> std::vector<uint64_t> {
-  return storage_manager_->similarityJoinQuery(record, join_similarity_threshold, similarity_alpha);
+auto Knn::erase(uint64_t id) -> bool {
+  // Deletion is handled by StorageManager shard via the controller.
+  return true;
 }
+
+size_t Knn::size() const {
+  // Delegate to the shard in StorageManager if available.
+  // For now, this is an approximation — the controller manages the shard.
+  return 0;
+}
+
+auto Knn::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
+  if (!storage_manager_) return {};
+  // Route to our shard (index_id_ maps to shard_id if shard exists, else global)
+  return storage_manager_->topk(record, k, index_id_);
+}
+
+auto Knn::query_for_join(const VectorRecord &record,
+                         double join_similarity_threshold,
+                         double similarity_alpha) -> std::vector<uint64_t> {
+  if (!storage_manager_) return {};
+  return storage_manager_->similarityJoinQuery(
+      record, join_similarity_threshold, similarity_alpha, index_id_);
+}
+
+}  // namespace sageFlow

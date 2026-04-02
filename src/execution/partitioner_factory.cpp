@@ -4,7 +4,9 @@
 #include "execution/vector_space_partitioner.h"
 #include "utils/logger.h"
 
+#include <algorithm>
 #include <stdexcept>
+#include <unordered_set>
 
 namespace sageFlow {
 
@@ -15,7 +17,7 @@ namespace sageFlow {
 LSHIPartitioner::LSHIPartitioner(int dimension, int num_hash_functions,
                                  int num_partitions, int seed,
                                  double boundary_threshold)
-    : num_partitions_(num_partitions) {
+  : num_partitions_(num_partitions) {
   lsh_partitioner_ = std::make_unique<LSHPartitioner>(
       dimension, num_hash_functions, seed, boundary_threshold);
 }
@@ -29,6 +31,132 @@ size_t LSHIPartitioner::partition(const Response& data, size_t num_channels) {
   // 注意：num_channels 可能与 num_partitions_ 不同，
   // 这里使用 num_channels 以支持动态调整
   return lsh_partitioner_->partition(*data.record_, num_channels);
+}
+
+std::vector<size_t> LSHIPartitioner::partitionMulti(const Response& data,
+                                                    size_t num_channels) {
+  if (!data.record_) {
+    return {0};
+  }
+
+  const size_t channels = (num_channels == 0)
+                              ? static_cast<size_t>(std::max(num_partitions_, 1))
+                              : num_channels;
+  if (channels == 0) {
+    return {0};
+  }
+
+  const size_t main_partition = lsh_partitioner_->partition(*data.record_, channels);
+  if (!supportsMulticast()) {
+    return {main_partition};
+  }
+
+  if (!lsh_partitioner_->isBoundaryVector(*data.record_, channels)) {
+    return {main_partition};
+  }
+
+  const size_t probes = std::max<size_t>(1, std::min(multicast_k_, channels));
+  auto candidates = lsh_partitioner_->getCandidatePartitions(*data.record_, channels, probes);
+
+  std::vector<size_t> results;
+  results.reserve(candidates.size());
+  std::unordered_set<size_t> dedup;
+  dedup.reserve(candidates.size() + 1);
+
+  if (dedup.insert(main_partition).second) {
+    results.push_back(main_partition);
+  }
+  for (size_t pid : candidates) {
+    const size_t normalized = pid % channels;
+    if (dedup.insert(normalized).second) {
+      results.push_back(normalized);
+    }
+  }
+
+  return results;
+}
+
+void LSHIPartitioner::setMulticastK(size_t multicast_k) {
+  multicast_k_ = std::max<size_t>(1, multicast_k);
+}
+
+void LSHIPartitioner::setLogicalPartitionCount(size_t num_logical_partitions) {
+  num_logical_partitions_ = num_logical_partitions;
+  if (num_partitions_ > 0 && num_logical_partitions_ > 0) {
+    const size_t physical = static_cast<size_t>(num_partitions_);
+    virtual_nodes_per_partition_ = std::max<size_t>(1, num_logical_partitions_ / physical);
+  }
+}
+
+void LSHIPartitioner::setVirtualNodesPerPartition(size_t virtual_nodes_per_partition) {
+  virtual_nodes_per_partition_ = std::max<size_t>(1, virtual_nodes_per_partition);
+  if (num_partitions_ > 0) {
+    num_logical_partitions_ = static_cast<size_t>(num_partitions_) * virtual_nodes_per_partition_;
+  }
+}
+
+int LSHIPartitioner::computeVirtualNodeIndex(uint64_t uid) const {
+  const size_t vnode_count = std::max<size_t>(1, virtual_nodes_per_partition_);
+  uint64_t x = uid + 0x9e3779b97f4a7c15ULL;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  x = x ^ (x >> 31);
+  return static_cast<int>(x % vnode_count);
+}
+
+int LSHIPartitioner::getLogicalPartitionId(const Response& data, size_t num_channels) {
+  if (!data.record_) {
+    return 0;
+  }
+
+  const size_t channels = (num_channels == 0)
+                              ? static_cast<size_t>(std::max(num_partitions_, 1))
+                              : num_channels;
+  const size_t physical_pid = partition(data, channels) % channels;
+  const size_t vnode_count = std::max<size_t>(1, virtual_nodes_per_partition_);
+  const int vnode_index = computeVirtualNodeIndex(data.record_->uid_);
+
+  size_t logical_pid = physical_pid * vnode_count + static_cast<size_t>(vnode_index);
+  if (num_logical_partitions_ > 0) {
+    logical_pid %= num_logical_partitions_;
+  }
+  return static_cast<int>(logical_pid);
+}
+
+std::vector<int> LSHIPartitioner::getMulticastLogicalPartitionIds(
+    const Response& data, size_t num_channels) {
+  if (!data.record_) {
+    return {0};
+  }
+
+  const size_t channels = (num_channels == 0)
+                              ? static_cast<size_t>(std::max(num_partitions_, 1))
+                              : num_channels;
+  const size_t vnode_count = std::max<size_t>(1, virtual_nodes_per_partition_);
+  const int vnode_index = computeVirtualNodeIndex(data.record_->uid_);
+
+  auto physical_partitions = partitionMulti(data, channels);
+
+  std::vector<int> logical_pids;
+  logical_pids.reserve(physical_partitions.size());
+  std::unordered_set<int> dedup;
+  dedup.reserve(physical_partitions.size());
+
+  for (size_t physical_pid : physical_partitions) {
+    size_t logical_pid = (physical_pid % channels) * vnode_count + static_cast<size_t>(vnode_index);
+    if (num_logical_partitions_ > 0) {
+      logical_pid %= num_logical_partitions_;
+    }
+    const int logical = static_cast<int>(logical_pid);
+    if (dedup.insert(logical).second) {
+      logical_pids.push_back(logical);
+    }
+  }
+
+  if (logical_pids.empty()) {
+    logical_pids.push_back(getLogicalPartitionId(data, channels));
+  }
+  return logical_pids;
 }
 
 std::vector<size_t> LSHIPartitioner::getCandidatePartitions(

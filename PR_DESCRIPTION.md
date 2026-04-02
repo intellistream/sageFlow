@@ -1,210 +1,61 @@
-# VSJoin 流式向量相似性连接引擎 - 多线程架构重构与 Baseline 实现
+# chore/vsjoin-factory-paper-sync-20260303
 
-## 📋 概述
+## 变更概览
 
-本 PR 实现了 SageFlow 的 **VSJoin 流式向量相似性连接引擎**，包含完整的多线程架构重构和多种 Baseline 算法实现。这是一个大规模重构，包含 **195 个文件变更**，新增约 **50,000+ 行代码**。
+本 PR 聚焦三项收敛工作：
 
----
+1. **工厂化主链路收敛**
+   - Join 方法创建已接入主执行链路，策略为 **registry 优先 + switch 兜底**。
+   - VSJoin 已完成方法自注册，可通过注册中心直接创建。
 
-## 🏗️ 架构变更
+2. **配置契约一致性修复（VSJoin）**
+   - VSJoin 运行时分区器改为严格按配置契约创建，不再隐式改写为 `Centroid`。
+   - `WindowState` 创建不再被 VSJoin 强制覆盖，改为按配置生效。
+   - 已同步更新 LSH 对 `WindowState` 的推荐集合。
 
-### 1. RuntimeContext 注入与并行执行模型
+3. **论文资产并入**
+   - 已恢复并提交重命名后的论文目录：
+     `docs/research-paper-High_Throughput_Streaming_Vector_Similarity_Joins_on_Multicore_Processors/`
+   - 包含 `main.tex`、`References.bib`、`Sections/*` 等核心文件。
 
-- **RuntimeContext**: 提供任务标识 (`subtask_index`) 和并行度 (`parallelism`) 信息
-- **ExecutionVertex**: 每个并行实例持有独立的 `RuntimeContext`
-- **Operator 接口**: `open()`, `apply()`, `close()` 方法增加 `RuntimeContext` 参数
-
-### 2. 窗口状态抽象层
-
-新增 `WindowState` 接口，支持多种状态实现：
-
-| 状态类型 | 描述 | 适用场景 |
-|---------|------|---------|
-| `SharedWindowState` | 所有实例共享同一状态 | RoundRobin 分区 |
-| `PartitionedWindowState` | 每个 subtask 独立状态 | Key/VectorHash 分区 |
-| `TwoTierWindowState` | 两层架构（写友好+紧凑层） | 高吞吐场景 |
-| `PartitionedVectorState` | 向量空间分区状态 | VSJoin/S3J |
-
-### 3. 连接策略
-
-统一的 SPSC 队列矩阵连接策略：
-
-- **ConnectionStrategy**: 统一的连接策略，使用 `upstream × downstream` 个 SPSC 队列
-- 支持不同的分区器（RoundRobin、KeyHash、VectorHash、LSH、Centroid）
+> 约束保持：未修改 VSJoin 集成测试占位文件 `test/IntegrationTest/test_vsjoin_integration.cpp`。
 
 ---
 
-## 🔧 核心组件
+## 回归与验证（2026-03-03）
 
-### Join 策略工厂模式 (新增)
+### 构建环境
 
-```
-JoinStrategyConfig (配置) 
-    ↓
-JoinConfigValidator (验证)
-    ↓
-JoinStrategyFactory (创建)
-    ↓
-StrategyComponents {
-    JoinMethod,
-    WindowState (left/right),
-    Partitioner,
-    Index (shared/partitioned),
-    VSJoin/S3J 专用组件
-}
-```
+- CMake: `3.27.7`
+- 配置与构建：
+  - `cmake -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON`
+  - `cmake --build build -j $(nproc)`
+- 结果：构建成功（仅有既有 warning，无新增编译错误）。
 
-#### 新增文件：
-- `include/operator/join_strategy_config.h` - 统一配置结构
-- `include/operator/join_strategy_factory.h` - 策略工厂
-- `include/operator/join_method_registry.h` - 方法注册中心
-- `include/operator/join_config_validator.h` - 配置验证器
-- `include/execution/partitioner_factory.h` - 分区器工厂
-- `include/state/window_state_factory.h` - 状态工厂
-- `config/join_strategies.toml` - 策略配置文件
+### Join 关键回归
 
-### 向量空间分区器
+- 执行：`./build/bin/test_join_datasource_modes`
+- 结果：`[  PASSED  ] 23 tests.`
 
-- **VectorSpacePartitioner**: 抽象接口
-  - `LSHPartitioner`: 局部敏感哈希分区 (VSJoin)
-  - `KMeansPartitioner`: K-Means 聚类分区
-  - `CentroidPartitioner`: 质心分区 (S3J)
+### VSJoin 集成核对（配置契约：partition/window_state/index）
 
-### 并发与索引管理
+- 执行（过滤 VSJoin 相关）：
+  - `/usr/bin/python scripts/run_integration_test.py --methods vsjoin --config config/integration_test_cases.toml --gtest-filter='*vsjoin_baseline*:*vsjoin_high_recall*' --output-dir test/result/integration_vsjoin_contract_20260303_063650`
+- 结果摘要：
+  - 总计 9 组：通过 3，失败 6
+  - `p=1` 通过（recall=1.0）
+  - `p=2` recall ≈ 0.503，`p=4` recall ≈ 0.253（未达阈值）
+  - precision 维持 1.0
 
-- **ConcurrencyManager**: 线程安全的索引管理
-- **ConcurrencyController**: 索引级别的并发控制
-- **PartitionedIndex**: 向量空间分区索引
+### 结论
 
-### VSJoin 专用组件
-
-- `PartitionCoordinator`: 跨分区协调
-- `BoundaryTracker`: 边界向量追踪
-- `AsyncCandidateGenerator`: 异步候选生成
-- `LateArrivalHandler`: 延迟数据处理
-- `DistanceVerifier`: 距离验证
+- **工厂化主链路与契约一致性改动已集成并可构建。**
+- **VSJoin 在多并行度场景（p>1）仍存在稳定性/召回退化问题，当前不应标记为“稳定通过”。**
 
 ---
 
-## 📊 支持的 Join 算法
+## 附：产出路径
 
-| 算法 | 类型 | 分区策略 | 窗口状态 | 说明 |
-|-----|------|---------|---------|------|
-| **BruteForce** | Baseline | RoundRobin | Shared | Ground Truth |
-| **IVF** | Approximate | RoundRobin/KeyHash | Shared/Partitioned | 倒排索引 |
-| **HNSW** | Approximate | RoundRobin | Shared | 分层可导航图 |
-| **S3J** | Baseline | Centroid | PartitionedVector | DEBS'23 |
-| **ClusteredJoin** | Baseline | Centroid | PartitionedVector | VectraFlow |
-| **HDRTree** | Baseline | VectorHash | Partitioned | HDR-Tree |
-| **VSJoin** | Our Method | LSH | PartitionedVector | 本项目核心方法 |
-
----
-
-## 🧪 测试覆盖
-
-### 新增单元测试 (19 个测试文件)
-
-- `test_join_strategy_factory.cpp` - 策略工厂测试
-- `test_join_config_validator.cpp` - 配置验证测试
-- `test_join_method_registry.cpp` - 注册中心测试
-- `test_partitioner_factory.cpp` - 分区器工厂测试
-- `test_window_state_factory.cpp` - 状态工厂测试
-- `test_window_state.cpp` - 窗口状态基础测试
-- `test_two_tier_window_state.cpp` - 两层状态测试
-- `test_partitioned_vector_state.cpp` - 分区向量状态测试
-- `test_vector_space_partitioner.cpp` - 空间分区器测试
-- `test_partitioned_index.cpp` - 分区索引测试
-- `test_partition_coordinator.cpp` - 协调器测试
-- `test_late_arrival_handler.cpp` - 延迟处理测试
-- `test_join_operator_state.cpp` - Join 状态测试
-- `test_bruteforce_method.cpp` / `test_ivf_method.cpp` / `test_s3j_method.cpp` - 方法测试
-- `test_pca.cpp` / `test_simd_distance.cpp` - 计算优化测试
-
-### 集成测试
-
-- `test_join_pipeline.cpp` - 端到端 Join 流水线测试
-- `test_join_datasource_modes.cpp` - 多并行度召回率测试
-
-### 性能测试
-
-- `perf_join_with_datasource.cpp` - 数据源性能测试
-- 支持不同数据集模式的性能评估
-
----
-
-## 📚 文档更新
-
-- `docs/ARCHITECTURE_REFACTORING.md` - 架构重构指南
-- `docs/CONNECTION_STRATEGIES.md` - 连接策略详解
-- `docs/JOIN_PIPELINE_GUIDE.md` - Join 流水线指南
-- `docs/VSJOIN_IMPLEMENTATION_ROADMAP.md` - VSJoin 实现路线图
-- `.github/copilot-instructions.md` - AI 辅助开发指南
-
----
-
-## 🔧 最新修复 (Latest Fixes)
-
-### 统一连接策略为 SPSC 矩阵模式
-
-重构连接策略，使用统一的 SPSC (Single-Producer Single-Consumer) 队列矩阵：
-
-- **统一 `ConnectionStrategy` 类**：合并 `PartitionedConnectionStrategy` 和 `SharedQueueConnectionStrategy`
-- **队列矩阵模型**：`upstream_parallelism × downstream_parallelism` 个 SPSC 队列
-- **队列索引公式**：`queue_index(i, j) = i × downstream_parallelism + j`
-- **简化架构**：移除 `ConnectionType` 枚举，所有连接使用相同策略
-
-### 修复高并行度 Join 召回率问题
-
-解决了 BruteForce 和 IVF Join 方法在高并行度下召回率下降的问题：
-
-- **根本原因**：高并行度路径缺少 Query2（第二次查询）
-- **修复方案**：实现完整的 QIQ (Query-Insert-Query) 策略
-  - `p=1`：无锁 QIQ（单线程不需要同步）
-  - `p>1`：读写锁 QIQ（`shared_lock` 用于查询，`unique_lock` 用于插入）
-- **测试验证**：所有并行度级别 (1,2,4,8,16) 召回率均达到 95%+
-
-测试结果：
-
-| 方法 | p=1 | p=2 | p=4 | p=8 | p=16 |
-|------|-----|-----|-----|-----|------|
-| BruteForce | 98.8% ✅ | 98.3% ✅ | 99.3% ✅ | 98.1% ✅ | 99.9% ✅ |
-| IVF | 99.0% ✅ | 97.4% ✅ | 99.9% ✅ | 100% ✅ | 100% ✅ |
-
-### IVF 方法优化
-
-- 恢复使用真实 IVF 索引进行范围搜索
-- 优化 `nprobes` 参数为 `nlist` 的 50%
-- 设置 `rebuild_threshold = 2.0` 以减少重建频率
-
-### Operator 分区器接口
-
-新增 `getPreferredPartitioner()` 虚方法，支持算子指定首选分区策略：
-
-- JoinOperator: 支持 LSH/RoundRobin 选择
-- 默认实现返回 `std::nullopt`（使用系统默认）
-
----
-
-## ⚠️ 已知问题
-
-1. **性能测试不稳定**: CI 中的 Performance Test 偶发超时
-2. **部分 Baseline 方法未完全实现**: HDRTree, ClusteredJoin 的完整实现待补充
-
----
-
-## 🔄 后续工作
-
-- [ ] 完善 HDRTree 和 ClusteredJoin 的完整实现
-- [ ] 添加更多性能基准测试
-- [ ] 优化 CI 性能测试稳定性
-- [ ] 补充 Python Binding
-- [x] ~~修复高并行度 Join 召回率问题~~ (已完成)
-- [x] ~~统一连接策略架构~~ (已完成)
-
----
-
-## 📈 变更统计
-
-```
-195+ files changed, 51000+ insertions(+), 3500+ deletions(-)
-```
+- VSJoin 集成回归报告：
+  - `test/result/integration_vsjoin_contract_20260303_063650/run_20260303_063650/report.md`
+  - `test/result/integration_vsjoin_contract_20260303_063650/run_20260303_063650/report.json`

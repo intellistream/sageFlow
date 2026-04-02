@@ -147,7 +147,7 @@ std::vector<WindowStateType> JoinConfigValidator::getRecommendedWindowStates(
             return {WindowStateType::PARTITIONED};
 
         case PartitionStrategy::LSH:
-            return {WindowStateType::PARTITIONED_VECTOR};
+            return {WindowStateType::PARTITIONED, WindowStateType::TWO_TIER, WindowStateType::PARTITIONED_VECTOR};
 
         case PartitionStrategy::CENTROID:
             return {WindowStateType::PARTITIONED};
@@ -240,11 +240,12 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
     // WindowState 在新版设计中推荐 TWO_TIER（复用 TwoTierWindowState），也允许 PARTITIONED。
     // 旧 v1 版本的 PARTITIONED_VECTOR（PartitionedVectorState）已弃用，但为兼容历史仍允许。
     if (config.algorithm == JoinAlgorithm::VSJOIN) {
-        if (config.partition_strategy != PartitionStrategy::LSH) {
+        if (config.partition_strategy != PartitionStrategy::LSH &&
+            config.partition_strategy != PartitionStrategy::CENTROID) {
             result.addError(
-                "VSJoin algorithm requires LSH partition strategy. "
+                "VSJoin algorithm requires LSH or CENTROID partition strategy. "
                 "Current: " + sageFlow::toString(config.partition_strategy) + ". "
-                "VSJoin uses locality-sensitive hashing to partition similar vectors.");
+                "VSJoin uses locality-sensitive hashing or centroid-based partitioning.");
         }
         if (config.window_state_type != WindowStateType::TWO_TIER &&
             config.window_state_type != WindowStateType::PARTITIONED &&
@@ -739,6 +740,22 @@ void JoinConfigValidator::checkVSJoinConfig(
             "vsjoin_rebuild_threshold must be >= 100, got: " +
             std::to_string(config.vsjoin_rebuild_threshold) + ". "
             "Too small threshold may trigger unnecessary rebuilds.");
+    }
+
+    if (config.vsjoin_rebalance_imbalance_ratio < 1.0 ||
+        config.vsjoin_rebalance_imbalance_ratio > 5.0) {
+        result.addError(
+            "vsjoin_rebalance_imbalance_ratio must be in range [1.0, 5.0], got: " +
+            std::to_string(config.vsjoin_rebalance_imbalance_ratio) + ". "
+            "Recommended value: 1.2-1.8 for stable balancing.");
+    }
+
+    if (config.vsjoin_rebalance_max_moves < 1 ||
+        config.vsjoin_rebalance_max_moves > 1024) {
+        result.addError(
+            "vsjoin_rebalance_max_moves must be in range [1, 1024], got: " +
+            std::to_string(config.vsjoin_rebalance_max_moves) + ". "
+            "Recommended value: 4-16 per rebalance round.");
     }
 
     // 验证 num_hash_functions: [1, 32]

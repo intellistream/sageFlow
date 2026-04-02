@@ -27,6 +27,7 @@ public:
 private:
     size_t num_logical_;
     size_t num_physical_;
+    bool valid_;
 
     // 双缓冲：两个映射表实例
     std::unique_ptr<std::vector<int>> current_table_;  // 当前版本（读）

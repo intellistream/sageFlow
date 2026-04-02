@@ -58,5 +58,31 @@ TEST(VSJoinLoadMonitorTest, ConcurrentReports) {
     }
 }
 
+TEST(VSJoinLoadMonitorTest, AggregatesSamplesAndTotals) {
+    VSJoinLoadMonitor monitor(/*num_subtasks=*/2);
+
+    monitor.reportLoad(0, 10, 1.0, 2);
+    monitor.reportLoad(0, 20, 3.0, 6);
+    monitor.reportLoad(0, 30, 5.0, 10);
+
+    auto stats = monitor.getLoadStats();
+    ASSERT_EQ(stats.size(), 2u);
+
+    const auto& s0 = stats[0];
+    EXPECT_EQ(s0.sample_count, 3u);
+    EXPECT_EQ(s0.total_records, 60u);
+    EXPECT_DOUBLE_EQ(s0.total_latency_ms, 9.0);
+    EXPECT_EQ(s0.total_backlog, 18u);
+
+    // latest sample should still be directly visible
+    EXPECT_EQ(s0.record_count, 30u);
+
+    // EWMA latency and backlog should be between min/max samples
+    EXPECT_GE(s0.avg_latency_ms, 1.0);
+    EXPECT_LE(s0.avg_latency_ms, 5.0);
+    EXPECT_GE(s0.queue_backlog, 2u);
+    EXPECT_LE(s0.queue_backlog, 10u);
+}
+
 }  // namespace
 }  // namespace sageFlow

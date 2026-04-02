@@ -8,6 +8,7 @@
 #include "operator/join_operator_methods/clustered_join_method.h"
 #include "operator/join_operator_methods/s3j_method.h"
 #include "operator/join_operator_methods/vsjoin_method.h"
+#include "operator/utils/join_method_registry.h"
 #include "state/shared_window_state.h"
 #include "state/partitioned_window_state.h"
 #include "state/two_tier_window_state.h"
@@ -91,11 +92,13 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
         for (int partition = 0; partition < P; ++partition) {
             std::string left_name = "vsjoin_local_left_p" + std::to_string(partition);
             components.local_left_ids[partition] = concurrency_manager->create_index(
-                left_name, IndexType::BruteForce, config.dimension);
+                left_name, IndexType::BruteForce, config.dimension,
+                ControllerPolicy::DIRECT);
 
             std::string right_name = "vsjoin_local_right_p" + std::to_string(partition);
             components.local_right_ids[partition] = concurrency_manager->create_index(
-                right_name, IndexType::BruteForce, config.dimension);
+                right_name, IndexType::BruteForce, config.dimension,
+                ControllerPolicy::DIRECT);
         }
 
         SAGEFLOW_LOG_INFO(
@@ -129,6 +132,13 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
         auto* vsjoin = dynamic_cast<VSJoinMethod*>(components.join_method.get());
         if (vsjoin) {
             vsjoin->setLocalIndexIds(components.local_left_ids, components.local_right_ids);
+            const size_t probe_count = static_cast<size_t>(
+                std::max(1, config.vsjoin_multicast_k));
+            vsjoin->setLocalProbeConfig(
+                config.dimension,
+                config.vsjoin_num_hash_functions,
+                config.vsjoin_boundary_threshold,
+                probe_count);
         }
     } else {
         components.join_method = createJoinMethod(config, concurrency_manager,
@@ -187,6 +197,19 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createJoinMethod(
     std::shared_ptr<ConcurrencyManager> concurrency_manager,
     int left_index_id,
     int right_index_id) {
+
+    // 统一入口：优先走注册中心（已注册方法）。
+    // 对未注册算法（例如部分开发中的方法）保留 switch 兜底，确保向后兼容。
+    auto& registry = JoinMethodRegistry::instance();
+    if (registry.hasMethod(config.algorithm)) {
+        return registry.createMethod(
+            config.algorithm,
+            config,
+            concurrency_manager,
+            config.dimension,
+            left_index_id,
+            right_index_id);
+    }
     
     switch (config.algorithm) {
         case JoinAlgorithm::BRUTEFORCE:
@@ -386,12 +409,6 @@ std::unique_ptr<BaseMethod> JoinStrategyFactory::createVSJoinMethod(
 std::unique_ptr<WindowState> JoinStrategyFactory::createWindowState(
     const JoinStrategyConfig& config,
     size_t parallelism) {
-
-    if (config.algorithm == JoinAlgorithm::VSJOIN) {
-        return std::make_unique<TwoTierWindowState>(
-            parallelism,
-            config.two_tier_compact_threshold);
-    }
     
     switch (config.window_state_type) {
         case WindowStateType::SHARED:

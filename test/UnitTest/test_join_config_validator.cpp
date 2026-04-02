@@ -403,6 +403,46 @@ TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidRebuildThreshold) {
     EXPECT_FALSE(result.valid);
 }
 
+TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidRebalanceImbalanceRatio) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_rebalance_imbalance_ratio = 0.9;  // 无效：< 1.0
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    EXPECT_FALSE(result.valid);
+    bool found = false;
+    for (const auto& err : result.errors) {
+        if (err.find("vsjoin_rebalance_imbalance_ratio") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
+TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidRebalanceMaxMoves) {
+    valid_config_.algorithm = JoinAlgorithm::VSJOIN;
+    valid_config_.partition_strategy = PartitionStrategy::LSH;
+    valid_config_.window_state_type = WindowStateType::PARTITIONED;
+    valid_config_.index_strategy = IndexStrategy::PARTITIONED;
+    valid_config_.vsjoin_rebalance_max_moves = 0;  // 无效：< 1
+
+    auto result = JoinConfigValidator::validate(valid_config_);
+
+    EXPECT_FALSE(result.valid);
+    bool found = false;
+    for (const auto& err : result.errors) {
+        if (err.find("vsjoin_rebalance_max_moves") != std::string::npos) {
+            found = true;
+            break;
+        }
+    }
+    EXPECT_TRUE(found);
+}
+
 TEST_F(JoinConfigValidatorTest, VSJoinV2_InvalidGlobalIndexType) {
     valid_config_.algorithm = JoinAlgorithm::VSJOIN;
     valid_config_.partition_strategy = PartitionStrategy::LSH;
@@ -749,8 +789,10 @@ TEST_F(JoinConfigValidatorTest, RecommendedWindowStatesLSH) {
     auto states = JoinConfigValidator::getRecommendedWindowStates(
         PartitionStrategy::LSH);
 
-    EXPECT_EQ(states.size(), 1u);
-    EXPECT_EQ(states[0], WindowStateType::PARTITIONED_VECTOR);
+    EXPECT_EQ(states.size(), 3u);
+    EXPECT_EQ(states[0], WindowStateType::PARTITIONED);
+    EXPECT_EQ(states[1], WindowStateType::TWO_TIER);
+    EXPECT_EQ(states[2], WindowStateType::PARTITIONED_VECTOR);
 }
 
 TEST_F(JoinConfigValidatorTest, RecommendedWindowStatesKeyHash) {

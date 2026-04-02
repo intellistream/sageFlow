@@ -72,6 +72,42 @@ struct JoinMetrics {
   std::atomic<uint64_t> qiq_q2_ns{0};             ///< Query2 阶段总耗时（含锁等待）
   std::atomic<uint64_t> qiq_q2_count{0};          ///< Query2 调用次数
 
+  // ==================== VSJoin Mechanism Metrics ====================
+  // Mechanism I: Bounded-Staleness
+  std::atomic<uint64_t> vsjoin_rebuild_count{0};           ///< Total rebuilds completed
+  std::atomic<uint64_t> vsjoin_rebuild_duration_ns{0};     ///< Cumulative rebuild duration
+  std::atomic<uint64_t> vsjoin_staleness_sum_ms{0};        ///< Sum of record staleness at rebuild (for avg)
+  std::atomic<uint64_t> vsjoin_staleness_sample_count{0};  ///< Number of staleness samples
+  std::atomic<uint64_t> vsjoin_staleness_max_ms{0};        ///< Max staleness observed in last rebuild
+  std::atomic<uint64_t> vsjoin_records_filtered_staleness{0}; ///< Records filtered by staleness policy
+
+  // Mechanism II: Budgeted Routing
+  std::atomic<uint64_t> vsjoin_route_total_probes{0};      ///< Total routing decisions
+  std::atomic<uint64_t> vsjoin_route_total_partitions{0};  ///< Sum of partitions routed to
+  std::atomic<uint64_t> vsjoin_route_unicast_count{0};     ///< Routes that hit exactly 1 partition
+  std::atomic<uint64_t> vsjoin_route_multicast_count{0};   ///< Routes that hit 2+ partitions
+  std::atomic<uint64_t> vsjoin_route_broadcast_count{0};   ///< Routes that hit all partitions
+  std::atomic<uint64_t> vsjoin_dedup_candidates_before{0}; ///< Total candidates before dedup
+  std::atomic<uint64_t> vsjoin_dedup_candidates_after{0};  ///< Total candidates after dedup
+
+  // Mechanism III: Skew Control
+  std::atomic<uint64_t> vsjoin_rebalance_rounds{0};        ///< Total rebalance rounds executed
+  std::atomic<uint64_t> vsjoin_rebalance_moves{0};         ///< Total partition migrations
+  std::atomic<uint64_t> vsjoin_imbalance_ratio_x100{0};    ///< Last imbalance ratio * 100
+
+  // Owner-Computes dedup (routing_mask based)
+  std::atomic<uint64_t> owner_dedup_count{0};              ///< Matches skipped by owner-computes rule
+
+  // VSJoin probe latency samples (ring buffer)
+  static constexpr size_t kVSJoinProbeSampleSize = 4096;
+  std::array<std::atomic<uint64_t>, kVSJoinProbeSampleSize> vsjoin_probe_latency_ns{};
+  std::atomic<uint64_t> vsjoin_probe_sample_index{0};
+
+  void recordVSJoinProbeLatency(uint64_t ns) {
+    uint64_t idx = vsjoin_probe_sample_index.fetch_add(1, std::memory_order_relaxed);
+    vsjoin_probe_latency_ns[idx % kVSJoinProbeSampleSize].store(ns, std::memory_order_relaxed);
+  }
+
   /**
    * @brief Get singleton instance of JoinMetrics
    * @return Reference to the global JoinMetrics instance
@@ -93,6 +129,15 @@ struct JoinMetrics {
     window_records_left_completed = window_records_right_completed = 0;
     apply_processing_ns = apply_processing_count = e2e_latency_ns = e2e_latency_count = 0;
     qiq_q1_ns = qiq_q1_count = qiq_insert_ns = qiq_insert_count = qiq_q2_ns = qiq_q2_count = 0;
+    vsjoin_rebuild_count = vsjoin_rebuild_duration_ns = vsjoin_staleness_sum_ms = 0;
+    vsjoin_staleness_sample_count = vsjoin_staleness_max_ms = vsjoin_records_filtered_staleness = 0;
+    vsjoin_route_total_probes = vsjoin_route_total_partitions = 0;
+    vsjoin_route_unicast_count = vsjoin_route_multicast_count = vsjoin_route_broadcast_count = 0;
+    vsjoin_dedup_candidates_before = vsjoin_dedup_candidates_after = 0;
+    vsjoin_rebalance_rounds = vsjoin_rebalance_moves = vsjoin_imbalance_ratio_x100 = 0;
+    owner_dedup_count = 0;
+    vsjoin_probe_sample_index = 0;
+    for (auto& v : vsjoin_probe_latency_ns) v.store(0, std::memory_order_relaxed);
     e2e_latency_sample_index = 0;
     for (auto& v : e2e_latency_samples_ns) {
       v.store(0, std::memory_order_relaxed);
@@ -121,6 +166,14 @@ struct JoinMetrics {
     EMIT(e2e_latency_ns) EMIT(e2e_latency_count)
     EMIT(qiq_q1_ns) EMIT(qiq_q1_count) EMIT(qiq_insert_ns) EMIT(qiq_insert_count)
     EMIT(qiq_q2_ns) EMIT(qiq_q2_count)
+    EMIT(vsjoin_rebuild_count) EMIT(vsjoin_rebuild_duration_ns)
+    EMIT(vsjoin_staleness_sum_ms) EMIT(vsjoin_staleness_sample_count) EMIT(vsjoin_staleness_max_ms)
+    EMIT(vsjoin_records_filtered_staleness)
+    EMIT(vsjoin_route_total_probes) EMIT(vsjoin_route_total_partitions)
+    EMIT(vsjoin_route_unicast_count) EMIT(vsjoin_route_multicast_count) EMIT(vsjoin_route_broadcast_count)
+    EMIT(vsjoin_dedup_candidates_before) EMIT(vsjoin_dedup_candidates_after)
+    EMIT(vsjoin_rebalance_rounds) EMIT(vsjoin_rebalance_moves) EMIT(vsjoin_imbalance_ratio_x100)
+    EMIT(owner_dedup_count)
 #undef EMIT
   }
 

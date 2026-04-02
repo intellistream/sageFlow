@@ -77,6 +77,24 @@ enum class VSJoinIndexType {
 };
 
 /**
+ * @brief VSJoin routing mode for Mechanism II (Budgeted Boundary Coverage)
+ */
+enum class VSJoinRouteMode {
+    UNICAST,    ///< Route to single best partition only
+    BUDGETED,   ///< Route to up to fanout_budget partitions (deterministic top-k by distance)
+    BROADCAST   ///< Route to all partitions
+};
+
+/**
+ * @brief VSJoin snapshot validity filtering policy for Mechanism I
+ */
+enum class VSJoinSnapshotFilterPolicy {
+    WINDOW_ONLY,     ///< Only filter by window lower bound (default, current behavior)
+    MAX_STALENESS,   ///< Also enforce max staleness guardrail
+    AGGRESSIVE       ///< Window + staleness + discard if rebuild too old
+};
+
+/**
  * @brief 相似度计算模式
  * 
  * 控制 exp(-alpha * L2_distance) 中 alpha 的计算方式
@@ -153,8 +171,10 @@ struct JoinStrategyConfig {
     
     // ==================== VSJoin 参数 ====================
     int vsjoin_multicast_k = 2;               ///< 边界向量多播到 k 个分区（推荐 2-3）
-    int64_t vsjoin_rebuild_interval_ms = 5000;  ///< Global Index 重建间隔
+    int64_t vsjoin_rebuild_interval_ms = 2000;  ///< Global Index 重建间隔
     size_t vsjoin_rebuild_threshold = 1000;     ///< 触发重建的阈值
+    double vsjoin_rebalance_imbalance_ratio = 1.35;  ///< 触发重平衡的负载失衡比（max/avg）
+    size_t vsjoin_rebalance_max_moves = 8;           ///< 每轮最多迁移的 logical partition 数
 
     /**
      * @brief VSJoin Local Index 类型
@@ -169,6 +189,18 @@ struct JoinStrategyConfig {
      * Global Index 用于跨分区的候选召回，推荐使用 IVF（快速查询）。
      */
     VSJoinIndexType vsjoin_global_index_type = VSJoinIndexType::IVF;
+
+    // ---- Mechanism I: Bounded-Staleness Read/Write Decoupling ----
+    VSJoinSnapshotFilterPolicy vsjoin_snapshot_filter_policy = VSJoinSnapshotFilterPolicy::WINDOW_ONLY;
+    int64_t vsjoin_max_staleness_ms = 0;  ///< Max staleness guardrail (0 = disabled)
+
+    // ---- Mechanism II: Budgeted Boundary Coverage Routing ----
+    VSJoinRouteMode vsjoin_route_mode = VSJoinRouteMode::BUDGETED;  ///< Routing mode
+    int vsjoin_fanout_budget = 2;  ///< Max partitions per probe in BUDGETED mode
+
+    // ---- Mechanism III: Predictable Skew Control Plane ----
+    int64_t vsjoin_rebalance_cooldown_ms = 10000;  ///< Cooldown between rebalance rounds
+    bool vsjoin_use_smoothed_load = true;           ///< Use EWMA-smoothed load for rebalance decisions
 
     // LSH 分区器参数
     int vsjoin_num_hash_functions = 8;         ///< LSH 哈希函数数量
@@ -316,6 +348,8 @@ std::string toString(IndexStrategy is);
 std::string toString(ClusteredIndexType cit);
 std::string toString(SimilarityMode sm);
 std::string toString(VSJoinIndexType vit);
+std::string toString(VSJoinRouteMode rm);
+std::string toString(VSJoinSnapshotFilterPolicy sp);
 
 JoinAlgorithm parseJoinAlgorithm(const std::string& s);
 PartitionStrategy parsePartitionStrategy(const std::string& s);
@@ -324,5 +358,7 @@ IndexStrategy parseIndexStrategy(const std::string& s);
 ClusteredIndexType parseClusteredIndexType(const std::string& s);
 SimilarityMode parseSimilarityMode(const std::string& s);
 VSJoinIndexType parseVSJoinIndexType(const std::string& s);
+VSJoinRouteMode parseVSJoinRouteMode(const std::string& s);
+VSJoinSnapshotFilterPolicy parseVSJoinSnapshotFilterPolicy(const std::string& s);
 
 }  // namespace sageFlow

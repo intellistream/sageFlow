@@ -3,15 +3,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>
 #include <vector>
 
 #include "common/data_types.h"
-#include "concurrency/concurrency_manager.h"
-#include "execution/runtime_context.h"
-#include "operator/join_operator.h"
-#include "operator/utils/join_strategy_config.h"
-#include "storage/storage_manager.h"
+#include "execution/partitioner_factory.h"
+#include "operator/join_operator_methods/vsjoin_components/partition_assignment.h"
 
 namespace sageFlow {
 namespace {
@@ -27,36 +23,41 @@ std::unique_ptr<VectorRecord> makeRecord(uint64_t uid, int64_t ts, int dim, floa
     return std::make_unique<VectorRecord>(uid, ts, std::move(vec_data));
 }
 
-TEST(VSJoinRoutingTest, LogicalPidAndAssignmentUpdateAffectsRouting) {
-    auto storage = std::make_shared<StorageManager>();
-    auto cm = std::make_shared<ConcurrencyManager>(storage);
+TEST(VSJoinRoutingTest, LshLogicalPartitionMapsThroughAssignmentTable) {
+    constexpr size_t kPhysicalPartitions = 2;
+    constexpr size_t kVirtualNodesPerPartition = 8;
+    constexpr size_t kLogicalPartitions = kPhysicalPartitions * kVirtualNodesPerPartition;
 
-    JoinStrategyConfig cfg;
-    cfg.algorithm = JoinAlgorithm::VSJOIN;
-    cfg.partition_strategy = PartitionStrategy::CENTROID;
-    cfg.window_state_type = WindowStateType::PARTITIONED;
-    cfg.dimension = 4;
-    cfg.similarity_threshold = 0.8;
-    cfg.window_size_ms = 1000;
-    cfg.step_size_ms = 10;
-    cfg.time_interval_ms = 10;
+    LSHIPartitioner lsh_partitioner(/*dimension=*/4,
+                                    /*num_hash_functions=*/4,
+                                    static_cast<int>(kPhysicalPartitions),
+                                    /*seed=*/42,
+                                    /*boundary_threshold=*/0.2);
+    lsh_partitioner.setMulticastK(2);
+    lsh_partitioner.setVirtualNodesPerPartition(kVirtualNodesPerPartition);
+    lsh_partitioner.setLogicalPartitionCount(kLogicalPartitions);
 
-    // 让 centroid 分区器具备多播（即便测试里不依赖多播，也确保路径可用）
-    cfg.clustered_multicast_enabled = true;
-    cfg.clustered_multicast_k = 2;
-    cfg.clustered_training_samples = 50;
-    cfg.enable_cold_start = false;
-    cfg.clustered_overlap_ratio = 0.1;
+    auto record = makeRecord(/*uid=*/12345, /*ts=*/1000, /*dim=*/4, /*v0=*/0.0f);
+    Response response(ResponseType::Record, std::move(record));
 
-    std::unique_ptr<Function> join_func;  // JoinOperator 构造会接管并 dynamic_cast 到 JoinFunction
-    // 复用现有测试体系：使用 JoinTestHelper 时才有 join_func，这里只验证 routing 相关组件是否可被初始化。
-    // 因为 JoinOperator 构造函数要求 join_func 是 JoinFunction，本测试直接跳过构造层面的依赖，改为只验证 AssignmentTable 行为：
+    auto logical_pids = lsh_partitioner.getMulticastLogicalPartitionIds(response, kPhysicalPartitions);
+    ASSERT_FALSE(logical_pids.empty());
+    for (int logical_pid : logical_pids) {
+        EXPECT_GE(logical_pid, 0);
+        EXPECT_LT(static_cast<size_t>(logical_pid), kLogicalPartitions);
+    }
 
-    VSJoinPartitionAssignment assignment(/*num_logical_partitions=*/16, /*num_physical_subtasks=*/2);
-    EXPECT_EQ(assignment.getPhysicalSubtask(3), 1);
+    VSJoinPartitionAssignment assignment(kLogicalPartitions, kPhysicalPartitions);
 
-    assignment.updateMapping({{3, 0}});
-    EXPECT_EQ(assignment.getPhysicalSubtask(3), 0);
+    const int logical_pid = logical_pids.front();
+    const int before = assignment.getPhysicalSubtask(logical_pid);
+    ASSERT_GE(before, 0);
+    ASSERT_LT(static_cast<size_t>(before), kPhysicalPartitions);
+
+    const int after_target = (before + 1) % static_cast<int>(kPhysicalPartitions);
+    assignment.updateMapping({{logical_pid, after_target}});
+
+    EXPECT_EQ(assignment.getPhysicalSubtask(logical_pid), after_target);
 }
 
 }  // namespace

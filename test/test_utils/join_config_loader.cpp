@@ -231,6 +231,14 @@ JoinStrategyConfig JoinConfigLoader::merge(const JoinStrategyConfig& base,
         override_config.vsjoin_boundary_threshold > 0) {
         result.vsjoin_boundary_threshold = override_config.vsjoin_boundary_threshold;
     }
+    if (override_config.vsjoin_rebalance_imbalance_ratio != 1.35 &&
+        override_config.vsjoin_rebalance_imbalance_ratio >= 1.0) {
+        result.vsjoin_rebalance_imbalance_ratio = override_config.vsjoin_rebalance_imbalance_ratio;
+    }
+    if (override_config.vsjoin_rebalance_max_moves != 8 &&
+        override_config.vsjoin_rebalance_max_moves > 0) {
+        result.vsjoin_rebalance_max_moves = override_config.vsjoin_rebalance_max_moves;
+    }
     // 旧版 VSJoin 字段 vsjoin_async_threads 和 vsjoin_allowed_lateness 已移除，不再合并
 
     // S3J 参数
@@ -348,6 +356,8 @@ void JoinConfigLoader::saveToFile(const JoinStrategyConfig& config,
     ofs << "# VSJoin Parameters\n";
     ofs << "vsjoin_num_hash_functions = " << config.vsjoin_num_hash_functions << "\n";
     ofs << "vsjoin_boundary_threshold = " << config.vsjoin_boundary_threshold << "\n";
+    ofs << "vsjoin_rebalance_imbalance_ratio = " << config.vsjoin_rebalance_imbalance_ratio << "\n";
+    ofs << "vsjoin_rebalance_max_moves = " << config.vsjoin_rebalance_max_moves << "\n";
     // 旧版 VSJoin 字段 vsjoin_async_threads 和 vsjoin_allowed_lateness 已移除，不再保存
 
     // S3J 参数

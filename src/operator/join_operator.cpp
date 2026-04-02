@@ -40,6 +40,11 @@
 
 namespace sageFlow {
 
+namespace {
+constexpr uint64_t K_VSJOIN_LOAD_SAMPLE_EVERY_N_RECORDS = 128;
+constexpr double K_VSJOIN_BACKLOG_WEIGHT = 0.25;
+}
+
 void JoinOperator::startGlobalIndexRebuilder() {
     std::call_once(rebuild_thread_started_, [this]() {
         rebuild_running_.store(true, std::memory_order_release);
@@ -63,18 +68,37 @@ void JoinOperator::stopGlobalIndexRebuilder() {
 }
 
 void JoinOperator::globalIndexRebuildLoop() {
+    // First rebuild: wait a short warmup (500ms) to let initial data arrive,
+    // then rebuild immediately. Subsequent rebuilds use the configured interval.
+    constexpr int64_t kFirstRebuildWarmupMs = 500;
+    constexpr int64_t kPollGranularityMs = 100;  // Check stop flag every 100ms
+    bool first_rebuild = true;
+
     while (rebuild_running_.load(std::memory_order_acquire)) {
-        const int64_t interval_ms = rebuild_interval_ms_.load(std::memory_order_relaxed);
-        std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+        const int64_t target_ms = first_rebuild ? kFirstRebuildWarmupMs
+                                                : rebuild_interval_ms_.load(std::memory_order_relaxed);
+        // Sleep in small increments so we can respond to stop quickly
+        int64_t slept = 0;
+        while (slept < target_ms && rebuild_running_.load(std::memory_order_acquire)) {
+            const int64_t chunk = std::min(kPollGranularityMs, target_ms - slept);
+            std::this_thread::sleep_for(std::chrono::milliseconds(chunk));
+            slept += chunk;
+        }
 
         if (!rebuild_running_.load(std::memory_order_acquire)) {
             break;
         }
 
+        first_rebuild = false;
+
         if (!left_state_ || !right_state_) {
             SAGEFLOW_LOG_WARN("VSJOIN_REBUILD", "WindowState not ready, skip rebuild");
             continue;
         }
+
+        maybeRebalanceVSJoinAssignment();
+
+        const auto rebuild_start = std::chrono::steady_clock::now();
 
         // 保持快照的所有权直到 rebuild 完成，避免悬空指针
         std::vector<std::vector<std::shared_ptr<const VectorRecord>>> left_snapshots;
@@ -103,28 +127,67 @@ void JoinOperator::globalIndexRebuildLoop() {
             }
         }
 
-        const int64_t now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::system_clock::now().time_since_epoch()).count();
-        const int64_t window_lower = logicalWindowLowerBound(now_ms);
+        int64_t reference_ts = std::numeric_limits<int64_t>::min();
+        for (const auto* r : unique_left_records) {
+            if (r) {
+                reference_ts = std::max(reference_ts, r->timestamp_);
+            }
+        }
+        for (const auto* r : unique_right_records) {
+            if (r) {
+                reference_ts = std::max(reference_ts, r->timestamp_);
+            }
+        }
+
+        if (reference_ts == std::numeric_limits<int64_t>::min()) {
+            SAGEFLOW_LOG_INFO("VSJOIN_REBUILD", "Global index rebuild tick skipped: no records in snapshots");
+            continue;
+        }
+
+        const int64_t window_lower = logicalWindowLowerBound(reference_ts);
+
+        // Mechanism I: staleness-aware filtering
+        const int64_t max_staleness_ms = strategy_config_.vsjoin_max_staleness_ms;
+        const auto filter_policy = strategy_config_.vsjoin_snapshot_filter_policy;
 
         std::vector<const VectorRecord*> valid_left_records;
         std::vector<const VectorRecord*> valid_right_records;
         valid_left_records.reserve(unique_left_records.size());
         valid_right_records.reserve(unique_right_records.size());
 
-        for (const auto* r : unique_left_records) {
-            if (r && r->timestamp_ >= window_lower) {
-                valid_left_records.push_back(r);
+        uint64_t staleness_sum = 0;
+        uint64_t staleness_max = 0;
+        uint64_t staleness_samples = 0;
+        uint64_t filtered_by_staleness = 0;
+
+        auto classify_record = [&](const VectorRecord* r, std::vector<const VectorRecord*>& out) {
+            if (!r || r->timestamp_ < window_lower) return;
+            const uint64_t age = static_cast<uint64_t>(reference_ts - r->timestamp_);
+            if (filter_policy != VSJoinSnapshotFilterPolicy::WINDOW_ONLY && max_staleness_ms > 0) {
+                if (static_cast<int64_t>(age) > max_staleness_ms) {
+                    ++filtered_by_staleness;
+                    return;
+                }
             }
-        }
-        for (const auto* r : unique_right_records) {
-            if (r && r->timestamp_ >= window_lower) {
-                valid_right_records.push_back(r);
-            }
-        }
+            staleness_sum += age;
+            staleness_max = std::max(staleness_max, age);
+            ++staleness_samples;
+            out.push_back(r);
+        };
+
+        for (const auto* r : unique_left_records) classify_record(r, valid_left_records);
+        for (const auto* r : unique_right_records) classify_record(r, valid_right_records);
 
         // ====== 3. 构建新的 Global Index（离线）并原子切换 ======
         if (concurrency_manager_ && vsjoin_global_left_id_ >= 0 && vsjoin_global_right_id_ >= 0) {
+            if (valid_left_records.empty() && valid_right_records.empty()) {
+                SAGEFLOW_LOG_INFO(
+                    "VSJOIN_REBUILD",
+                    "Global index rebuild tick skipped: both valid sides are empty (unique left={}, unique right={}, window_lower={})",
+                    unique_left_records.size(), unique_right_records.size(), window_lower);
+                continue;
+            }
+
             IVFParameters global_ivf_params;
             global_ivf_params.nlist = strategy_config_.ivf_nlist;
             global_ivf_params.nprobes = strategy_config_.ivf_nprobes;
@@ -160,6 +223,32 @@ void JoinOperator::globalIndexRebuildLoop() {
                 unique_right_records.size(), valid_right_records.size(),
                 left_swapped ? 1 : 0,
                 right_swapped ? 1 : 0);
+
+            // Mechanism I: record rebuild timing
+            const auto rebuild_end = std::chrono::steady_clock::now();
+            const int64_t duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                rebuild_end - rebuild_start).count();
+            last_rebuild_duration_ms_.store(duration_ms, std::memory_order_release);
+            last_rebuild_timestamp_ms_.store(
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now().time_since_epoch()).count(),
+                std::memory_order_release);
+            rebuild_count_.fetch_add(1, std::memory_order_relaxed);
+
+            SAGEFLOW_LOG_INFO("VSJOIN_REBUILD",
+                "Rebuild stats: duration={}ms, total_rebuilds={}, staleness_filter={}",
+                duration_ms, rebuild_count_.load(), toString(strategy_config_.vsjoin_snapshot_filter_policy));
+
+#ifdef SAGEFLOW_ENABLE_METRICS
+            auto& m = JoinMetrics::instance();
+            m.vsjoin_rebuild_count.fetch_add(1, std::memory_order_relaxed);
+            m.vsjoin_rebuild_duration_ns.fetch_add(
+                static_cast<uint64_t>(duration_ms) * 1'000'000ULL, std::memory_order_relaxed);
+            m.vsjoin_staleness_sum_ms.fetch_add(staleness_sum, std::memory_order_relaxed);
+            m.vsjoin_staleness_sample_count.fetch_add(staleness_samples, std::memory_order_relaxed);
+            m.vsjoin_staleness_max_ms.store(staleness_max, std::memory_order_relaxed);
+            m.vsjoin_records_filtered_staleness.fetch_add(filtered_by_staleness, std::memory_order_relaxed);
+#endif
         } else {
             SAGEFLOW_LOG_INFO(
                 "VSJOIN_REBUILD",
@@ -168,6 +257,196 @@ void JoinOperator::globalIndexRebuildLoop() {
                 unique_right_records.size(), valid_right_records.size());
         }
     }
+}
+
+void JoinOperator::reportVSJoinLoadSample(size_t runtime_subtask_index,
+                                          size_t state_subtask_index,
+                                          WindowState* current_state,
+                                          int64_t record_latency_ns) {
+    if (strategy_config_.algorithm != JoinAlgorithm::VSJOIN || !load_monitor_ || !current_state) {
+        return;
+    }
+
+    thread_local uint64_t sample_counter = 0;
+    sample_counter += 1;
+    if ((sample_counter % K_VSJOIN_LOAD_SAMPLE_EVERY_N_RECORDS) != 0) {
+        return;
+    }
+
+    const size_t record_count = current_state->size(state_subtask_index);
+    const double latency_ms = (record_latency_ns > 0)
+        ? static_cast<double>(record_latency_ns) / 1'000'000.0
+        : 0.0;
+
+    load_monitor_->reportLoad(runtime_subtask_index, record_count, latency_ms, 0);
+}
+
+void JoinOperator::maybeRebalanceVSJoinAssignment() {
+    if (strategy_config_.algorithm != JoinAlgorithm::VSJOIN || !partition_assignment_ || !load_monitor_) {
+        return;
+    }
+
+    // Mechanism III: cooldown enforcement
+    const auto now = std::chrono::steady_clock::now();
+    if (rebalance_cooldown_initialized_) {
+        const int64_t cooldown_ms = strategy_config_.vsjoin_rebalance_cooldown_ms;
+        if (cooldown_ms > 0) {
+            const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - last_rebalance_time_).count();
+            if (elapsed < cooldown_ms) {
+                return;
+            }
+        }
+    }
+
+    const auto stats = load_monitor_->getLoadStats();
+    const size_t num_subtasks = stats.size();
+    if (num_subtasks <= 1 || num_logical_partitions_ == 0) {
+        return;
+    }
+
+    if (last_rebalance_total_records_.size() != num_subtasks) {
+        last_rebalance_total_records_.assign(num_subtasks, 0);
+        for (size_t i = 0; i < num_subtasks; ++i) {
+            last_rebalance_total_records_[i] = stats[i].total_records;
+        }
+        rebalance_cooldown_initialized_ = true;
+        last_rebalance_time_ = now;
+        return;
+    }
+
+    std::vector<double> interval_loads(num_subtasks, 0.0);
+    double load_sum = 0.0;
+    size_t busiest = 0;
+    size_t idlest = 0;
+
+    const bool use_smoothed = strategy_config_.vsjoin_use_smoothed_load;
+
+    for (size_t i = 0; i < num_subtasks; ++i) {
+        double load;
+        if (use_smoothed) {
+            // Mechanism III: use EWMA-smoothed latency as primary signal
+            load = stats[i].avg_latency_ms +
+                K_VSJOIN_BACKLOG_WEIGHT * static_cast<double>(stats[i].queue_backlog);
+        } else {
+            // Legacy: use delta records
+            const size_t current_total = stats[i].total_records;
+            const size_t last_total = last_rebalance_total_records_[i];
+            const size_t delta_records = (current_total >= last_total) ? (current_total - last_total) : 0;
+            load = static_cast<double>(delta_records) +
+                K_VSJOIN_BACKLOG_WEIGHT * static_cast<double>(stats[i].queue_backlog);
+        }
+        last_rebalance_total_records_[i] = stats[i].total_records;
+        interval_loads[i] = load;
+        load_sum += load;
+
+        if (interval_loads[i] > interval_loads[busiest]) {
+            busiest = i;
+        }
+        if (interval_loads[i] < interval_loads[idlest]) {
+            idlest = i;
+        }
+    }
+
+    if (busiest == idlest) {
+        return;
+    }
+
+    const double avg_load = load_sum / static_cast<double>(num_subtasks);
+    if (avg_load <= 0.0) {
+        return;
+    }
+
+    double imbalance_threshold = strategy_config_.vsjoin_rebalance_imbalance_ratio;
+    if (const char* v = std::getenv("SAGEFLOW_VSJOIN_REBALANCE_IMBALANCE_RATIO")) {
+        try {
+            imbalance_threshold = std::stod(v);
+        } catch (...) {
+        }
+    }
+
+    const double imbalance_ratio = interval_loads[busiest] / avg_load;
+    if (imbalance_ratio < imbalance_threshold) {
+        return;
+    }
+
+    size_t max_moves = strategy_config_.vsjoin_rebalance_max_moves;
+    if (const char* v = std::getenv("SAGEFLOW_VSJOIN_REBALANCE_MAX_MOVES")) {
+        try {
+            const int parsed = std::stoi(v);
+            if (parsed > 0) {
+                max_moves = static_cast<size_t>(parsed);
+            }
+        } catch (...) {
+        }
+    }
+
+    const auto mapping = partition_assignment_->getCurrentMapping();
+    if (mapping.empty()) {
+        return;
+    }
+
+    size_t busiest_assigned = 0;
+    size_t idlest_assigned = 0;
+    std::vector<int> candidates;
+    candidates.reserve(mapping.size());
+    for (size_t i = 0; i < mapping.size(); ++i) {
+        if (mapping[i] == static_cast<int>(busiest)) {
+            candidates.push_back(static_cast<int>(i));
+            busiest_assigned += 1;
+        } else if (mapping[i] == static_cast<int>(idlest)) {
+            idlest_assigned += 1;
+        }
+    }
+
+    if (candidates.empty()) {
+        return;
+    }
+
+    const size_t ideal_per_subtask = std::max<size_t>(1, num_logical_partitions_ / num_subtasks);
+    const size_t overload_partitions = (busiest_assigned > ideal_per_subtask)
+        ? (busiest_assigned - ideal_per_subtask)
+        : static_cast<size_t>(1);
+
+    const size_t move_count = std::min({max_moves, overload_partitions, candidates.size()});
+    if (move_count == 0) {
+        return;
+    }
+
+    std::vector<std::pair<int, int>> updates;
+    updates.reserve(move_count);
+    for (size_t i = 0; i < move_count; ++i) {
+        updates.emplace_back(candidates[i], static_cast<int>(idlest));
+    }
+
+    partition_assignment_->updateMapping(updates);
+    last_rebalance_time_ = now;
+    rebalance_cooldown_initialized_ = true;
+
+    const uint64_t round = vsjoin_rebalance_rounds_.fetch_add(1, std::memory_order_relaxed) + 1;
+
+#ifdef SAGEFLOW_ENABLE_METRICS
+    auto& m = JoinMetrics::instance();
+    m.vsjoin_rebalance_rounds.fetch_add(1, std::memory_order_relaxed);
+    m.vsjoin_rebalance_moves.fetch_add(move_count, std::memory_order_relaxed);
+    m.vsjoin_imbalance_ratio_x100.store(
+        static_cast<uint64_t>(imbalance_ratio * 100.0), std::memory_order_relaxed);
+#endif
+    SAGEFLOW_LOG_INFO(
+        "VSJOIN_REBALANCE",
+        "round={} moved={} logical_partitions {}->{} load(busiest={:.2f}, idlest={:.2f}, avg={:.2f}, ratio={:.2f}, threshold={:.2f}) assigned(busiest={}, idlest={}) smoothed={}",
+        round,
+        move_count,
+        busiest,
+        idlest,
+        interval_loads[busiest],
+        interval_loads[idlest],
+        avg_load,
+        imbalance_ratio,
+        imbalance_threshold,
+        busiest_assigned,
+        idlest_assigned,
+        use_smoothed ? 1 : 0);
 }
 
 bool JoinOperator::createIndexPair(IndexType type, const std::string& prefix) {
@@ -352,6 +631,11 @@ void JoinOperator::open(const RuntimeContext& context) {
   std::call_once(init_flag_, [this, &context]() {
     is_open_ = true;
     parallelism_ = context.getParallelism();
+    
+    // Initialize per-subtask dedup sets (for all algorithms that need it)
+    if (subtask_dedup_sets_.empty()) {
+        subtask_dedup_sets_.resize(std::max<size_t>(1, static_cast<size_t>(parallelism_)));
+    }
     
     // Start profiling when operator opens
     if (profiler_) {
@@ -975,6 +1259,10 @@ void JoinOperator::executeJoinWithState(
             t_joinF.stop();
             t_similarity.resume();
             if (res.record_) {
+                // Propagate candidate's routing_mask into the join result so that
+                // the Owner-Computes dedup in the emit stage can use it.
+                // The query record's routing_mask is in data_ptr (= data_for_join).
+                res.record_->routing_mask_ = cand->routing_mask_;
                 local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
             }
         } catch (const std::exception& e) {
@@ -1150,24 +1438,15 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     }
     if (use_lockless_iq) {
         // ====== IQ 策略（无锁，适用于分区模式或单线程） ======
-        //
-        // Task08: VSJoin logical partition routing
-        // - 通过 preferred partitioner（当前为 CentroidPartitioner）得到物理分区 physical_pid(们)
-        // - 映射为 logical_pid = physical_pid * V + v_idx，其中 v_idx 使用 uid 的 hash 计算
-        // - 再通过 AssignmentTable 将 logical_pid 映射到 physical subtask
 
         if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
             auto preferred_partitioner = getPreferredPartitioner(
                 join_func_ ? join_func_->getDim() : strategy_config_.dimension,
                 static_cast<int>(context.getParallelism()));
 
-            // 临时禁用 Task08（Logical Partition Routing + AssignmentTable 负载均衡）。
-            // 目的：先验证“不负载均衡，仅依赖上游 partitioner 多播 + subtask 内 local/global index”是否能稳定通过集成测试。
-            //
-            // 语义：subtask 只查询/写入自己的分区数据，不跨分区探测。
-            // 因此这里将路由退化为：直接使用 partitioner 输出的 physical partitions（支持 multicast）映射为 subtask。
             const size_t P = static_cast<size_t>(context.getParallelism());
             std::vector<size_t> target_subtasks;
+            std::vector<int> logical_pids;
 
             // VSJoin debug routing stats (enabled by env SAGEFLOW_VSJOIN_DEBUG_ROUTING=1)
             const bool vsjoin_debug_routing = []() {
@@ -1183,23 +1462,13 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
             static std::mutex vsjoin_route_mu;
             static std::unordered_map<size_t, uint64_t> vsjoin_route_target_hist;
 
-            if (preferred_partitioner && preferred_partitioner->supportsMulticast()) {
-                auto physical_pids = preferred_partitioner->partitionMulti(record, P);
-                for (size_t pid : physical_pids) {
-                    target_subtasks.push_back(pid % P);
-                }
-                if (physical_pids.size() > 1) {
+            if (preferred_partitioner) {
+                logical_pids = computeVSJoinLogicalPartitions(record, preferred_partitioner.get(), P);
+                target_subtasks = routeToPhysicalSubtasks(logical_pids);
+                if (logical_pids.size() > 1) {
                     vsjoin_route_multicast_events.fetch_add(1, std::memory_order_relaxed);
                 }
-            } else if (preferred_partitioner) {
-                target_subtasks.push_back(preferred_partitioner->partition(record, P) % P);
-            } else {
-                target_subtasks.push_back(subtask_index);
-                vsjoin_route_fallback_events.fetch_add(1, std::memory_order_relaxed);
             }
-
-            std::sort(target_subtasks.begin(), target_subtasks.end());
-            target_subtasks.erase(std::unique(target_subtasks.begin(), target_subtasks.end()), target_subtasks.end());
 
             if (target_subtasks.empty()) {
                 target_subtasks.push_back(subtask_index);
@@ -1242,6 +1511,15 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
                         P, subtask_index, context.getParallelism(), n, avg_targets, mc, fb, nonzero, minc, maxc);
                 }
             }
+
+            // Build routing bitmask for Owner-Computes dedup.
+            // Bit i set  ⇒  record lives in subtask i's WindowState.
+            uint64_t route_mask = 0;
+            for (size_t t : target_subtasks) {
+                if (t < 64) route_mask |= (uint64_t{1} << t);
+            }
+            data_ptr->routing_mask_ = route_mask;
+            data_for_join->routing_mask_ = route_mask;
 
             for (size_t target_subtask : target_subtasks) {
                 auto data_for_insert = std::make_unique<VectorRecord>(*data_ptr);
@@ -1349,7 +1627,49 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     // 发送 Join 结果
     {
         MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
+        // Owner-Computes dedup: for each match (query, candidate), only the
+        // lowest-indexed subtask that holds BOTH records emits the result.
+        // routing_mask_ is a bitmask of subtasks each record was routed to.
+        // intersection = query_mask & cand_mask  ⇒  subtasks holding both.
+        // owner = __builtin_ctzll(intersection)  ⇒  lowest such subtask.
+        // If current_subtask == owner → emit.  Otherwise → skip (some other
+        // subtask will emit it).
+        //
+        // Fallback: if either routing_mask_ is 0 (unset / legacy path),
+        // fall back to intra-apply hash-set dedup (apply_seen) as before.
+        std::unordered_set<uint64_t> apply_seen;  // only used in fallback path
         for (auto& p : local_return_pool) {
+            if (p.second && parallelism_ > 1) {
+                const uint64_t left_uid = (p.first == left_slot_id_) ? p.second->uid_ : data_for_join->uid_;
+                const uint64_t right_uid = (p.first == left_slot_id_) ? data_for_join->uid_ : p.second->uid_;
+
+                // Determine routing masks.
+                // query record  = data_for_join  (the record that triggered this apply)
+                // candidate     = p.second       (found in opposite WindowState)
+                const uint64_t query_mask = data_for_join->routing_mask_;
+                const uint64_t cand_mask  = p.second->routing_mask_;
+
+                if (query_mask != 0 && cand_mask != 0) {
+                    // Owner-Computes path (preferred)
+                    const uint64_t intersection = query_mask & cand_mask;
+                    if (intersection == 0) {
+                        // Should not happen: current subtask sees both, so its bit
+                        // must be set in both masks.  Defensive: emit anyway.
+                    } else {
+                        const size_t owner = static_cast<size_t>(__builtin_ctzll(intersection));
+                        if (owner != subtask_index) {
+                            metrics_increment(JoinMetrics::instance().owner_dedup_count);
+                            continue;  // another subtask is the owner for this pair
+                        }
+                    }
+                } else {
+                    // Fallback: routing_mask not set (non-multicast path)
+                    const uint64_t cid = combinedMatchId(left_uid, right_uid);
+                    if (!apply_seen.insert(cid).second) {
+                        continue;
+                    }
+                }
+            }
             Response out{ResponseType::Record, std::move(p.second)};
             collector.collect(std::make_unique<Response>(std::move(out)), p.first);
             metrics_increment(JoinMetrics::instance().total_emits);
@@ -1360,6 +1680,9 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     
     SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "Apply (with context) completed: slot={} results={} subtask={}/{}", 
                       slot, local_return_pool.size(), subtask_index, context.getParallelism());
+
+    const int64_t apply_latency_ns = static_cast<int64_t>(metrics_timestamp() - apply_enter_ns);
+    reportVSJoinLoadSample(subtask_index, subtask_index, current_state, apply_latency_ns);
 }
 
 // ============================================================
@@ -1437,11 +1760,15 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
         partition_assignment_ = std::make_unique<VSJoinPartitionAssignment>(num_logical_partitions_,
                                                                             static_cast<size_t>(context.getParallelism()));
         load_monitor_ = std::make_unique<VSJoinLoadMonitor>(static_cast<size_t>(context.getParallelism()));
+        last_rebalance_total_records_.assign(static_cast<size_t>(context.getParallelism()), 0);
 
         vsjoin_global_left_id_ = components.global_left_id;
         vsjoin_global_right_id_ = components.global_right_id;
         vsjoin_local_left_ids_ = components.local_left_ids;
         vsjoin_local_right_ids_ = components.local_right_ids;
+
+        // Initialize per-subtask dedup sets for multicast duplicate filtering
+        subtask_dedup_sets_.resize(static_cast<size_t>(context.getParallelism()));
 
         auto* vsjoin_method = dynamic_cast<VSJoinMethod*>(join_method_.get());
         if (vsjoin_method) {
@@ -1645,26 +1972,47 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
             }
             
             case JoinAlgorithm::VSJOIN: {
-                // 临时方案：VSJoin 先复用 ClusteredJoin 的 CentroidPartitioner 以获得多播能力（multicast_k）。
-                // TODO(vsjoin): 实现 LSHPartitionerAdapter 的多播接口（supportsMulticast/partitionMulti + k），
-                // Issue URL: https://github.com/intellistream/sageFlow/issues/102
-                // 再切回 LSH 分区。
-                CentroidPartitioner::Config cp_config;
-                cp_config.num_partitions = (num_partitions > 0)
-                    ? num_partitions
-                    : strategy_config_.num_partitions;
-                cp_config.overlap_ratio = strategy_config_.clustered_overlap_ratio;
-                cp_config.dimension = (dimension > 0)
-                    ? dimension
-                    : strategy_config_.dimension;
-                cp_config.seed = 42;
-                cp_config.rebalance_threshold = strategy_config_.clustered_rebalance_threshold;
-                cp_config.multicast_k = strategy_config_.clustered_multicast_k;
-                cp_config.training_samples = static_cast<size_t>(strategy_config_.clustered_training_samples);
-                cp_config.enable_cold_start = strategy_config_.enable_cold_start;
+                // VSJoin: choose partitioner based on partition_strategy config.
+                auto cfg = strategy_config_;
+                if (dimension > 0) {
+                    cfg.dimension = dimension;
+                }
+                if (num_partitions > 0) {
+                    cfg.num_partitions = num_partitions;
+                }
 
-                auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
-                partitioner->setMulticastEnabled(strategy_config_.clustered_multicast_enabled);
+                if (cfg.partition_strategy == PartitionStrategy::CENTROID) {
+                    // Use CentroidPartitioner for VSJoin (data-adaptive partitioning)
+                    CentroidPartitioner::Config cp_config;
+                    cp_config.num_partitions = cfg.num_partitions;
+                    cp_config.overlap_ratio = cfg.clustered_overlap_ratio;
+                    cp_config.dimension = cfg.dimension;
+                    cp_config.seed = 42;
+                    cp_config.multicast_k = std::max(1, cfg.vsjoin_multicast_k);
+                    cp_config.training_samples = static_cast<size_t>(cfg.clustered_training_samples);
+                    cp_config.enable_cold_start = cfg.enable_cold_start;
+                    
+                    auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
+                    partitioner->setMulticastEnabled(true);
+                    
+                    SAGEFLOW_LOG_INFO("JOIN", "Created CentroidPartitioner for VSJoin: "
+                                     "partitions={} multicast_k={} training_samples={}",
+                                     cp_config.num_partitions, cp_config.multicast_k,
+                                     cp_config.training_samples);
+                    return partitioner;
+                }
+
+                // Default: LSH partitioner
+                auto partitioner = PartitionerFactory::create(cfg.partition_strategy,
+                                                              cfg.dimension,
+                                                              cfg.num_partitions,
+                                                              cfg);
+                if (auto* lsh_partitioner = dynamic_cast<LSHIPartitioner*>(partitioner.get())) {
+                    lsh_partitioner->setMulticastK(static_cast<size_t>(std::max(1, cfg.vsjoin_multicast_k)));
+                    lsh_partitioner->setVirtualNodesPerPartition(virtual_nodes_per_partition_);
+                    lsh_partitioner->setLogicalPartitionCount(
+                        static_cast<size_t>(cfg.num_partitions) * virtual_nodes_per_partition_);
+                }
                 return partitioner;
             }
             

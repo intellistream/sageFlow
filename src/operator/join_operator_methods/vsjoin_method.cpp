@@ -1,7 +1,11 @@
 #include "operator/join_operator_methods/vsjoin_method.h"
+#include "operator/utils/join_method_registry.h"
+#include "operator/join_metrics.h"
 #include "utils/logger.h"
 
 #include <unordered_set>
+#include <algorithm>
+#include <chrono>
 
 namespace sageFlow {
 
@@ -29,87 +33,116 @@ void VSJoinMethod::setWindowStates(WindowState* left_state, WindowState* right_s
     right_state_ = right_state;
 }
 
+void VSJoinMethod::setLocalProbeConfig(int dimension,
+                                       int num_hash_functions,
+                                       double boundary_threshold,
+                                       size_t num_probes) {
+    if (dimension > 0 && num_hash_functions > 0) {
+        local_partitioner_ = std::make_unique<LSHPartitioner>(
+            dimension,
+            num_hash_functions,
+            42,
+            boundary_threshold);
+    }
+    local_num_probes_ = std::max<size_t>(1, num_probes);
+}
+
+void VSJoinMethod::collectFromIndex(int index_id, const VectorRecord& query,
+                                    std::unordered_set<uint64_t>& seen,
+                                    std::vector<std::unique_ptr<VectorRecord>>& out) {
+    if (index_id < 0 || !concurrency_manager_) return;
+    auto records = concurrency_manager_->query_for_join(
+        index_id, query, join_similarity_threshold_, similarity_alpha_);
+#ifdef SAGEFLOW_ENABLE_METRICS
+    JoinMetrics::instance().vsjoin_dedup_candidates_before.fetch_add(
+        records.size(), std::memory_order_relaxed);
+#endif
+    size_t added = 0;
+    for (const auto& r : records) {
+        if (r && seen.insert(r->uid_).second) {
+            out.push_back(std::make_unique<VectorRecord>(*r));
+            ++added;
+        }
+    }
+#ifdef SAGEFLOW_ENABLE_METRICS
+    JoinMetrics::instance().vsjoin_dedup_candidates_after.fetch_add(
+        added, std::memory_order_relaxed);
+#endif
+}
+
 std::vector<std::unique_ptr<VectorRecord>> VSJoinMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
-    
-    std::vector<uint64_t> candidate_uids;
 
-    // 1. 查询 Local Index
-    auto local_uids = queryLocalIndex(query_record, query_slot, subtask_index);
-    candidate_uids.insert(candidate_uids.end(), local_uids.begin(), local_uids.end());
+#ifdef SAGEFLOW_ENABLE_METRICS
+    const auto probe_start = std::chrono::steady_clock::now();
+#endif
 
-    // 2. 查询 Global Index
-    int global_target_id = (query_slot == 0) ? global_right_id_ : global_left_id_;
-    auto global_uids = queryGlobalIndex(query_record, global_target_id);
-    candidate_uids.insert(candidate_uids.end(), global_uids.begin(), global_uids.end());
-
-    // 3. UID 去重
-    std::unordered_set<uint64_t> seen_uids(candidate_uids.begin(), candidate_uids.end());
-    std::vector<uint64_t> unique_uids(seen_uids.begin(), seen_uids.end());
-
-    // 4. 将 UID 转换为 VectorRecord
-    WindowState* target_state = (query_slot == 0) ? right_state_ : left_state_;
-    return resolveUidsToRecords(unique_uids, target_state, subtask_index);
-}
-
-std::vector<uint64_t> VSJoinMethod::queryLocalIndex(const VectorRecord& query,
-                                                    int query_slot,
-                                                    size_t subtask_index) {
-    if (!concurrency_manager_) return {};
-
-    const auto& local_ids = (query_slot == 0) ? local_right_ids_ : local_left_ids_;
-    if (subtask_index >= local_ids.size()) return {};
-
-    int local_index_id = local_ids[subtask_index];
-    if (local_index_id < 0) return {};
-
-    // Local Index (BruteForce) 使用 query_for_join
-    auto records = concurrency_manager_->query_for_join(local_index_id, query, join_similarity_threshold_, similarity_alpha_);
-    std::vector<uint64_t> uids;
-    uids.reserve(records.size());
-    for (const auto& r : records) {
-        if (r) uids.push_back(r->uid_);
-    }
-    return uids;
-}
-
-std::vector<uint64_t> VSJoinMethod::queryGlobalIndex(const VectorRecord& query, int target_index_id) {
-    if (target_index_id < 0 || !concurrency_manager_) {
-        return {};
-    }
-    // Global Index (IVF) 使用 query_for_join
-    auto records = concurrency_manager_->query_for_join(target_index_id, query, join_similarity_threshold_, similarity_alpha_);
-    std::vector<uint64_t> uids;
-    uids.reserve(records.size());
-    for (const auto& r : records) {
-        if (r) uids.push_back(r->uid_);
-    }
-    return uids;
-}
-
-std::vector<std::unique_ptr<VectorRecord>> VSJoinMethod::resolveUidsToRecords(
-    const std::vector<uint64_t>& uids, WindowState* state, size_t subtask_index) {
-    if (!state) return {};
-
-    auto snapshot = state->getRecordsSnapshot(subtask_index);
-    std::unordered_map<uint64_t, const VectorRecord*> record_map;
-    for (const auto& rec_ptr : snapshot) {
-        if (rec_ptr) {
-            record_map[rec_ptr->uid_] = rec_ptr.get();
-        }
-    }
-
+    std::unordered_set<uint64_t> seen;
     std::vector<std::unique_ptr<VectorRecord>> results;
-    results.reserve(uids.size());
-    for (uint64_t uid : uids) {
-        auto it = record_map.find(uid);
-        if (it != record_map.end()) {
-            results.push_back(std::make_unique<VectorRecord>(*it->second));
+
+    // 1. Query Local Index — own partition (lock-free, owned by this subtask)
+    {
+        const auto& local_ids = (query_slot == 0) ? local_right_ids_ : local_left_ids_;
+
+        // Primary: own partition
+        if (subtask_index < local_ids.size()) {
+            collectFromIndex(local_ids[subtask_index], query_record, seen, results);
+        }
+
+        // Optional: LSH-based multi-probe into neighboring partitions
+        const size_t num_partitions = local_ids.size();
+        if (local_partitioner_ && num_partitions > 1 && local_num_probes_ > 1) {
+            auto probes = local_partitioner_->getCandidatePartitions(
+                query_record, num_partitions, local_num_probes_);
+            for (size_t pid : probes) {
+                if (pid != subtask_index && pid < num_partitions) {
+                    collectFromIndex(local_ids[pid], query_record, seen, results);
+                }
+            }
         }
     }
+
+    // 2. Query Global Index (shared, read-only, IVF)
+    {
+        int global_target = (query_slot == 0) ? global_right_id_ : global_left_id_;
+        collectFromIndex(global_target, query_record, seen, results);
+    }
+
+#ifdef SAGEFLOW_ENABLE_METRICS
+    const auto probe_end = std::chrono::steady_clock::now();
+    JoinMetrics::instance().recordVSJoinProbeLatency(
+        static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+            probe_end - probe_start).count()));
+#endif
+
     return results;
 }
 
 }  // namespace sageFlow
+
+// ==================== Method self-registration ====================
+REGISTER_JOIN_METHOD(
+    sageFlow::JoinAlgorithm::VSJOIN,
+    (sageFlow::JoinMethodRegistry::MethodInfo{
+        "VSJoin",
+        "VSJoin two-tier index method with global/local candidate retrieval.",
+        sageFlow::JoinAlgorithm::VSJOIN,
+        true,   // supports_eager
+        false,  // supports_lazy
+        sageFlow::PartitionStrategy::LSH,
+        sageFlow::WindowStateType::PARTITIONED,
+        ""
+    }),
+    [](const sageFlow::JoinStrategyConfig& /*config*/,
+       std::shared_ptr<sageFlow::ConcurrencyManager> cm,
+       int /*dim*/,
+       int left_idx,
+       int right_idx) {
+        auto method = std::make_unique<sageFlow::VSJoinMethod>();
+        sageFlow::RuntimeContext ctx(0, 1);
+        method->initialize(ctx, cm);
+        method->setGlobalIndexIds(left_idx, right_idx);
+        return method;
+    });
