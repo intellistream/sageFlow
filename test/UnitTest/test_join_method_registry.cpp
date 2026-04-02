@@ -307,6 +307,12 @@ TEST_F(JoinMethodRegistryTest, RecommendedConfigShouldBeValid) {
         config.dimension = 128;
         config.similarity_threshold = 0.8;
         
+        // Partitioned strategies (LSH, CENTROID) require partitioned index
+        if (config.partition_strategy == PartitionStrategy::LSH ||
+            config.partition_strategy == PartitionStrategy::CENTROID) {
+            config.index_strategy = IndexStrategy::PARTITIONED;
+        }
+        
         auto errors = config.validate();
         EXPECT_TRUE(errors.empty())
             << "Recommended config for " << info.name << " should be valid, but got errors: "
