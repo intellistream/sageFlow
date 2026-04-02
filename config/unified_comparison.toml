@@ -1,0 +1,105 @@
+# Unified cross-algorithm comparison config
+# All methods use the SAME data_size and parallelism for fair comparison
+
+# ===================== 共享默认参数 =====================
+[defaults]
+similarity_threshold = 0.8
+alpha = 0.1
+vector_dim = 50
+seed = 42
+time_interval_ms = 10
+window_size_ms = 10000
+positive_pairs = 500
+near_threshold_pairs = 50
+negative_pairs = 500
+random_tail = 2000
+base_timestamp = 1000000
+data_mode = "duplicate"
+
+# ===================== BruteForce baseline =====================
+[[test_case]]
+name = "unified_bruteforce"
+description = "BruteForce at unified data_size for cross-algo comparison"
+algorithm = "bruteforce"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+data_sizes = [2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.95
+
+# ===================== IVF =====================
+[[test_case]]
+name = "unified_ivf"
+description = "IVF at unified data_size"
+algorithm = "ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 100
+ivf_nprobes = 20
+data_sizes = [2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.85
+
+# ===================== VSJoin (Centroid partitioning) =====================
+[[test_case]]
+name = "unified_vsjoin_centroid"
+description = "VSJoin with centroid partitioning for better recall"
+algorithm = "vsjoin"
+partition_strategy = "centroid"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 4
+vsjoin_multicast_k = 3
+vsjoin_fanout_budget = 3
+vsjoin_rebuild_interval_ms = 2000
+vsjoin_rebuild_threshold = 500
+ivf_nlist = 50
+ivf_nprobes = 10
+clustered_overlap_ratio = 0.1
+clustered_training_samples = 200
+enable_cold_start = true
+data_sizes = [2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.70
+enabled = true
+
+# ===================== VSJoin (LSH partitioning - original) =====================
+[[test_case]]
+name = "unified_vsjoin"
+description = "VSJoin at unified data_size"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 4
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_rebuild_interval_ms = 2000
+vsjoin_rebuild_threshold = 500
+ivf_nlist = 50
+ivf_nprobes = 10
+data_sizes = [2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.50
+enabled = true
+
+# ===================== Clustered Join =====================
+[[test_case]]
+name = "unified_clustered"
+description = "ClusteredJoin at unified data_size"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "shared"
+clustered_k = 4
+clustered_index_type = "bruteforce"
+clustered_rebalance_threshold = 0.5
+clustered_overlap_ratio = 0.1
+clustered_multicast_enabled = true
+clustered_multicast_k = 2
+data_sizes = [2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.85
+enabled = true

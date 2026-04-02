@@ -92,11 +92,13 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
         for (int partition = 0; partition < P; ++partition) {
             std::string left_name = "vsjoin_local_left_p" + std::to_string(partition);
             components.local_left_ids[partition] = concurrency_manager->create_index(
-                left_name, IndexType::BruteForce, config.dimension);
+                left_name, IndexType::BruteForce, config.dimension,
+                ControllerPolicy::DIRECT);
 
             std::string right_name = "vsjoin_local_right_p" + std::to_string(partition);
             components.local_right_ids[partition] = concurrency_manager->create_index(
-                right_name, IndexType::BruteForce, config.dimension);
+                right_name, IndexType::BruteForce, config.dimension,
+                ControllerPolicy::DIRECT);
         }
 
         SAGEFLOW_LOG_INFO(

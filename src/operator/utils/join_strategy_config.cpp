@@ -240,9 +240,10 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
     
     // 规则2: VSJoin 需要 LSH 分区 + 分区窗口状态（PARTITIONED/TWO_TIER/PARTITIONED_VECTOR）
     if (algorithm == JoinAlgorithm::VSJOIN) {
-        if (partition_strategy != PartitionStrategy::LSH) {
+        if (partition_strategy != PartitionStrategy::LSH &&
+            partition_strategy != PartitionStrategy::CENTROID) {
             errors.emplace_back(
-                "VSJoin requires LSH partition strategy. "
+                "VSJoin requires LSH or CENTROID partition strategy. "
                 "Current: " + toString(partition_strategy));
         }
         // 新版设计：支持 PARTITIONED（推荐）、TWO_TIER、PARTITIONED_VECTOR（旧版兼容）

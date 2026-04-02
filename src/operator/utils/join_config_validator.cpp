@@ -240,11 +240,12 @@ void JoinConfigValidator::checkAlgorithmStrategyCompatibility(
     // WindowState 在新版设计中推荐 TWO_TIER（复用 TwoTierWindowState），也允许 PARTITIONED。
     // 旧 v1 版本的 PARTITIONED_VECTOR（PartitionedVectorState）已弃用，但为兼容历史仍允许。
     if (config.algorithm == JoinAlgorithm::VSJOIN) {
-        if (config.partition_strategy != PartitionStrategy::LSH) {
+        if (config.partition_strategy != PartitionStrategy::LSH &&
+            config.partition_strategy != PartitionStrategy::CENTROID) {
             result.addError(
-                "VSJoin algorithm requires LSH partition strategy. "
+                "VSJoin algorithm requires LSH or CENTROID partition strategy. "
                 "Current: " + sageFlow::toString(config.partition_strategy) + ". "
-                "VSJoin uses locality-sensitive hashing to partition similar vectors.");
+                "VSJoin uses locality-sensitive hashing or centroid-based partitioning.");
         }
         if (config.window_state_type != WindowStateType::TWO_TIER &&
             config.window_state_type != WindowStateType::PARTITIONED &&

@@ -171,7 +171,7 @@ struct JoinStrategyConfig {
     
     // ==================== VSJoin 参数 ====================
     int vsjoin_multicast_k = 2;               ///< 边界向量多播到 k 个分区（推荐 2-3）
-    int64_t vsjoin_rebuild_interval_ms = 5000;  ///< Global Index 重建间隔
+    int64_t vsjoin_rebuild_interval_ms = 2000;  ///< Global Index 重建间隔
     size_t vsjoin_rebuild_threshold = 1000;     ///< 触发重建的阈值
     double vsjoin_rebalance_imbalance_ratio = 1.35;  ///< 触发重平衡的负载失衡比（max/avg）
     size_t vsjoin_rebalance_max_moves = 8;           ///< 每轮最多迁移的 logical partition 数

@@ -4,98 +4,155 @@
 
 #include "utils/logger.h"
 
-auto sageFlow::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> void {
+namespace sageFlow {
+
+// ============================================================
+// Shard resolution
+// ============================================================
+
+auto StorageManager::resolveShard(int shard_id) -> Shard* {
+  if (shard_id == GLOBAL_SHARD) return &global_shard_;
+  {
+    std::shared_lock<std::shared_mutex> lk(shards_map_mutex_);
+    auto it = shards_.find(shard_id);
+    if (it != shards_.end()) return it->second.get();
+  }
+  return &global_shard_;  // fallback
+}
+
+auto StorageManager::resolveShard(int shard_id) const -> const Shard* {
+  if (shard_id == GLOBAL_SHARD) return &global_shard_;
+  {
+    std::shared_lock<std::shared_mutex> lk(shards_map_mutex_);
+    auto it = shards_.find(shard_id);
+    if (it != shards_.end()) return it->second.get();
+  }
+  return &global_shard_;  // fallback
+}
+
+// ============================================================
+// Shard lifecycle
+// ============================================================
+
+void StorageManager::createShard(int shard_id) {
+  std::unique_lock<std::shared_mutex> lk(shards_map_mutex_);
+  if (shards_.find(shard_id) != shards_.end()) {
+    SAGEFLOW_LOG_WARN("STORAGE", "Shard {} already exists, skipping creation", shard_id);
+    return;
+  }
+  shards_[shard_id] = std::make_unique<Shard>();
+  SAGEFLOW_LOG_INFO("STORAGE", "Created shard {}", shard_id);
+}
+
+void StorageManager::removeShard(int shard_id) {
+  std::unique_lock<std::shared_mutex> lk(shards_map_mutex_);
+  auto it = shards_.find(shard_id);
+  if (it == shards_.end()) {
+    SAGEFLOW_LOG_WARN("STORAGE", "Shard {} not found for removal", shard_id);
+    return;
+  }
+  shards_.erase(it);
+  SAGEFLOW_LOG_INFO("STORAGE", "Removed shard {}", shard_id);
+}
+
+bool StorageManager::hasShard(int shard_id) const {
+  std::shared_lock<std::shared_mutex> lk(shards_map_mutex_);
+  return shards_.find(shard_id) != shards_.end();
+}
+
+// ============================================================
+// insert
+// ============================================================
+
+auto StorageManager::insert(std::unique_ptr<VectorRecord> record, int shard_id) -> void {
   if (record == nullptr) {
     throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
   }
-  std::unique_lock<std::shared_mutex> lock(map_mutex_);
+  Shard* shard = resolveShard(shard_id);
+  std::unique_lock<std::shared_mutex> lock(shard->mutex);
   const auto uid = record->uid_;
-  SAGEFLOW_LOG_DEBUG("STORAGE", "Inserting record uid={} current_size={} ", uid, records_.size());
-  if (map_.find(uid) != map_.end()) {
-    return; // UID 已存在
+  SAGEFLOW_LOG_DEBUG("STORAGE", "Inserting record uid={} shard={} current_size={}", uid, shard_id, shard->records.size());
+  if (shard->map.find(uid) != shard->map.end()) {
+    return;  // UID already exists in this shard
   }
   std::shared_ptr<VectorRecord> shared_record = std::move(record);
-  auto idx = static_cast<int32_t>(records_.size());
-  records_.push_back(shared_record);
-  map_.emplace(uid, idx);
+  auto idx = static_cast<int32_t>(shard->records.size());
+  shard->records.push_back(shared_record);
+  shard->map.emplace(uid, idx);
 }
 
-// auto sageFlow::StorageManager::insert(std::shared_ptr<VectorRecord> record) -> void {
-//   if (record == nullptr) {
-//     throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
-//   }
-//   std::unique_lock<std::shared_mutex> lock(map_mutex_);
-//   const auto uid = record->uid_;
-//   if (map_.contains(uid)) {
-//     return; // UID 已存在
-//   }
-//   const auto idx = static_cast<int32_t>(records_.size());
-//   records_.push_back(std::move(record));
-//   map_.emplace(uid, idx);
-// }
+// ============================================================
+// erase
+// ============================================================
 
-auto sageFlow::StorageManager::erase(const uint64_t vector_id) -> bool {
-  std::unique_lock<std::shared_mutex> lock(map_mutex_);
-  const auto it = map_.find(vector_id);
-  if (it == map_.end()) {
+auto StorageManager::erase(const uint64_t vector_id, int shard_id) -> bool {
+  Shard* shard = resolveShard(shard_id);
+  std::unique_lock<std::shared_mutex> lock(shard->mutex);
+  const auto it = shard->map.find(vector_id);
+  if (it == shard->map.end()) {
     return false;
   }
   const int32_t idx = it->second;
 
-  // 若待删除元素不是最后一项，则将最后一项交换到 idx 处，并更新其在 map_ 中的索引
-  if (idx < records_.size() - 1) {
-    const uint64_t last_element_uid = records_.back()->uid_;
-    std::swap(records_[idx], records_.back());
-    map_[last_element_uid] = idx; // 更新最后一项的索引
+  // Swap-with-last for O(1) removal
+  if (idx < static_cast<int32_t>(shard->records.size()) - 1) {
+    const uint64_t last_element_uid = shard->records.back()->uid_;
+    std::swap(shard->records[idx], shard->records.back());
+    shard->map[last_element_uid] = idx;
   }
 
-  records_.pop_back();
-  map_.erase(it);
+  shard->records.pop_back();
+  shard->map.erase(it);
   return true;
 }
 
-auto sageFlow::StorageManager::getVectorByUid(const uint64_t vector_id) -> std::shared_ptr<const VectorRecord> {
-  std::shared_lock<std::shared_mutex> lock(map_mutex_);
-  const auto it = map_.find(vector_id);
-  if (it == map_.end()) {
+// ============================================================
+// getVectorByUid
+// ============================================================
+
+auto StorageManager::getVectorByUid(const uint64_t vector_id, int shard_id) -> std::shared_ptr<const VectorRecord> {
+  Shard* shard = resolveShard(shard_id);
+  std::shared_lock<std::shared_mutex> lock(shard->mutex);
+  const auto it = shard->map.find(vector_id);
+  if (it == shard->map.end()) {
     return nullptr;
   }
 
   const int32_t index = it->second;
-
-  // 边界检查，增加代码健壮性
-  if (index < 0 || index >= records_.size()) {
-    // 这是一个数据不一致的错误状态，理论上不应发生
-    // 可以增加日志记录
+  if (index < 0 || index >= static_cast<int32_t>(shard->records.size())) {
     return nullptr;
   }
 
-  return records_[index];
+  return shard->records[index];
 }
 
-auto sageFlow::StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector_ids)
+// ============================================================
+// getVectorsByUids
+// ============================================================
+
+auto StorageManager::getVectorsByUids(const std::vector<uint64_t>& vector_ids, int shard_id)
     -> std::vector<std::shared_ptr<const VectorRecord>> {
+  Shard* shard = resolveShard(shard_id);
   std::vector<std::shared_ptr<const VectorRecord>> records;
   records.reserve(vector_ids.size());
-  std::shared_lock<std::shared_mutex> lock(map_mutex_);
+  std::shared_lock<std::shared_mutex> lock(shard->mutex);
   for (const auto uid : vector_ids) {
-    const auto it = map_.find(uid);
-
-    if (it != map_.end()) {
+    const auto it = shard->map.find(uid);
+    if (it != shard->map.end()) {
       const int32_t index = it->second;
-
-      // 边界检查，增加代码健壮性
-      if (index >= 0 && index < records_.size()) {
-        // 直接从内部 vector 中获取 shared_ptr，这是一个非常轻量级的操作（仅增加引用计数）
-        records.push_back(records_[index]);
+      if (index >= 0 && index < static_cast<int32_t>(shard->records.size())) {
+        records.push_back(shard->records[index]);
       }
-      // 如果索引越界，可以考虑增加日志来捕获这种不一致的状态
     }
   }
   return records;
 }
 
-auto sageFlow::StorageManager::topk(const VectorRecord& record, int k) const -> std::vector<uint64_t> {
+// ============================================================
+// topk
+// ============================================================
+
+auto StorageManager::topk(const VectorRecord& record, int k, int shard_id) const -> std::vector<uint64_t> {
   if (engine_ == nullptr) {
     throw std::runtime_error("StorageManager::topk: Compute engine is not set.");
   }
@@ -103,68 +160,59 @@ auto sageFlow::StorageManager::topk(const VectorRecord& record, int k) const -> 
     return {};
   }
 
-  // 使用优先队列来高效维护 Top-K 结果
+  const Shard* shard = resolveShard(shard_id);
   std::priority_queue<UidAndDist> top_k_results;
 
-  // 步骤 1: 加共享锁，允许多个线程并发执行 topk
   {
-    std::shared_lock<std::shared_mutex> lock(map_mutex_);
-
-    // 步骤 2: 遍历存储中的所有向量
-    for (const auto& stored_record_sptr : records_) {
+    std::shared_lock<std::shared_mutex> lock(shard->mutex);
+    for (const auto& stored_record_sptr : shard->records) {
       if (!stored_record_sptr) {
         continue;
       }
 
-      // 计算距离
-      double distance = engine_->EuclideanDistance(record.data_, stored_record_sptr->data_); // 替换为真实的距离计算
+      double distance = engine_->EuclideanDistance(record.data_, stored_record_sptr->data_);
 
-      // 步骤 3: 使用标准 Top-K 逻辑更新优先队列
-      if (top_k_results.size() < k) {
+      if (top_k_results.size() < static_cast<size_t>(k)) {
         top_k_results.emplace(stored_record_sptr->uid_, distance);
       } else if (distance < top_k_results.top().distance_) {
-        // 如果新向量比当前 Top-K 中最远的那个还要近，就替换它
         top_k_results.pop();
         top_k_results.emplace(stored_record_sptr->uid_, distance);
       }
     }
   }
 
-  // 步骤 4: 从优先队列中提取并排序结果
   std::vector<uint64_t> final_ids;
   final_ids.reserve(top_k_results.size());
   while (!top_k_results.empty()) {
     final_ids.push_back(top_k_results.top().uid_);
     top_k_results.pop();
   }
-
-  // 优先队列得到的是从远到近的顺序，我们需要将其反转
   std::reverse(final_ids.begin(), final_ids.end());
 
   return final_ids;
 }
 
-auto sageFlow::StorageManager::similarityJoinQuery(const VectorRecord &record,
-                                                   double join_similarity_threshold,
-                                                   double similarity_alpha) const -> std::vector<uint64_t> {
+// ============================================================
+// similarityJoinQuery
+// ============================================================
+
+auto StorageManager::similarityJoinQuery(const VectorRecord& record,
+                                         double join_similarity_threshold,
+                                         double similarity_alpha,
+                                         int shard_id) const -> std::vector<uint64_t> {
   if (engine_ == nullptr) {
     throw std::runtime_error("StorageManager::similarityJoinQuery: Compute engine is not set.");
   }
+
+  const Shard* shard = resolveShard(shard_id);
   std::vector<uint64_t> final_ids;
   {
-    // 步骤 1: 加共享锁，允许多个线程并发执行 similarityJoinQuery
-    std::shared_lock<std::shared_mutex> lock(map_mutex_);
-
-    // 步骤 2: 遍历存储中的所有向量
-    for (const auto& stored_record_sptr : records_) {
+    std::shared_lock<std::shared_mutex> lock(shard->mutex);
+    for (const auto& stored_record_sptr : shard->records) {
       if (!stored_record_sptr) {
         continue;
       }
-
-      // 计算相似度
       double similarity = engine_->Similarity(record.data_, stored_record_sptr->data_, similarity_alpha);
-
-      // 步骤 3: 如果相似度满足条件，则添加到结果中
       if (similarity >= join_similarity_threshold) {
         final_ids.push_back(stored_record_sptr->uid_);
       }
@@ -172,3 +220,5 @@ auto sageFlow::StorageManager::similarityJoinQuery(const VectorRecord &record,
   }
   return final_ids;
 }
+
+}  // namespace sageFlow

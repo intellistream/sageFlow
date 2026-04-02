@@ -1,53 +1,39 @@
-//
-// Created by Pygon on 25-4-17.
-//
 #include "index/knn.h"
 #include "storage/storage_manager.h"
 
-sageFlow::Knn::~Knn() = default;
+namespace sageFlow {
 
-auto sageFlow::Knn::insert(uint64_t id) -> bool {
-  std::unique_lock lk(local_mutex_);
-  local_records_[id] = nullptr;  // placeholder, actual data in StorageManager
+Knn::~Knn() = default;
+
+auto Knn::insert(uint64_t /*id*/) -> bool {
+  // Data is managed by StorageManager shard; index only needs uid tracking
+  // which is handled at the shard level. No-op here.
   return true;
 }
 
-auto sageFlow::Knn::erase(uint64_t id) -> bool {
-  std::unique_lock lk(local_mutex_);
-  return local_records_.erase(id) > 0;
+auto Knn::erase(uint64_t id) -> bool {
+  // Deletion is handled by StorageManager shard via the controller.
+  return true;
 }
 
-size_t sageFlow::Knn::size() const {
-  std::shared_lock lk(local_mutex_);
-  return local_records_.size();
+size_t Knn::size() const {
+  // Delegate to the shard in StorageManager if available.
+  // For now, this is an approximation — the controller manages the shard.
+  return 0;
 }
 
-auto sageFlow::Knn::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
-  auto all = storage_manager_->topk(record, k * 2);
-  std::shared_lock lk(local_mutex_);
-  std::vector<uint64_t> out;
-  out.reserve(std::min(static_cast<size_t>(k), all.size()));
-  for (uint64_t uid : all) {
-    if (local_records_.count(uid)) {
-      out.push_back(uid);
-      if (static_cast<int>(out.size()) >= k) break;
-    }
-  }
-  return out;
+auto Knn::query(const VectorRecord &record, int k) -> std::vector<uint64_t> {
+  if (!storage_manager_) return {};
+  // Route to our shard (index_id_ maps to shard_id if shard exists, else global)
+  return storage_manager_->topk(record, k, index_id_);
 }
 
-auto sageFlow::Knn::query_for_join(const VectorRecord &record,
-                    double join_similarity_threshold,
-                    double similarity_alpha) -> std::vector<uint64_t> {
-  // Scan global storage for similar records, but only return those in this index
-  auto all = storage_manager_->similarityJoinQuery(record, join_similarity_threshold, similarity_alpha);
-  std::shared_lock lk(local_mutex_);
-  std::vector<uint64_t> out;
-  out.reserve(all.size());
-  for (uint64_t uid : all) {
-    if (local_records_.count(uid)) {
-      out.push_back(uid);
-    }
-  }
-  return out;
+auto Knn::query_for_join(const VectorRecord &record,
+                         double join_similarity_threshold,
+                         double similarity_alpha) -> std::vector<uint64_t> {
+  if (!storage_manager_) return {};
+  return storage_manager_->similarityJoinQuery(
+      record, join_similarity_threshold, similarity_alpha, index_id_);
 }
+
+}  // namespace sageFlow

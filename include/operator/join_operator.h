@@ -306,6 +306,18 @@ namespace sageFlow {
     int vsjoin_global_left_id_ = -1;
     int vsjoin_global_right_id_ = -1;
 
+    // Per-subtask dedup for multicast duplicate filtering (lock-free per partition)
+    struct SubtaskDedupSet {
+        std::unordered_set<uint64_t> seen;  // combined_id = hash(left_uid, right_uid)
+    };
+    std::vector<SubtaskDedupSet> subtask_dedup_sets_;  // size = parallelism_
+
+    static uint64_t combinedMatchId(uint64_t left_uid, uint64_t right_uid) {
+        // splitmix64-style hash combining
+        uint64_t x = left_uid ^ (right_uid + 0x9e3779b97f4a7c15ULL + (left_uid << 6) + (left_uid >> 2));
+        return x;
+    }
+
     // ==================== VSJoin 负载均衡（Task08: Logical Partition Routing） ====================
     std::unique_ptr<VSJoinPartitionAssignment> partition_assignment_;
     std::unique_ptr<VSJoinLoadMonitor> load_monitor_;
