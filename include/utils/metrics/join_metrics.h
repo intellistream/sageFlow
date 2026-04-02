@@ -95,6 +95,9 @@ struct JoinMetrics {
   std::atomic<uint64_t> vsjoin_rebalance_moves{0};         ///< Total partition migrations
   std::atomic<uint64_t> vsjoin_imbalance_ratio_x100{0};    ///< Last imbalance ratio * 100
 
+  // Owner-Computes dedup (routing_mask based)
+  std::atomic<uint64_t> owner_dedup_count{0};              ///< Matches skipped by owner-computes rule
+
   // VSJoin probe latency samples (ring buffer)
   static constexpr size_t kVSJoinProbeSampleSize = 4096;
   std::array<std::atomic<uint64_t>, kVSJoinProbeSampleSize> vsjoin_probe_latency_ns{};
@@ -132,6 +135,7 @@ struct JoinMetrics {
     vsjoin_route_unicast_count = vsjoin_route_multicast_count = vsjoin_route_broadcast_count = 0;
     vsjoin_dedup_candidates_before = vsjoin_dedup_candidates_after = 0;
     vsjoin_rebalance_rounds = vsjoin_rebalance_moves = vsjoin_imbalance_ratio_x100 = 0;
+    owner_dedup_count = 0;
     vsjoin_probe_sample_index = 0;
     for (auto& v : vsjoin_probe_latency_ns) v.store(0, std::memory_order_relaxed);
     e2e_latency_sample_index = 0;
@@ -169,6 +173,7 @@ struct JoinMetrics {
     EMIT(vsjoin_route_unicast_count) EMIT(vsjoin_route_multicast_count) EMIT(vsjoin_route_broadcast_count)
     EMIT(vsjoin_dedup_candidates_before) EMIT(vsjoin_dedup_candidates_after)
     EMIT(vsjoin_rebalance_rounds) EMIT(vsjoin_rebalance_moves) EMIT(vsjoin_imbalance_ratio_x100)
+    EMIT(owner_dedup_count)
 #undef EMIT
   }
 

@@ -68,13 +68,28 @@ void JoinOperator::stopGlobalIndexRebuilder() {
 }
 
 void JoinOperator::globalIndexRebuildLoop() {
+    // First rebuild: wait a short warmup (500ms) to let initial data arrive,
+    // then rebuild immediately. Subsequent rebuilds use the configured interval.
+    constexpr int64_t kFirstRebuildWarmupMs = 500;
+    constexpr int64_t kPollGranularityMs = 100;  // Check stop flag every 100ms
+    bool first_rebuild = true;
+
     while (rebuild_running_.load(std::memory_order_acquire)) {
-        const int64_t interval_ms = rebuild_interval_ms_.load(std::memory_order_relaxed);
-        std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
+        const int64_t target_ms = first_rebuild ? kFirstRebuildWarmupMs
+                                                : rebuild_interval_ms_.load(std::memory_order_relaxed);
+        // Sleep in small increments so we can respond to stop quickly
+        int64_t slept = 0;
+        while (slept < target_ms && rebuild_running_.load(std::memory_order_acquire)) {
+            const int64_t chunk = std::min(kPollGranularityMs, target_ms - slept);
+            std::this_thread::sleep_for(std::chrono::milliseconds(chunk));
+            slept += chunk;
+        }
 
         if (!rebuild_running_.load(std::memory_order_acquire)) {
             break;
         }
+
+        first_rebuild = false;
 
         if (!left_state_ || !right_state_) {
             SAGEFLOW_LOG_WARN("VSJOIN_REBUILD", "WindowState not ready, skip rebuild");
@@ -616,6 +631,11 @@ void JoinOperator::open(const RuntimeContext& context) {
   std::call_once(init_flag_, [this, &context]() {
     is_open_ = true;
     parallelism_ = context.getParallelism();
+    
+    // Initialize per-subtask dedup sets (for all algorithms that need it)
+    if (subtask_dedup_sets_.empty()) {
+        subtask_dedup_sets_.resize(std::max<size_t>(1, static_cast<size_t>(parallelism_)));
+    }
     
     // Start profiling when operator opens
     if (profiler_) {
@@ -1239,6 +1259,10 @@ void JoinOperator::executeJoinWithState(
             t_joinF.stop();
             t_similarity.resume();
             if (res.record_) {
+                // Propagate candidate's routing_mask into the join result so that
+                // the Owner-Computes dedup in the emit stage can use it.
+                // The query record's routing_mask is in data_ptr (= data_for_join).
+                res.record_->routing_mask_ = cand->routing_mask_;
                 local_return_pool.emplace_back(left_slot_id_, std::move(res.record_));
             }
         } catch (const std::exception& e) {
@@ -1488,6 +1512,15 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
                 }
             }
 
+            // Build routing bitmask for Owner-Computes dedup.
+            // Bit i set  ⇒  record lives in subtask i's WindowState.
+            uint64_t route_mask = 0;
+            for (size_t t : target_subtasks) {
+                if (t < 64) route_mask |= (uint64_t{1} << t);
+            }
+            data_ptr->routing_mask_ = route_mask;
+            data_for_join->routing_mask_ = route_mask;
+
             for (size_t target_subtask : target_subtasks) {
                 auto data_for_insert = std::make_unique<VectorRecord>(*data_ptr);
                 updateSideWithState(current_state, index_id, std::move(data_for_insert), now_time_stamp, slot, target_subtask);
@@ -1594,7 +1627,49 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     // 发送 Join 结果
     {
         MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
+        // Owner-Computes dedup: for each match (query, candidate), only the
+        // lowest-indexed subtask that holds BOTH records emits the result.
+        // routing_mask_ is a bitmask of subtasks each record was routed to.
+        // intersection = query_mask & cand_mask  ⇒  subtasks holding both.
+        // owner = __builtin_ctzll(intersection)  ⇒  lowest such subtask.
+        // If current_subtask == owner → emit.  Otherwise → skip (some other
+        // subtask will emit it).
+        //
+        // Fallback: if either routing_mask_ is 0 (unset / legacy path),
+        // fall back to intra-apply hash-set dedup (apply_seen) as before.
+        std::unordered_set<uint64_t> apply_seen;  // only used in fallback path
         for (auto& p : local_return_pool) {
+            if (p.second && parallelism_ > 1) {
+                const uint64_t left_uid = (p.first == left_slot_id_) ? p.second->uid_ : data_for_join->uid_;
+                const uint64_t right_uid = (p.first == left_slot_id_) ? data_for_join->uid_ : p.second->uid_;
+
+                // Determine routing masks.
+                // query record  = data_for_join  (the record that triggered this apply)
+                // candidate     = p.second       (found in opposite WindowState)
+                const uint64_t query_mask = data_for_join->routing_mask_;
+                const uint64_t cand_mask  = p.second->routing_mask_;
+
+                if (query_mask != 0 && cand_mask != 0) {
+                    // Owner-Computes path (preferred)
+                    const uint64_t intersection = query_mask & cand_mask;
+                    if (intersection == 0) {
+                        // Should not happen: current subtask sees both, so its bit
+                        // must be set in both masks.  Defensive: emit anyway.
+                    } else {
+                        const size_t owner = static_cast<size_t>(__builtin_ctzll(intersection));
+                        if (owner != subtask_index) {
+                            metrics_increment(JoinMetrics::instance().owner_dedup_count);
+                            continue;  // another subtask is the owner for this pair
+                        }
+                    }
+                } else {
+                    // Fallback: routing_mask not set (non-multicast path)
+                    const uint64_t cid = combinedMatchId(left_uid, right_uid);
+                    if (!apply_seen.insert(cid).second) {
+                        continue;
+                    }
+                }
+            }
             Response out{ResponseType::Record, std::move(p.second)};
             collector.collect(std::make_unique<Response>(std::move(out)), p.first);
             metrics_increment(JoinMetrics::instance().total_emits);
@@ -1691,6 +1766,9 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
         vsjoin_global_right_id_ = components.global_right_id;
         vsjoin_local_left_ids_ = components.local_left_ids;
         vsjoin_local_right_ids_ = components.local_right_ids;
+
+        // Initialize per-subtask dedup sets for multicast duplicate filtering
+        subtask_dedup_sets_.resize(static_cast<size_t>(context.getParallelism()));
 
         auto* vsjoin_method = dynamic_cast<VSJoinMethod*>(join_method_.get());
         if (vsjoin_method) {
@@ -1894,7 +1972,7 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
             }
             
             case JoinAlgorithm::VSJOIN: {
-                // VSJoin 按配置契约选择分区器，不在运行时隐式改写策略。
+                // VSJoin: choose partitioner based on partition_strategy config.
                 auto cfg = strategy_config_;
                 if (dimension > 0) {
                     cfg.dimension = dimension;
@@ -1902,6 +1980,29 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
                 if (num_partitions > 0) {
                     cfg.num_partitions = num_partitions;
                 }
+
+                if (cfg.partition_strategy == PartitionStrategy::CENTROID) {
+                    // Use CentroidPartitioner for VSJoin (data-adaptive partitioning)
+                    CentroidPartitioner::Config cp_config;
+                    cp_config.num_partitions = cfg.num_partitions;
+                    cp_config.overlap_ratio = cfg.clustered_overlap_ratio;
+                    cp_config.dimension = cfg.dimension;
+                    cp_config.seed = 42;
+                    cp_config.multicast_k = std::max(1, cfg.vsjoin_multicast_k);
+                    cp_config.training_samples = static_cast<size_t>(cfg.clustered_training_samples);
+                    cp_config.enable_cold_start = cfg.enable_cold_start;
+                    
+                    auto partitioner = std::make_unique<CentroidPartitioner>(cp_config);
+                    partitioner->setMulticastEnabled(true);
+                    
+                    SAGEFLOW_LOG_INFO("JOIN", "Created CentroidPartitioner for VSJoin: "
+                                     "partitions={} multicast_k={} training_samples={}",
+                                     cp_config.num_partitions, cp_config.multicast_k,
+                                     cp_config.training_samples);
+                    return partitioner;
+                }
+
+                // Default: LSH partitioner
                 auto partitioner = PartitionerFactory::create(cfg.partition_strategy,
                                                               cfg.dimension,
                                                               cfg.num_partitions,
