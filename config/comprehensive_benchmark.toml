@@ -1,0 +1,256 @@
+# ================================================================
+# Comprehensive Benchmark Configuration
+# ================================================================
+# 目标：覆盖所有算法 × 多数据规模 × 多并行度
+# 保证分区算法（ClusteredJoin / VSJoin）的多播参数一致性
+#
+# 算法分类：
+#   共享索引: bruteforce, ivf, hnsw
+#   分区索引: clustered_join (centroid partitioner)
+#   双层索引: vsjoin (LSH partitioner)
+#
+# 公共参数：
+#   similarity_threshold = 0.8
+#   window_size_ms = 1000, step_size_ms = 10
+#   dimension = 128 (默认)
+# ================================================================
+
+# ==================== 共享索引算法 ====================
+
+# --- BruteForce (Ground Truth) ---
+[[test_case]]
+name = "bruteforce_bench"
+description = "BruteForce ground truth"
+algorithm = "bruteforce"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 0.99
+enabled = true
+
+# --- IVF (Shared Index) ---
+[[test_case]]
+name = "ivf_bench"
+description = "IVF approximate join with shared index"
+algorithm = "ivf"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+ivf_nlist = 50
+ivf_nprobes = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 0.90
+enabled = true
+
+# --- HNSW (Shared Index) ---
+[[test_case]]
+name = "hnsw_bench"
+description = "HNSW approximate join with shared index"
+algorithm = "hnsw"
+partition_strategy = "round_robin"
+window_state_type = "shared"
+index_strategy = "shared"
+hnsw_m = 16
+hnsw_ef_construction = 200
+hnsw_ef_search = 50
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 2, 4, 8]
+expected_min_recall = 0.85
+enabled = false
+
+# ==================== 分区索引算法 (ClusteredJoin) ====================
+# 公共分区参数：centroid partitioner, training_samples = 100
+# multicast_k 控制 recall-latency tradeoff
+# num_partitions 必须 = max(parallelism)
+
+# --- ClusteredJoin k=1 (unicast, 最低召回/最低延迟) ---
+[[test_case]]
+name = "clustered_k1"
+description = "ClusteredJoin multicast_k=1 (unicast)"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 1
+clustered_overlap_ratio = 0.0
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.30
+enabled = true
+
+# --- ClusteredJoin k=2 ---
+[[test_case]]
+name = "clustered_k2"
+description = "ClusteredJoin multicast_k=2"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 2
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.70
+enabled = true
+
+# --- ClusteredJoin k=3 ---
+[[test_case]]
+name = "clustered_k3"
+description = "ClusteredJoin multicast_k=3"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 3
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.80
+enabled = true
+
+# --- ClusteredJoin k=4 ---
+[[test_case]]
+name = "clustered_k4"
+description = "ClusteredJoin multicast_k=4"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 4
+clustered_overlap_ratio = 0.1
+clustered_index_type = "bruteforce"
+clustered_multicast_enabled = true
+clustered_training_samples = 100
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.85
+enabled = true
+
+# ==================== 双层索引算法 (VSJoin) ====================
+# 公共分区参数：LSH partitioner, fanout_budget 控制 recall-latency tradeoff
+# 保持与 ClusteredJoin 的多播参数一致性:
+#   cj_k1 ↔ vsj_f1, cj_k2 ↔ vsj_f2, cj_k3 ↔ vsj_f3, cj_k4 ↔ vsj_f4
+
+# --- VSJoin fanout=1 (unicast) ---
+[[test_case]]
+name = "vsjoin_f1"
+description = "VSJoin fanout_budget=1 (unicast)"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 8
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_rebuild_interval_ms = 3000
+vsjoin_rebuild_threshold = 500
+vsjoin_fanout_budget = 1
+ivf_nlist = 50
+ivf_nprobes = 10
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.30
+enabled = true
+
+# --- VSJoin fanout=2 ---
+[[test_case]]
+name = "vsjoin_f2"
+description = "VSJoin fanout_budget=2"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 8
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_rebuild_interval_ms = 3000
+vsjoin_rebuild_threshold = 500
+vsjoin_fanout_budget = 2
+ivf_nlist = 50
+ivf_nprobes = 10
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.70
+enabled = true
+
+# --- VSJoin fanout=3 ---
+[[test_case]]
+name = "vsjoin_f3"
+description = "VSJoin fanout_budget=3"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 8
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_rebuild_interval_ms = 3000
+vsjoin_rebuild_threshold = 500
+vsjoin_fanout_budget = 3
+ivf_nlist = 50
+ivf_nprobes = 10
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.75
+enabled = true
+
+# --- VSJoin fanout=4 ---
+[[test_case]]
+name = "vsjoin_f4"
+description = "VSJoin fanout_budget=4"
+algorithm = "vsjoin"
+partition_strategy = "lsh"
+window_state_type = "two_tier"
+index_strategy = "partitioned"
+num_partitions = 8
+vsjoin_num_hash_functions = 8
+vsjoin_boundary_threshold = 0.1
+vsjoin_rebuild_interval_ms = 3000
+vsjoin_rebuild_threshold = 500
+vsjoin_fanout_budget = 4
+ivf_nlist = 50
+ivf_nprobes = 10
+window_size_ms = 1000
+step_size_ms = 10
+data_sizes = [500, 1000, 2000]
+parallelism = [1, 4, 8]
+expected_min_recall = 0.80
+enabled = true
