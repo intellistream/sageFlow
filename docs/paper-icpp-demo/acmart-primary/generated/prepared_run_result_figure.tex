@@ -1,0 +1,46 @@
+% Generated from data/prepared_demo_run.json by scripts/generate_prepared_run_figure.py.
+\begin{tikzpicture}[
+  font=\footnotesize,
+  x=0.9cm,
+  y=0.5cm,
+  bar/.style={draw, fill=blue!35},
+  ibar/.style={draw, fill=red!30}
+]
+  \node[font=\scriptsize] at (1.5,8.4) {Cluster size};
+  \draw[->] (0,5.2) -- (5.4,5.2);
+  \draw[->] (0,5.2) -- (0,8.0);
+    \node[font=\scriptsize] at (0.6,4.8) {C1};
+    \node[font=\scriptsize] at (1.4,4.8) {C2};
+    \node[font=\scriptsize] at (2.1,4.8) {C3};
+    \node[font=\scriptsize] at (2.9,4.8) {C4};
+    \node[font=\scriptsize] at (3.6,4.8) {C5};
+    \node[font=\scriptsize] at (4.3,4.8) {C6};
+    \draw[bar] (0.4,5.2) rectangle (0.8,7.0);
+    \draw[bar] (1.1,5.2) rectangle (1.6,7.0);
+    \draw[bar] (1.9,5.2) rectangle (2.3,7.0);
+    \draw[bar] (2.6,5.2) rectangle (3.1,7.0);
+    \draw[bar] (3.4,5.2) rectangle (3.8,7.0);
+    \draw[bar] (4.1,5.2) rectangle (4.6,7.0);
+    \node[font=\scriptsize] at (0.6,7.2) {4};
+    \node[font=\scriptsize] at (1.4,7.2) {4};
+    \node[font=\scriptsize] at (2.1,7.2) {4};
+    \node[font=\scriptsize] at (2.9,7.2) {4};
+    \node[font=\scriptsize] at (3.6,7.2) {4};
+    \node[font=\scriptsize] at (4.3,7.2) {4};
+
+  \node[font=\scriptsize] at (7.0,8.4) {Insight count};
+  \draw[->] (5.0,5.2) -- (8.8,5.2);
+  \draw[->] (5.0,5.2) -- (5.0,8.0);
+  \node[font=\scriptsize, align=center] at (6.0,4.8) {Corr.};
+  \node[font=\scriptsize, align=center] at (7.4,4.8) {Emerg.};
+  \draw[ibar] (5.6,5.2) rectangle (6.4,7.7);
+  \draw[ibar] (7.0,5.2) rectangle (7.8,6.5);
+  \node[font=\scriptsize] at (6.0,8.0) {12};
+  \node[font=\scriptsize] at (7.4,6.8) {6};
+
+  \node[draw, rounded corners, align=left, font=\scriptsize, fill=gray!8] at (4.4,1.8) {
+    Input events: 24\
+    Distinct sources: 5\
+    Latest anomaly: rapid7-2024-27198-analysis
+  };
+\end{tikzpicture}

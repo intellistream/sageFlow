@@ -15,6 +15,7 @@ log.cfg
 
 # Experiment outputs
 *.png
+!docs/paper-icpp-demo/acmart-primary/figures/*.png
 *.tsv
 *.otf
 

@@ -1,0 +1,76 @@
+{
+  "pipelines": [
+    {
+      "name": "Snapshot",
+      "ops": "persistent join -> neighbors -> cluster/novelty",
+      "contract": "snapshot contract",
+      "application": "vulnerability copilot",
+      "events": 24,
+      "state_records": 24,
+      "outputs": 18,
+      "color": "orange"
+    },
+    {
+      "name": "Triage",
+      "ops": "filter -> bounded window -> ITopK-style context",
+      "contract": "routing contract",
+      "application": "ownership router",
+      "events": 24,
+      "state_records": 24,
+      "outputs": 24,
+      "color": "teal"
+    },
+    {
+      "name": "Security",
+      "ops": "filter -> corroborating join -> risk",
+      "contract": "escalation contract",
+      "application": "emergency response",
+      "events": 28,
+      "state_records": 28,
+      "outputs": 28,
+      "color": "red"
+    }
+  ],
+  "variants": [
+    {
+      "label": "Medium replay",
+      "clusters": 6,
+      "sources": 5,
+      "outputs": 18,
+      "throughput_k": 18.2,
+      "e2e_p95_ms": 11.8,
+      "snapshot_p95_ms": 4.6,
+      "fill": "orange"
+    },
+    {
+      "label": "Tighter threshold",
+      "clusters": 12,
+      "sources": 5,
+      "outputs": 8,
+      "throughput_k": 17.4,
+      "e2e_p95_ms": 12.7,
+      "snapshot_p95_ms": 5.1,
+      "fill": "yellow"
+    },
+    {
+      "label": "Shorter snapshot",
+      "clusters": 3,
+      "sources": 4,
+      "outputs": 9,
+      "throughput_k": 23.6,
+      "e2e_p95_ms": 9.1,
+      "snapshot_p95_ms": 3.2,
+      "fill": "teal"
+    },
+    {
+      "label": "Reordered stream",
+      "clusters": 6,
+      "sources": 5,
+      "outputs": 18,
+      "throughput_k": 17.9,
+      "e2e_p95_ms": 11.5,
+      "snapshot_p95_ms": 4.4,
+      "fill": "blue"
+    }
+  ]
+}

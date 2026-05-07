@@ -8,6 +8,7 @@ try:
         DataType,
         VectorData,
         VectorRecord,
+        PersistentJoinPair,
         # Enums
         FunctionType,
         WindowType,
@@ -27,6 +28,7 @@ try:
         SimpleStreamSource,
         StreamingSource,  # 新增：支持动态流式输入
         StreamEnvironment,
+        PersistentVectorJoinRuntime,
         # Convenience Functions
         create_source,
         create_streaming_source,  # 新增：创建 StreamingSource
@@ -41,6 +43,7 @@ try:
         "DataType",
         "VectorData",
         "VectorRecord",
+        "PersistentJoinPair",
         # Enums
         "FunctionType",
         "WindowType",
@@ -60,6 +63,7 @@ try:
         "SimpleStreamSource",
         "StreamingSource",  # 新增
         "StreamEnvironment",
+        "PersistentVectorJoinRuntime",
         # Convenience Functions
         "create_source",
         "create_streaming_source",  # 新增
@@ -75,4 +79,3 @@ except ImportError as e:
         stacklevel=2,
     )
     __all__ = ["__version__", "__author__", "__email__"]
-

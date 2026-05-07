@@ -3,6 +3,15 @@
 #include <pybind11/numpy.h>
 #include <pybind11/functional.h>
 
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <condition_variable>
+#include <cstdint>
+#include <mutex>
+#include <string>
+#include <vector>
+
 // C++ headers from sageFlow
 #include "common/data_types.h"
 #include "function/filter_function.h"
@@ -20,6 +29,254 @@
 
 namespace py = pybind11;
 using namespace sageFlow;  // NOLINT
+
+inline VectorData createVectorDataFromNumpy(py::array_t<float> arr);
+
+struct PersistentJoinPair {
+    uint64_t left_uid;
+    uint64_t right_uid;
+    int64_t timestamp;
+    double similarity;
+};
+
+inline double cosineSimilarity(const VectorRecord& left, const VectorRecord& right) {
+    if (left.data_.dim_ != right.data_.dim_) {
+        throw std::runtime_error("Cannot compare records with different dimensions");
+    }
+
+    const float* left_data = reinterpret_cast<const float*>(left.data_.data_.get());
+    const float* right_data = reinterpret_cast<const float*>(right.data_.data_.get());
+    double dot = 0.0;
+    double left_norm = 0.0;
+    double right_norm = 0.0;
+    for (int32_t i = 0; i < left.data_.dim_; ++i) {
+        dot += static_cast<double>(left_data[i]) * static_cast<double>(right_data[i]);
+        left_norm += static_cast<double>(left_data[i]) * static_cast<double>(left_data[i]);
+        right_norm += static_cast<double>(right_data[i]) * static_cast<double>(right_data[i]);
+    }
+    if (left_norm == 0.0 || right_norm == 0.0) {
+        return 0.0;
+    }
+    return dot / (std::sqrt(left_norm) * std::sqrt(right_norm));
+}
+
+class PersistentVectorJoinRuntime {
+ public:
+    PersistentVectorJoinRuntime(
+        int dim,
+        std::string join_method,
+        double similarity_threshold,
+        int64_t window_size_ms,
+        size_t queue_capacity,
+        size_t parallelism)
+        : dim_(dim),
+          join_method_(std::move(join_method)),
+          similarity_threshold_(similarity_threshold),
+          window_size_ms_(window_size_ms),
+          queue_capacity_(queue_capacity),
+          parallelism_(parallelism == 0 ? 1 : parallelism) {
+        if (dim_ <= 0) {
+            throw std::runtime_error("dim must be positive");
+        }
+        if (similarity_threshold_ <= 0.0 || similarity_threshold_ > 1.0) {
+            throw std::runtime_error("similarity_threshold must be in (0, 1]");
+        }
+        if (window_size_ms_ <= 0) {
+            throw std::runtime_error("window_size_ms must be positive");
+        }
+    }
+
+    ~PersistentVectorJoinRuntime() {
+        close();
+    }
+
+    void start() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (running_) {
+            return;
+        }
+
+        env_ = std::make_shared<StreamEnvironment>();
+        left_source_ = std::make_shared<StreamingSource>("persistent_join_left", queue_capacity_);
+        right_source_ = std::make_shared<StreamingSource>("persistent_join_right", queue_capacity_);
+        left_source_->setSnapshotCapacity(queue_capacity_ == 0 ? 10000 : queue_capacity_);
+        right_source_->setSnapshotCapacity(queue_capacity_ == 0 ? 10000 : queue_capacity_);
+
+        auto join_func = std::make_unique<JoinFunction>(
+            "persistent_join",
+            [this](const sageFlow::SharedRecord& left,
+                   const sageFlow::SharedRecord& right) -> std::unique_ptr<VectorRecord> {
+                if (!left || !right || left->uid_ == right->uid_) {
+                    return nullptr;
+                }
+
+                const auto ts = std::max(left->timestamp_, right->timestamp_);
+                const double similarity = cosineSimilarity(*left, *right);
+                {
+                    std::lock_guard<std::mutex> pair_lock(mutex_);
+                    emitted_pairs_.push_back(PersistentJoinPair{
+                        left->uid_,
+                        right->uid_,
+                        ts,
+                        similarity,
+                    });
+                }
+                pair_cv_.notify_all();
+
+                return std::make_unique<VectorRecord>(
+                    left->uid_,
+                    ts,
+                    VectorData(left->data_.dim_, left->data_.type_, left->data_.data_.get()));
+            },
+            window_size_ms_,
+            dim_);
+
+        auto joined = left_source_->join(
+            right_source_,
+            std::move(join_func),
+            join_method_,
+            similarity_threshold_,
+            parallelism_);
+        joined->writeSink(
+            std::make_unique<SinkFunction>(
+                "persistent_join_sink",
+                [](std::unique_ptr<VectorRecord>&) {}),
+            1);
+
+        env_->addStream(left_source_);
+        env_->addStream(right_source_);
+        env_->execute();
+        running_ = true;
+    }
+
+    void addLeft(uint64_t uid, int64_t timestamp, py::array_t<float> arr) {
+        addRecord(true, uid, timestamp, arr);
+    }
+
+    void addRight(uint64_t uid, int64_t timestamp, py::array_t<float> arr) {
+        addRecord(false, uid, timestamp, arr);
+    }
+
+    size_t emittedPairCount() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        return emitted_pairs_.size();
+    }
+
+    std::vector<PersistentJoinPair> pairsSince(size_t cursor) const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (cursor >= emitted_pairs_.size()) {
+            return {};
+        }
+        return std::vector<PersistentJoinPair>(emitted_pairs_.begin() + static_cast<std::ptrdiff_t>(cursor),
+                                               emitted_pairs_.end());
+    }
+
+    bool waitForPairCount(size_t target_count, int timeout_ms) const {
+        std::unique_lock<std::mutex> lock(mutex_);
+        return pair_cv_.wait_for(
+            lock,
+            std::chrono::milliseconds(std::max(timeout_ms, 0)),
+            [this, target_count] { return emitted_pairs_.size() >= target_count || !running_; });
+    }
+
+    py::dict runtimeInfo() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        py::dict info;
+        info["mode"] = running_ ? "persistent_streaming_join" : "closed";
+        info["join_method"] = join_method_;
+        info["similarity_threshold"] = similarity_threshold_;
+        info["window_size_ms"] = window_size_ms_;
+        info["parallelism"] = parallelism_;
+        info["retained_left_records"] = left_source_ ? left_source_->snapshotRecords().size() : 0;
+        info["retained_right_records"] = right_source_ ? right_source_->snapshotRecords().size() : 0;
+        info["queued_left_records"] = left_source_ ? left_source_->size() : 0;
+        info["queued_right_records"] = right_source_ ? right_source_->size() : 0;
+        info["emitted_pairs"] = emitted_pairs_.size();
+        return info;
+    }
+
+    void reset() {
+        close();
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            emitted_pairs_.clear();
+        }
+        start();
+    }
+
+    void close() {
+        std::shared_ptr<StreamEnvironment> env;
+        std::shared_ptr<StreamingSource> left;
+        std::shared_ptr<StreamingSource> right;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (!running_ && !env_) {
+                return;
+            }
+            env = env_;
+            left = left_source_;
+            right = right_source_;
+            running_ = false;
+            env_.reset();
+            left_source_.reset();
+            right_source_.reset();
+        }
+
+        if (left) {
+            left->finish();
+        }
+        if (right) {
+            right->finish();
+        }
+        if (env) {
+            try {
+                env->stop();
+                env->awaitTermination();
+            } catch (...) {
+                // Destructors must not throw across the Python boundary.
+            }
+        }
+        pair_cv_.notify_all();
+    }
+
+ private:
+    void addRecord(bool left_side, uint64_t uid, int64_t timestamp, py::array_t<float> arr) {
+        if (arr.request().ndim != 1 || arr.request().shape[0] != dim_) {
+            throw std::runtime_error("record vector dimension does not match runtime dim");
+        }
+        start();
+
+        auto data = createVectorDataFromNumpy(arr);
+        std::shared_ptr<StreamingSource> source;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            source = left_side ? left_source_ : right_source_;
+        }
+        if (!source) {
+            throw std::runtime_error("persistent runtime source is not available");
+        }
+
+        py::gil_scoped_release release;
+        if (!source->addRecord(uid, timestamp, std::move(data))) {
+            throw std::runtime_error("persistent runtime rejected record because the source is closed");
+        }
+    }
+
+    int dim_;
+    std::string join_method_;
+    double similarity_threshold_;
+    int64_t window_size_ms_;
+    size_t queue_capacity_;
+    size_t parallelism_;
+
+    mutable std::mutex mutex_;
+    mutable std::condition_variable pair_cv_;
+    std::shared_ptr<StreamEnvironment> env_;
+    std::shared_ptr<StreamingSource> left_source_;
+    std::shared_ptr<StreamingSource> right_source_;
+    std::vector<PersistentJoinPair> emitted_pairs_;
+    bool running_ = false;
+};
 
 // Helper function to create VectorData from numpy array
 inline VectorData createVectorDataFromNumpy(py::array_t<float> arr) {
@@ -120,6 +377,45 @@ PYBIND11_MODULE(_sage_flow, m) {
         .def("to_numpy", [](const VectorRecord& self) {
             return extractNumpyFromRecord(self);
         });
+
+    py::class_<PersistentJoinPair>(m, "PersistentJoinPair", py::module_local())
+        .def_readonly("left_uid", &PersistentJoinPair::left_uid)
+        .def_readonly("right_uid", &PersistentJoinPair::right_uid)
+        .def_readonly("timestamp", &PersistentJoinPair::timestamp)
+        .def_readonly("similarity", &PersistentJoinPair::similarity)
+        .def("to_dict", [](const PersistentJoinPair& self) {
+            py::dict payload;
+            payload["left_uid"] = self.left_uid;
+            payload["right_uid"] = self.right_uid;
+            payload["timestamp"] = self.timestamp;
+            payload["similarity"] = self.similarity;
+            return payload;
+        });
+
+    py::class_<PersistentVectorJoinRuntime>(m, "PersistentVectorJoinRuntime", py::module_local(),
+        "Long-lived two-input SageFlow join runtime backed by StreamingSource and StreamEnvironment.")
+        .def(py::init<int, std::string, double, int64_t, size_t, size_t>(),
+             py::arg("dim"),
+             py::arg("join_method") = "bruteforce_lazy",
+             py::arg("similarity_threshold") = 0.985,
+             py::arg("window_size_ms") = 24 * 60 * 60 * 1000,
+             py::arg("queue_capacity") = 1024,
+             py::arg("parallelism") = 1)
+        .def("start", &PersistentVectorJoinRuntime::start,
+             "Start the persistent StreamingSource-backed join graph.")
+        .def("add_left", &PersistentVectorJoinRuntime::addLeft,
+             py::arg("uid"), py::arg("timestamp"), py::arg("data"),
+             "Append a record to the left side of the persistent join.")
+        .def("add_right", &PersistentVectorJoinRuntime::addRight,
+             py::arg("uid"), py::arg("timestamp"), py::arg("data"),
+             "Append a record to the right side of the persistent join.")
+        .def("emitted_pair_count", &PersistentVectorJoinRuntime::emittedPairCount)
+        .def("pairs_since", &PersistentVectorJoinRuntime::pairsSince, py::arg("cursor"))
+        .def("wait_for_pair_count", &PersistentVectorJoinRuntime::waitForPairCount,
+             py::arg("target_count"), py::arg("timeout_ms") = 100)
+        .def("runtime_info", &PersistentVectorJoinRuntime::runtimeInfo)
+        .def("reset", &PersistentVectorJoinRuntime::reset)
+        .def("close", &PersistentVectorJoinRuntime::close);
 
     // ==================== Function Classes ====================
 
