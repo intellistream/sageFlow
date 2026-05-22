@@ -108,9 +108,12 @@ Table~\ref{tab:responsibilities} summarizes this division of responsibility. It 
   \end{tabular}
 \end{table}
 
+
 \section{Demonstration Scenario}
 
-The demo uses a deterministic public vulnerability-intelligence stream implemented in the current prototype. Twenty-four vector events arrive from NVD, vendor advisories, CISA KEV entries, CISA alerts, and research notes. They describe six evolving vulnerability families, including PAN-OS, XZ Utils, OpenSSH regreSSHion, PHP-CGI, Fortinet SSL-VPN, and TeamCity. Each event has an embedding, severity score, tags, and metadata. \system{} ingests these updates continuously, maintains a live semantic window, and emits join-backed summaries that can be consumed immediately by downstream LLM inference services.
+The demo section is written as a live walkthrough rather than as a conventional benchmark section. Recent systems demonstration papers typically use this part of the paper to make three things concrete: the scenario an attendee will see, the interface controls used during the session, and a small set of prepared results that can be reproduced without relying on live improvisation. We follow that structure for \system{}. The live path is intentionally compact, while the prepared evidence expands the same replay templates to larger workloads for scale and sensitivity discussion.
+
+The live scenario replays 24 public security reports that resemble what an operations team might receive during a busy disclosure week. The reports come from five familiar categories: a national vulnerability catalog, vendor security advisories, public exploit warnings, emergency coordination alerts, and practitioner research notes. Instead of asking attendees to remember product acronyms, the demo groups the stream into six plain-language incident families: a firewall gateway flaw, a supply-chain backdoor, a remote-login service race, a web runtime bug, a VPN gateway flaw, and a build-server authentication bypass. For each arriving report, \system{} keeps a compact semantic representation inside the vector runtime, returns the matching evidence to the orchestration layer, and then hands a bounded contract to an LLM-facing response service. The audience therefore sees both the runtime evidence and the final application effect: a grounded incident explanation, a routing decision, or an escalation note.
 
 \begin{figure}[t]
   \centering
@@ -120,40 +123,58 @@ The demo uses a deterministic public vulnerability-intelligence stream implement
   \label{fig:scenario}
 \end{figure}
 
-The downstream operators then turn those bounded summaries into application-facing insights. In the prepared run, cross-source CVE families provide fresh prompt context and routing evidence, while high-severity singleton updates become emerging anomalies for a security-facing agent. Figure~\ref{fig:scenario} is therefore not an internal pipeline sketch; it shows the end-to-end service role of \system{} inside an LLM inference stack, where runtime-maintained semantic state is surfaced as bounded evidence for the next inference step.
-
-Figure~\ref{fig:results} summarizes the concrete outcome of one deterministic prepared run. To avoid presenting this as a hand-written schematic, the figure is generated from the JSON artifact emitted by the real demo execution and included as a reproducible prepared-run record. The current implementation produces six clusters and 18 snapshot insights from the 24-event stream. Each cluster corresponds to a cross-source vulnerability family, and the companion routing and escalation paths export route and on-call contracts over the same maintained state. This is not a throughput benchmark; it is a compact run summary that connects runtime state, join-backed summaries, and final application output in one execution.
-
-\begin{figure}[t]
+\begin{figure*}[t]
   \centering
-  \input{generated/prepared_run_result_figure.tex}
-  \caption{Result summary of one deterministic prepared \system{} run, generated from the JSON artifact emitted by the live demo.}
-  \Description{A generated result figure with two bar charts derived from the prepared demo run. The left chart reports observed cluster sizes, the right chart reports correlated-incident and emerging-pattern counts, and the summary box reports input-event count, distinct-source count, and the latest anomaly identifier.}
-  \label{fig:results}
-\end{figure}
+  \includegraphics[width=0.92\textwidth]{figures/brisk_ui_walkthrough.png}
+  \caption{Demonstration interface view after the UI revision. The top trace separates the orchestration/application layer from the vector runtime layer so attendees can follow vector updates downward and match evidence upward before inspecting clusters and contracts.}
+  \Description{A rendered view of the BriskSnapshot demo interface. It contains live replay controls, a live dataflow trace, a current event panel, runtime metrics, current window clusters, and representative application contracts.}
+  \label{fig:ui}
+\end{figure*}
 
-\subsection{Demonstration Flow}
+\subsection{Live Walkthrough}
 
-The live demonstration highlights a practical systems lesson: a usable AI pipeline needs a robust runtime boundary, not just a powerful operator set. The path emphasized here keeps the true runtime on the ingestion path while returning a bounded summary through a narrow join-backed interface. This makes the runtime-managed semantic window visible without making execution fragile.
+The walkthrough follows one end-to-end path. First, the presenter starts the replay and selects the snapshot contract scenario. The interface highlights the current event, its source, and its deterministic embedding step. Second, the presenter follows the vector update into the runtime lane. This is the only layer that appends vector records and performs the windowed vector join. Third, the UI shows the evidence that returns upward: emitted match pairs, nearest neighbors, novelty, and the active cluster. Finally, the orchestration layer materializes a bounded contract consumed by application services. The same maintained state is then used to explain snapshot summaries, owner routing, and security escalation.
 
-The live demonstration follows one end-to-end path instead of several loosely connected micro-scenarios. It begins with the \system{} operator graph and identifies the exact point where the join runtime is invoked through the query path. This makes the software boundary explicit: one part of \system{} handles orchestration, while another part owns runtime state.
+This order fixes two weaknesses in the earlier demo UI. The prior view displayed many cards, but the data movement was implicit; it was easy to miss that the runtime only handled vector state while application and LLM-facing services lived above it. The revised interface therefore promotes a dataflow trace above the detailed panels. It also folds repetitive output cards so that the paper screenshot shows representative contracts rather than a long log of near-identical insights.
 
-It then runs the incident stream replay and exposes the real runtime output. The execution log, bounded summary payload, and final JSON artifact remain visible in the same path, making clear how a multicore stream runtime behaves when embedded inside a higher-level application stack rather than evaluated in isolation.
+\begin{table}[t]
+  \centering
+  \caption{Attendee-facing panels in the live walkthrough.}
+  \label{tab:ui-panels}
+  \begin{tabular}{@{}p{0.26\columnwidth}p{0.58\columnwidth}@{}}
+    \toprule
+    Panel & What it demonstrates \\
+    \midrule
+    Replay control & Deterministic start, reset, import, and live/backend connection state \\
+    Dataflow trace & Vector update enters the runtime; match evidence returns to orchestration \\
+    Current event & Source, tags, severity, and per-step latency for the active replay item \\
+    Runtime metrics & Retained records, emitted pairs, accepted events, and current runtime mode \\
+    Snapshot/contracts & Cluster membership and representative application-readable outputs \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
-\begin{itemize}[leftmargin=*,topsep=2pt,itemsep=2pt]
-  \item \textbf{Persistent join runtime.} The demo highlights how a long-lived runtime object can expose window join through one stable control path instead of scattering ad hoc low-level calls throughout the application.
-  \item \textbf{Stable bounded summary.} We show the runtime-level join path and explain why a bounded summary API is the right live-demo abstraction for application-facing semantic state.
-  \item \textbf{Application semantics.} We connect the low-level join result to the final user-visible result: correlated incident detection and anomaly surfacing from multi-source vector events.
-  \item \textbf{Parameter sensitivity.} By varying active-window size, similarity threshold, and event ordering in prepared runs, we can show how cluster composition and novelty scores change at the application layer.
-\end{itemize}
+\subsection{Prepared Evidence and Data Scale}
 
-This interaction model links parallel runtime structure to application-visible behavior without requiring a large deployment or a specialized dataset.
+The 24-event walkthrough is deliberately small because it must be explainable event by event. It is not meant to be the only data shown in the paper. The artifact now includes deterministic expanded replay tiers created from the same public-event templates by repeating each event with a unique identifier, shifted timestamp, and replay metadata. This gives the demo a reproducible way to discuss scale without changing the conceptual pipeline shown in Figure~\ref{fig:scenario}.
 
-\subsection{Prepared Demo Variants}
+\begin{table}[t]
+  \centering
+  \caption{Prepared replay tiers used by the demo and paper.}
+  \label{tab:scale-tiers}
+  \begin{tabular}{@{}lrrp{0.34\columnwidth}@{}}
+    \toprule
+    Tier & Events & Families & Role \\
+    \midrule
+    Live walkthrough & 24 & 6 & Step-by-step UI narration \\
+    Extended replay & 240 & 60 & Parameter sensitivity and snapshot stability \\
+    Scale replay & 2{,}400 & 600 & Runtime handoff and retained-window stress \\
+    Long replay & 24{,}000 & 6{,}000 & Offline prepared evidence for the paper \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
-Although the paper centers one stable end-to-end path, the live session can still show several meaningful variants without changing the software architecture. The first variant is the medium replay used throughout this paper. It uses the prepared 24-event stream, a moderate window size, and the current similarity threshold. This run surfaces six correlated vulnerability clusters and 18 snapshot insights. It is a useful entry point because it exposes every layer of \system{} in a compact execution.
-
-Table~\ref{tab:variants} summarizes the three most informative deviations from this baseline. Raising the similarity threshold fragments the final state and suppresses several correlated outputs. Reducing active-window size removes older vulnerability families from the exported state and shrinks active source coverage. Reversing the same event stream preserves the topic families but changes the latest event and the order in which application-visible insights are emitted. Together, these runs expose retention, semantic strictness, and order sensitivity as concrete system-level trade-offs.
+The prepared variants remain the most useful experiments for a demo paper because they expose visible system behavior rather than isolated microbenchmarks. Raising the similarity threshold fragments the final state and suppresses correlated outputs. Reducing active-window size removes older vulnerability families from the exported state and shrinks active source coverage. Reversing the same stream preserves the topic families but changes the latest event and the order in which application-visible insights are emitted. Together, these runs expose semantic strictness, retention, and order sensitivity as concrete system-level trade-offs.
 
 \begin{table}[t]
   \centering
@@ -171,7 +192,17 @@ Table~\ref{tab:variants} summarizes the three most informative deviations from t
   \end{tabular}
 \end{table}
 
-These are small experiments, but they expose exactly the state-management trade-offs that matter for parallel runtimes embedded in AI inference systems.
+Figure~\ref{fig:results} summarizes one deterministic prepared run. The revised figure emphasizes what the audience can understand from the run rather than only showing bar heights: the source categories, runtime evidence, six incident families, and the three application effects exposed to the LLM-facing service. The current implementation produces six clusters and 18 contracts from the 24-event walkthrough stream. Each cluster corresponds to a plain-language incident family, and the companion routing and escalation paths export contracts over the same maintained state.
+
+\begin{figure}[t]
+  \centering
+  \input{generated/prepared_run_result_figure.tex}
+  \caption{Result summary of one deterministic prepared \system{} run. The figure connects input reports, runtime evidence, incident families, and LLM-facing application effects.}
+  \Description{A generated result figure for the prepared demo run. It shows the input stream, runtime evidence, application contracts, six incident families, and LLM-facing effects including incident explanation, routing, and escalation.}
+  \label{fig:results}
+\end{figure}
+
+This interaction model links parallel runtime structure to application-visible behavior without requiring a large deployment or a specialized dataset. The UI screenshot belongs in the paper because it shows the audience experience: controls, dataflow direction, runtime evidence, and final contracts are all visible at once. The scale table then prevents the paper from appearing to rely only on a toy data sample.
 
 \section{Conclusion}
 

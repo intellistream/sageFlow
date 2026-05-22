@@ -1,0 +1,283 @@
+%%% -*-BibTeX-*-
+%%% Do NOT edit. File created by BibTeX with style
+%%% ACM-Reference-Format-Journals [18-Jan-2012].
+
+\begin{thebibliography}{15}
+
+%%% ====================================================================
+%%% NOTE TO THE USER: you can override these defaults by providing
+%%% customized versions of any of these macros before the \bibliography
+%%% command.  Each of them MUST provide its own final punctuation,
+%%% except for \shownote{}, \showDOI{}, and \showURL{}.  The latter two
+%%% do not use final punctuation, in order to avoid confusing it with
+%%% the Web address.
+%%%
+%%% To suppress output of a particular field, define its macro to expand
+%%% to an empty string, or better, \unskip, like this:
+%%%
+%%% \newcommand{\showDOI}[1]{\unskip}   % LaTeX syntax
+%%%
+%%% \def \showDOI #1{\unskip}           % plain TeX syntax
+%%%
+%%% ====================================================================
+
+\ifx \showCODEN    \undefined \def \showCODEN     #1{\unskip}     \fi
+\ifx \showDOI      \undefined \def \showDOI       #1{#1}\fi
+\ifx \showISBNx    \undefined \def \showISBNx     #1{\unskip}     \fi
+\ifx \showISBNxiii \undefined \def \showISBNxiii  #1{\unskip}     \fi
+\ifx \showISSN     \undefined \def \showISSN      #1{\unskip}     \fi
+\ifx \showLCCN     \undefined \def \showLCCN      #1{\unskip}     \fi
+\ifx \shownote     \undefined \def \shownote      #1{#1}          \fi
+\ifx \showarticletitle \undefined \def \showarticletitle #1{#1}   \fi
+\ifx \showURL      \undefined \def \showURL       {\relax}        \fi
+% The following commands are used for tagged output and should be
+% invisible to TeX
+\providecommand\bibfield[2]{#2}
+\providecommand\bibinfo[2]{#2}
+\providecommand\natexlab[1]{#1}
+\providecommand\showeprint[2][]{arXiv:#2}
+
+\bibitem[\protect\citeauthoryear{Akidau, Balikov, Bekiro\u{g}lu, Chernyak,
+  Haberman, Lax, McVeety, Mills, Nordstrom, Whittle, Wilfong, and
+  Zaj\k{a}c}{Akidau et~al\mbox{.}}{2015}]%
+        {akidau2015dataflow}
+\bibfield{author}{\bibinfo{person}{Tyler Akidau}, \bibinfo{person}{Alex
+  Balikov}, \bibinfo{person}{Kaya Bekiro\u{g}lu}, \bibinfo{person}{Slava
+  Chernyak}, \bibinfo{person}{Josh Haberman}, \bibinfo{person}{Reuven Lax},
+  \bibinfo{person}{Sam McVeety}, \bibinfo{person}{Daniel Mills},
+  \bibinfo{person}{Paul Nordstrom}, \bibinfo{person}{Sam Whittle},
+  \bibinfo{person}{Robert Wilfong}, {and} \bibinfo{person}{Lukasz Zaj\k{a}c}.}
+  \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{The Dataflow Model: A Practical Approach to
+  Balancing Correctness, Latency, and Cost in Massive-Scale, Unbounded,
+  Out-of-Order Data Processing}.
+\newblock \bibinfo{journal}{\emph{Proceedings of the VLDB Endowment}}
+  \bibinfo{volume}{8}, \bibinfo{number}{12} (\bibinfo{year}{2015}),
+  \bibinfo{pages}{1792--1803}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{De~Francisci~Morales and
+  Gionis}{De~Francisci~Morales and Gionis}{2016}]%
+        {morales2016streaming}
+\bibfield{author}{\bibinfo{person}{Gianmarco De~Francisci~Morales} {and}
+  \bibinfo{person}{Aristides Gionis}.} \bibinfo{year}{2016}\natexlab{}.
+\newblock \showarticletitle{Streaming Similarity Self-Join}.
+\newblock \bibinfo{journal}{\emph{Proceedings of the VLDB Endowment}}
+  \bibinfo{volume}{9}, \bibinfo{number}{10} (\bibinfo{year}{2016}),
+  \bibinfo{pages}{792--803}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.14778/2977797.2977805}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Indyk and Motwani}{Indyk and Motwani}{1998}]%
+        {indyk1998approximate}
+\bibfield{author}{\bibinfo{person}{Piotr Indyk} {and} \bibinfo{person}{Rajeev
+  Motwani}.} \bibinfo{year}{1998}\natexlab{}.
+\newblock \showarticletitle{Approximate Nearest Neighbors: Towards Removing the
+  Curse of Dimensionality}. In \bibinfo{booktitle}{\emph{Proceedings of the
+  Thirtieth Annual ACM Symposium on Theory of Computing}}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{604--613}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/276698.276876}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{J\'egou, Douze, and Schmid}{J\'egou
+  et~al\mbox{.}}{2011}]%
+        {jegou2011product}
+\bibfield{author}{\bibinfo{person}{Herv\'e J\'egou}, \bibinfo{person}{Matthijs
+  Douze}, {and} \bibinfo{person}{Cordelia Schmid}.}
+  \bibinfo{year}{2011}\natexlab{}.
+\newblock \showarticletitle{Product Quantization for Nearest Neighbor Search}.
+\newblock \bibinfo{journal}{\emph{IEEE Transactions on Pattern Analysis and
+  Machine Intelligence}} \bibinfo{volume}{33}, \bibinfo{number}{1}
+  (\bibinfo{year}{2011}), \bibinfo{pages}{117--128}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Kraska, Beutel, Chi, Dean, and
+  Polyzotis}{Kraska et~al\mbox{.}}{2018}]%
+        {kraska2018case}
+\bibfield{author}{\bibinfo{person}{Tim Kraska}, \bibinfo{person}{Alex Beutel},
+  \bibinfo{person}{Ed~H. Chi}, \bibinfo{person}{Jeffrey Dean}, {and}
+  \bibinfo{person}{Neoklis Polyzotis}.} \bibinfo{year}{2018}\natexlab{}.
+\newblock \showarticletitle{The Case for Learned Index Structures}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 2018 International Conference on
+  Management of Data}}. \bibinfo{publisher}{Association for Computing
+  Machinery}, \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{489--504}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3183713.3196909}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Lewis, Perez, Piktus, Petroni, Karpukhin,
+  Goyal, K{"u}ttler, Lewis, Yih, Rockt{"a}schel, Riedel, and Kiela}{Lewis
+  et~al\mbox{.}}{2020}]%
+        {lewis2020rag}
+\bibfield{author}{\bibinfo{person}{Patrick Lewis}, \bibinfo{person}{Ethan
+  Perez}, \bibinfo{person}{Aleksandra Piktus}, \bibinfo{person}{Fabio Petroni},
+  \bibinfo{person}{Vladimir Karpukhin}, \bibinfo{person}{Naman Goyal},
+  \bibinfo{person}{Heinrich K{"u}ttler}, \bibinfo{person}{Mike Lewis},
+  \bibinfo{person}{Wen-tau Yih}, \bibinfo{person}{Tim Rockt{"a}schel},
+  \bibinfo{person}{Sebastian Riedel}, {and} \bibinfo{person}{Douwe Kiela}.}
+  \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Retrieval-Augmented Generation for
+  Knowledge-Intensive NLP Tasks}. In \bibinfo{booktitle}{\emph{Advances in
+  Neural Information Processing Systems (NeurIPS)}}, Vol.~\bibinfo{volume}{33}.
+  \bibinfo{publisher}{Curran Associates, Inc.}, \bibinfo{address}{Red Hook, NY,
+  USA}, \bibinfo{pages}{9459--9474}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Lin, Ooi, Wang, and Yu}{Lin
+  et~al\mbox{.}}{2015}]%
+        {lin2015scalable}
+\bibfield{author}{\bibinfo{person}{Qian Lin}, \bibinfo{person}{Beng~Chin Ooi},
+  \bibinfo{person}{Zhengkui Wang}, {and} \bibinfo{person}{Cui Yu}.}
+  \bibinfo{year}{2015}\natexlab{}.
+\newblock \showarticletitle{Scalable Distributed Stream Join Processing}. In
+  \bibinfo{booktitle}{\emph{Proceedings of the 2015 ACM SIGMOD International
+  Conference on Management of Data}}. \bibinfo{publisher}{Association for
+  Computing Machinery}, \bibinfo{address}{New York, NY, USA},
+  \bibinfo{pages}{811--825}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/2723372.2746485}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Malkov and Yashunin}{Malkov and
+  Yashunin}{2020}]%
+        {malkov2018efficient}
+\bibfield{author}{\bibinfo{person}{Yu~A. Malkov} {and} \bibinfo{person}{D.~A.
+  Yashunin}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Efficient and Robust Approximate Nearest Neighbor
+  Search Using Hierarchical Navigable Small World Graphs}.
+\newblock \bibinfo{journal}{\emph{IEEE Transactions on Pattern Analysis and
+  Machine Intelligence}} \bibinfo{volume}{42}, \bibinfo{number}{4}
+  (\bibinfo{year}{2020}), \bibinfo{pages}{824--836}.
+\newblock
+
+
+\bibitem[\protect\citeauthoryear{Rafiei and Deng}{Rafiei and Deng}{2020}]%
+        {rafiei2020similarity}
+\bibfield{author}{\bibinfo{person}{Davood Rafiei} {and} \bibinfo{person}{Fan
+  Deng}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Similarity Join and Similarity Self-Join Size
+  Estimation in a Streaming Environment}.
+\newblock \bibinfo{journal}{\emph{IEEE Transactions on Knowledge and Data
+  Engineering}} \bibinfo{volume}{32}, \bibinfo{number}{4}
+  (\bibinfo{year}{2020}), \bibinfo{pages}{768--781}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1109/TKDE.2019.2893175}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Roy, Teubner, and Gemulla}{Roy
+  et~al\mbox{.}}{2014}]%
+        {roy2014llhj}
+\bibfield{author}{\bibinfo{person}{Pratanu Roy}, \bibinfo{person}{Jens
+  Teubner}, {and} \bibinfo{person}{Rainer Gemulla}.}
+  \bibinfo{year}{2014}\natexlab{}.
+\newblock \showarticletitle{Low-latency Handshake Join}.
+\newblock \bibinfo{journal}{\emph{Proceedings of the VLDB Endowment}}
+  \bibinfo{volume}{7}, \bibinfo{number}{9} (\bibinfo{year}{2014}),
+  \bibinfo{pages}{709--720}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.14778/2732939.2732944}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Shahvarani and Jacobsen}{Shahvarani and
+  Jacobsen}{2020}]%
+        {shahvarani2020pimtree}
+\bibfield{author}{\bibinfo{person}{Amirhesam Shahvarani} {and}
+  \bibinfo{person}{Hans-Arno Jacobsen}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Parallel Index-based Stream Join on a Multicore
+  CPU}. In \bibinfo{booktitle}{\emph{Proceedings of the 2020 ACM SIGMOD
+  International Conference on Management of Data}}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{2523--2537}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3318464.3380576}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Wang, Zuo, Zhang, Shu, Liu, and He}{Wang
+  et~al\mbox{.}}{2024}]%
+        {wang2024lowlatency}
+\bibfield{author}{\bibinfo{person}{Qihang Wang}, \bibinfo{person}{Decheng Zuo},
+  \bibinfo{person}{Zhan Zhang}, \bibinfo{person}{Yanjun Shu},
+  \bibinfo{person}{Xin Liu}, {and} \bibinfo{person}{Mingxuan He}.}
+  \bibinfo{year}{2024}\natexlab{}.
+\newblock \showarticletitle{Low-Latency Adaptive Distributed Stream Join System
+  Based on a Flexible Join Model}.
+\newblock \bibinfo{journal}{\emph{Proceedings of the ACM on Management of
+  Data}} \bibinfo{volume}{2}, \bibinfo{number}{3} (\bibinfo{year}{2024}),
+  \bibinfo{pages}{1--27}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3654953}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Xu, Liang, Li, Xu, Chen, Zhang, Li, Yang,
+  Yang, Yang, Cheng, and Yang}{Xu et~al\mbox{.}}{2023}]%
+        {xu2023spfresh}
+\bibfield{author}{\bibinfo{person}{Yuming Xu}, \bibinfo{person}{Hengyu Liang},
+  \bibinfo{person}{Jin Li}, \bibinfo{person}{Shuotao Xu}, \bibinfo{person}{Qi
+  Chen}, \bibinfo{person}{Qianxi Zhang}, \bibinfo{person}{Cheng Li},
+  \bibinfo{person}{Ziyue Yang}, \bibinfo{person}{Fan Yang},
+  \bibinfo{person}{Yuqing Yang}, \bibinfo{person}{Peng Cheng}, {and}
+  \bibinfo{person}{Mao Yang}.} \bibinfo{year}{2023}\natexlab{}.
+\newblock \showarticletitle{SPFresh: Incremental In-Place Update for
+  Billion-Scale Vector Search}. In \bibinfo{booktitle}{\emph{Proceedings of the
+  29th Symposium on Operating Systems Principles}}.
+  \bibinfo{publisher}{Association for Computing Machinery},
+  \bibinfo{address}{New York, NY, USA}, \bibinfo{pages}{545--561}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1145/3600006.3613166}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Yang, Zhang, Wang, Zhang, and Lin}{Yang
+  et~al\mbox{.}}{2020}]%
+        {yang2020distributed}
+\bibfield{author}{\bibinfo{person}{Jianye Yang}, \bibinfo{person}{Wenjie
+  Zhang}, \bibinfo{person}{Xiang Wang}, \bibinfo{person}{Ying Zhang}, {and}
+  \bibinfo{person}{Xuemin Lin}.} \bibinfo{year}{2020}\natexlab{}.
+\newblock \showarticletitle{Distributed Streaming Set Similarity Join}. In
+  \bibinfo{booktitle}{\emph{2020 IEEE 36th International Conference on Data
+  Engineering (ICDE)}}. \bibinfo{publisher}{IEEE}, \bibinfo{address}{Los
+  Alamitos, CA, USA}, \bibinfo{pages}{565--576}.
+\newblock
+\urldef\tempurl%
+\url{https://doi.org/10.1109/ICDE48307.2020.00055}
+\showDOI{\tempurl}
+
+
+\bibitem[\protect\citeauthoryear{Zhou, Cao, Qian, and Jin}{Zhou
+  et~al\mbox{.}}{2008}]%
+        {zhou2008tracking}
+\bibfield{author}{\bibinfo{person}{Aoying Zhou}, \bibinfo{person}{Feng Cao},
+  \bibinfo{person}{Weining Qian}, {and} \bibinfo{person}{Cheqing Jin}.}
+  \bibinfo{year}{2008}\natexlab{}.
+\newblock \showarticletitle{Tracking clusters in evolving data streams over
+  sliding windows}.
+\newblock \bibinfo{journal}{\emph{Knowledge and Information Systems}}
+  \bibinfo{volume}{15}, \bibinfo{number}{2} (\bibinfo{year}{2008}),
+  \bibinfo{pages}{181--214}.
+\newblock
+
+
+\end{thebibliography}

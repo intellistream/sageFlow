@@ -72,5 +72,39 @@
       "snapshot_p95_ms": 4.4,
       "fill": "blue"
     }
+  ],
+  "scale_tiers": [
+    {
+      "label": "Live walkthrough",
+      "events": 24,
+      "repetitions": 1,
+      "source_classes": 5,
+      "families": 6,
+      "use": "step-by-step UI narration"
+    },
+    {
+      "label": "Extended replay",
+      "events": 240,
+      "repetitions": 10,
+      "source_classes": 5,
+      "families": 60,
+      "use": "parameter sensitivity and snapshot stability"
+    },
+    {
+      "label": "Scale replay",
+      "events": 2400,
+      "repetitions": 100,
+      "source_classes": 5,
+      "families": 600,
+      "use": "runtime handoff and retained-window stress"
+    },
+    {
+      "label": "Long replay",
+      "events": 24000,
+      "repetitions": 1000,
+      "source_classes": 5,
+      "families": 6000,
+      "use": "offline prepared evidence for the paper"
+    }
   ]
 }

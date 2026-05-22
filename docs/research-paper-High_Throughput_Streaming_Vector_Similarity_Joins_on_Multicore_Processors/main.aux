@@ -1,0 +1,160 @@
+\relax 
+\providecommand\hyper@newdestlabel[2]{}
+\providecommand\HyperFirstAtBeginDocument{\AtBeginDocument}
+\HyperFirstAtBeginDocument{\ifx\hyper@anchor\@undefined
+\global\let\oldcontentsline\contentsline
+\gdef\contentsline#1#2#3#4{\oldcontentsline{#1}{#2}{#3}}
+\global\let\oldnewlabel\newlabel
+\gdef\newlabel#1#2{\newlabelxx{#1}#2}
+\gdef\newlabelxx#1#2#3#4#5#6{\oldnewlabel{#1}{{#2}{#3}}}
+\AtEndDocument{\ifx\hyper@anchor\@undefined
+\let\contentsline\oldcontentsline
+\let\newlabel\oldnewlabel
+\fi}
+\fi}
+\global\let\hyper@last\relax 
+\gdef\HyperFirstAtBeginDocument#1{#1}
+\providecommand\HyField@AuxAddToFields[1]{}
+\providecommand\HyField@AuxAddToCoFields[2]{}
+\citation{lewis2020rag}
+\citation{jegou2011product,malkov2018efficient}
+\citation{jegou2011product}
+\citation{malkov2018efficient}
+\citation{kraska2018case}
+\citation{akidau2015dataflow}
+\citation{indyk1998approximate}
+\providecommand \oddpage@label [2]{}
+\@writefile{toc}{\contentsline {section}{Abstract}{1}{section*.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {1}Introduction}{1}{section.1}\protected@file@percent }
+\newlabel{sec:intro}{{1}{1}{Introduction}{section.1}{}}
+\@writefile{toc}{\contentsline {paragraph}{Context: streaming vector joins in LLM middleware.}{1}{section*.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The fundamental challenge: granularity tensions in high-parallelism streaming vector joins.}{1}{section*.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Related approaches and their limitations.}{1}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Preliminary evidence of the problem.}{2}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Our approach: four coordinated mechanisms.}{2}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Testable contributions.}{2}{section*.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Organization.}{2}{section*.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Problem Statement and Motivation}{3}{section.2}\protected@file@percent }
+\newlabel{sec:problem-statement}{{2}{3}{Problem Statement and Motivation}{section.2}{}}
+\@writefile{toc}{\contentsline {paragraph}{Three coupled tensions in high-parallelism streaming vector joins.}{3}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Preliminary observations: failure modes of baseline approaches.}{3}{section*.11}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Correctness anchor versus system heuristics.}{3}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Why the old structure is insufficient.}{3}{section*.13}\protected@file@percent }
+\citation{jegou2011product,malkov2018efficient}
+\@writefile{toc}{\contentsline {paragraph}{Why existing approaches are insufficient.}{4}{section*.14}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Implication for VSJoin design.}{4}{section*.15}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{fig:zero-copy-path}{{\caption@xref {fig:zero-copy-path}{ on input line 14}}{4}{Implication for VSJoin design}{figure.caption.16}{}}
+\newlabel{fig:versioned-split}{{\caption@xref {fig:versioned-split}{ on input line 30}}{4}{Implication for VSJoin design}{figure.caption.17}{}}
+\newlabel{fig:two-level-centroid}{{\caption@xref {fig:two-level-centroid}{ on input line 43}}{4}{Implication for VSJoin design}{figure.caption.18}{}}
+\newlabel{fig:load-aware-budget}{{\caption@xref {fig:load-aware-budget}{ on input line 57}}{4}{Implication for VSJoin design}{figure.caption.19}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {3}Core Join Architecture and Execution Paths}{4}{section.3}\protected@file@percent }
+\newlabel{sec:core-architecture}{{3}{4}{Core Join Architecture and Execution Paths}{section.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Execution Contract and Design Goals}{4}{subsection.3.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.2}Mechanism I: Two-Level Centroid Partitioning (for G1)}{5}{subsection.3.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Design goal.}{5}{section*.20}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mechanism sketch.}{5}{section*.21}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{When the separation works.}{5}{section*.22}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Trade-off and scope.}{5}{section*.23}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.3}Mechanism II: Load-Aware Budgeted Routing (for G2)}{5}{subsection.3.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Design goal.}{5}{section*.24}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mechanism sketch.}{5}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{When adaptive budgets help.}{6}{section*.26}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Trade-off and scope.}{6}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.4}Mechanism III: Versioned Online Split (for G3)}{6}{subsection.3.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Design goal.}{6}{section*.28}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mechanism sketch.}{6}{section*.29}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{When versioning avoids migration cost.}{6}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Trade-off and scope.}{6}{section*.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.5}Mechanism IV: Zero-Copy Batched Execution Path (for G4)}{6}{subsection.3.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Design goal.}{6}{section*.32}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Mechanism sketch.}{7}{section*.33}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{When pointer-based execution pays off.}{7}{section*.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Trade-off and scope.}{7}{section*.35}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces  VSJoin integrated execution pipeline. Data plane (top) combines four mechanisms: micro-batch admission (M4), coarse routing with load signals (M2), pointer multicast to selected workers (M4), worker-local fine-centroid indexing (M1), exact verification, and emission. Control plane (bottom) runs asynchronously: load monitor tracks centroid-level load, split controller detects hot regions, and versioned routing table coordinates atomic publication without hot-path locking.\relax }}{7}{figure.caption.36}\protected@file@percent }
+\newlabel{fig:vsjoin-architecture}{{1}{7}{VSJoin integrated execution pipeline. Data plane (top) combines four mechanisms: micro-batch admission (M4), coarse routing with load signals (M2), pointer multicast to selected workers (M4), worker-local fine-centroid indexing (M1), exact verification, and emission. Control plane (bottom) runs asynchronously: load monitor tracks centroid-level load, split controller detects hot regions, and versioned routing table coordinates atomic publication without hot-path locking.\relax }{figure.caption.36}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.6}Integrated VSJoin Path and Baseline Context}{7}{subsection.3.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {4}Implementation Details}{8}{section.4}\protected@file@percent }
+\newlabel{sec:implementation-details}{{4}{8}{Implementation Details}{section.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Implementation in \emph  {VSJoin}\xspace  }{8}{subsection.4.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.2}Mechanism-I Realization: Two-Level Centroid Partitioning (P1)}{8}{subsection.4.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.3}Mechanism-II Realization: Load-Aware Budgeted Routing (P2)}{8}{subsection.4.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.4}Mechanism-III Realization: Versioned Online Split (P3)}{8}{subsection.4.4}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.5}Mechanism-IV Realization: Zero-Copy Batched Execution (P4)}{8}{subsection.4.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Experimental Configuration Parameters\relax }}{9}{table.caption.37}\protected@file@percent }
+\newlabel{tbl:config}{{1}{9}{Experimental Configuration Parameters\relax }{table.caption.37}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.6}Consistency and Scope}{9}{subsection.4.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {5}Experimental Results}{9}{section.5}\protected@file@percent }
+\newlabel{sec:results}{{5}{9}{Experimental Results}{section.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Experimental Methodology}{9}{subsection.5.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.2}Overall End-to-End Comparison}{9}{subsection.5.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.3}P1: Two-Level Partitioning for High-Parallelism Recall}{9}{subsection.5.3}\protected@file@percent }
+\newlabel{fig:p1-recall-scaling}{{\caption@xref {fig:p1-recall-scaling}{ on input line 86}}{10}{Experimental Steps for P1}{figure.caption.39}{}}
+\newlabel{fig:p1-cost}{{\caption@xref {fig:p1-cost}{ on input line 99}}{10}{Experimental Steps for P1}{figure.caption.40}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.4}P2: Load-Aware Budgeted Routing under Skew}{10}{subsection.5.4}\protected@file@percent }
+\newlabel{fig:p2-recall-skew}{{\caption@xref {fig:p2-recall-skew}{ on input line 131}}{10}{Experimental Steps for P2}{figure.caption.42}{}}
+\newlabel{fig:p2-imbalance}{{\caption@xref {fig:p2-imbalance}{ on input line 144}}{10}{Experimental Steps for P2}{figure.caption.43}{}}
+\newlabel{fig:p2-duplicates}{{\caption@xref {fig:p2-duplicates}{ on input line 156}}{10}{Experimental Steps for P2}{figure.caption.44}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.5}P3: Versioned Online Split for Drift without Bulk Migration}{10}{subsection.5.5}\protected@file@percent }
+\newlabel{fig:p3-imbalance-recovery}{{\caption@xref {fig:p3-imbalance-recovery}{ on input line 188}}{11}{Experimental Steps for P3}{figure.caption.46}{}}
+\newlabel{fig:p3-recall-transition}{{\caption@xref {fig:p3-recall-transition}{ on input line 201}}{11}{Experimental Steps for P3}{figure.caption.47}{}}
+\newlabel{fig:p3-control-overhead}{{\caption@xref {fig:p3-control-overhead}{ on input line 213}}{11}{Experimental Steps for P3}{figure.caption.48}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.6}P4: Zero-Copy Batched Execution for Effective Throughput}{11}{subsection.5.6}\protected@file@percent }
+\newlabel{fig:p4-throughput-variants}{{\caption@xref {fig:p4-throughput-variants}{ on input line 245}}{11}{Experimental Steps for P4}{figure.caption.50}{}}
+\newlabel{fig:p4-latency-batch}{{\caption@xref {fig:p4-latency-batch}{ on input line 259}}{11}{Experimental Steps for P4}{figure.caption.51}{}}
+\newlabel{fig:p4-effective-throughput}{{\caption@xref {fig:p4-effective-throughput}{ on input line 271}}{11}{Experimental Steps for P4}{figure.caption.52}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.7}Sensitivity to VSJoin Control Parameters}{11}{subsection.5.7}\protected@file@percent }
+\citation{jegou2011product}
+\citation{malkov2018efficient}
+\citation{jegou2011product}
+\citation{kraska2018case}
+\citation{akidau2015dataflow}
+\citation{roy2014llhj}
+\citation{shahvarani2020pimtree}
+\citation{wang2024lowlatency}
+\citation{yang2020distributed,morales2016streaming}
+\citation{indyk1998approximate}
+\citation{rafiei2020similarity}
+\citation{xu2023spfresh}
+\newlabel{fig:sensitivity-matrix}{{\caption@xref {fig:sensitivity-matrix}{ on input line 299}}{12}{Sensitivity to VSJoin Control Parameters}{figure.caption.53}{}}
+\newlabel{fig:neg-operating-region}{{\caption@xref {fig:neg-operating-region}{ on input line 327}}{12}{Specific Degradation Cases to Report}{figure.caption.55}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.8}Negative Findings and Degradation Boundaries}{12}{subsection.5.8}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.9}Discussion}{12}{subsection.5.9}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Related Work}{12}{section.6}\protected@file@percent }
+\newlabel{sec:related-work}{{6}{12}{Related Work}{section.6}{}}
+\@writefile{toc}{\contentsline {paragraph}{(1) Static and batch vector similarity search.}{12}{section*.56}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(2) Multicore and distributed stream joins for structured keys.}{12}{section*.57}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{(3) Distributed vector-stream and spatial partitioning methods.}{12}{section*.58}\protected@file@percent }
+\citation{*}
+\bibstyle{ACM-Reference-Format}
+\bibdata{References}
+\bibcite{akidau2015dataflow}{{1}{2015}{{Akidau et~al\mbox  {.}}}{{Akidau, Balikov, Bekiro\u {g}lu, Chernyak, Haberman, Lax, McVeety, Mills, Nordstrom, Whittle, Wilfong, and Zaj\k {a}c}}}
+\bibcite{morales2016streaming}{{2}{2016}{{De~Francisci~Morales and Gionis}}{{De~Francisci~Morales and Gionis}}}
+\bibcite{indyk1998approximate}{{3}{1998}{{Indyk and Motwani}}{{Indyk and Motwani}}}
+\bibcite{jegou2011product}{{4}{2011}{{J\'egou et~al\mbox  {.}}}{{J\'egou, Douze, and Schmid}}}
+\bibcite{kraska2018case}{{5}{2018}{{Kraska et~al\mbox  {.}}}{{Kraska, Beutel, Chi, Dean, and Polyzotis}}}
+\bibcite{lewis2020rag}{{6}{2020}{{Lewis et~al\mbox  {.}}}{{Lewis, Perez, Piktus, Petroni, Karpukhin, Goyal, K{"u}ttler, Lewis, Yih, Rockt{"a}schel, Riedel, and Kiela}}}
+\@writefile{toc}{\contentsline {paragraph}{Why existing approaches fall short.}{13}{section*.59}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {7}Conclusion}{13}{section.7}\protected@file@percent }
+\newlabel{sec:conclusion}{{7}{13}{Conclusion}{section.7}{}}
+\@writefile{toc}{\contentsline {paragraph}{Evidence and scope.}{13}{section*.60}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Open questions and future work.}{13}{section*.61}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{References}{13}{section*.63}\protected@file@percent }
+\bibcite{lin2015scalable}{{7}{2015}{{Lin et~al\mbox  {.}}}{{Lin, Ooi, Wang, and Yu}}}
+\bibcite{malkov2018efficient}{{8}{2020}{{Malkov and Yashunin}}{{Malkov and Yashunin}}}
+\bibcite{rafiei2020similarity}{{9}{2020}{{Rafiei and Deng}}{{Rafiei and Deng}}}
+\bibcite{roy2014llhj}{{10}{2014}{{Roy et~al\mbox  {.}}}{{Roy, Teubner, and Gemulla}}}
+\bibcite{shahvarani2020pimtree}{{11}{2020}{{Shahvarani and Jacobsen}}{{Shahvarani and Jacobsen}}}
+\bibcite{wang2024lowlatency}{{12}{2024}{{Wang et~al\mbox  {.}}}{{Wang, Zuo, Zhang, Shu, Liu, and He}}}
+\bibcite{xu2023spfresh}{{13}{2023}{{Xu et~al\mbox  {.}}}{{Xu, Liang, Li, Xu, Chen, Zhang, Li, Yang, Yang, Yang, Cheng, and Yang}}}
+\bibcite{yang2020distributed}{{14}{2020}{{Yang et~al\mbox  {.}}}{{Yang, Zhang, Wang, Zhang, and Lin}}}
+\bibcite{zhou2008tracking}{{15}{2008}{{Zhou et~al\mbox  {.}}}{{Zhou, Cao, Qian, and Jin}}}
+\newlabel{tocindent-1}{0pt}
+\newlabel{tocindent0}{0pt}
+\newlabel{tocindent1}{4.185pt}
+\newlabel{tocindent2}{10.34999pt}
+\newlabel{tocindent3}{0pt}
+\newlabel{tocindent4}{0pt}
+\newlabel{tocindent5}{0pt}
+\newlabel{TotPages}{{14}{14}{}{page.14}{}}
+\gdef \@abspage@last{14}

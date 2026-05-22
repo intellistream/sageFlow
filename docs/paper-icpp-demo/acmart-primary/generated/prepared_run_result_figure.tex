@@ -1,46 +1,65 @@
-% Generated from data/prepared_demo_run.json by scripts/generate_prepared_run_figure.py.
+% Generated summary view for the prepared BriskSnapshot run.
 \begin{tikzpicture}[
-  font=\footnotesize,
-  x=0.9cm,
-  y=0.5cm,
-  bar/.style={draw, fill=blue!35},
-  ibar/.style={draw, fill=red!30}
+  font=\scriptsize,
+  x=0.72cm,
+  y=0.52cm,
+  box/.style={draw=black!18, rounded corners=2pt, fill=gray!4, inner sep=4pt},
+  bluebox/.style={draw=blue!35, rounded corners=2pt, fill=blue!6, inner sep=4pt},
+  greenbox/.style={draw=teal!45, rounded corners=2pt, fill=teal!6, inner sep=4pt},
+  orangebox/.style={draw=orange!55, rounded corners=2pt, fill=orange!8, inner sep=4pt},
+  redbox/.style={draw=red!45, rounded corners=2pt, fill=red!6, inner sep=4pt}
 ]
-  \node[font=\scriptsize] at (1.5,8.4) {Cluster size};
-  \draw[->] (0,5.2) -- (5.4,5.2);
-  \draw[->] (0,5.2) -- (0,8.0);
-    \node[font=\scriptsize] at (0.6,4.8) {C1};
-    \node[font=\scriptsize] at (1.4,4.8) {C2};
-    \node[font=\scriptsize] at (2.1,4.8) {C3};
-    \node[font=\scriptsize] at (2.9,4.8) {C4};
-    \node[font=\scriptsize] at (3.6,4.8) {C5};
-    \node[font=\scriptsize] at (4.3,4.8) {C6};
-    \draw[bar] (0.4,5.2) rectangle (0.8,7.0);
-    \draw[bar] (1.1,5.2) rectangle (1.6,7.0);
-    \draw[bar] (1.9,5.2) rectangle (2.3,7.0);
-    \draw[bar] (2.6,5.2) rectangle (3.1,7.0);
-    \draw[bar] (3.4,5.2) rectangle (3.8,7.0);
-    \draw[bar] (4.1,5.2) rectangle (4.6,7.0);
-    \node[font=\scriptsize] at (0.6,7.2) {4};
-    \node[font=\scriptsize] at (1.4,7.2) {4};
-    \node[font=\scriptsize] at (2.1,7.2) {4};
-    \node[font=\scriptsize] at (2.9,7.2) {4};
-    \node[font=\scriptsize] at (3.6,7.2) {4};
-    \node[font=\scriptsize] at (4.3,7.2) {4};
+  \node[box, anchor=north west, minimum width=12.2cm, minimum height=1.0cm, align=left] at (0,8.4) {
+    \textbf{Prepared run: 24 public security reports} \hfill
+    5 source classes \quad 6 incident families \quad 72 runtime match pairs \quad 18 LLM-facing contracts
+  };
 
-  \node[font=\scriptsize] at (7.0,8.4) {Insight count};
-  \draw[->] (5.0,5.2) -- (8.8,5.2);
-  \draw[->] (5.0,5.2) -- (5.0,8.0);
-  \node[font=\scriptsize, align=center] at (6.0,4.8) {Corr.};
-  \node[font=\scriptsize, align=center] at (7.4,4.8) {Emerg.};
-  \draw[ibar] (5.6,5.2) rectangle (6.4,7.7);
-  \draw[ibar] (7.0,5.2) rectangle (7.8,6.5);
-  \node[font=\scriptsize] at (6.0,8.0) {12};
-  \node[font=\scriptsize] at (7.4,6.8) {6};
+  \node[bluebox, anchor=north west, minimum width=3.7cm, minimum height=2.1cm, align=left] at (0,6.9) {
+    \textbf{Input stream}\\
+    National catalog records\\
+    Vendor advisories\\
+    Exploit warnings\\
+    Emergency alerts\\
+    Research notes
+  };
 
-  \node[draw, rounded corners, align=left, font=\scriptsize, fill=gray!8] at (4.4,1.8) {
-    Input events: 24\
-    Distinct sources: 5\
-    Latest anomaly: rapid7-2024-27198-analysis
+  \node[greenbox, anchor=north west, minimum width=3.7cm, minimum height=2.1cm, align=left] at (4.25,6.9) {
+    \textbf{Runtime evidence}\\
+    24 retained records\\
+    72 match pairs\\
+    3 nearest neighbors\\
+    Novelty per event
+  };
+
+  \node[orangebox, anchor=north west, minimum width=3.7cm, minimum height=2.1cm, align=left] at (8.5,6.9) {
+    \textbf{Application contracts}\\
+    6 evidence clusters\\
+    12 correlated snapshots\\
+    6 emerging-risk notes\\
+    Routing/escalation ready
+  };
+
+  \draw[->, thick, orange!80!black] (3.75,5.85) -- (4.2,5.85)
+    node[midway, above, font=\tiny] {vector update};
+  \draw[->, thick, teal!80!black] (8.05,5.55) -- (8.45,5.55)
+    node[midway, below, font=\tiny] {match evidence};
+
+  \node[box, anchor=north west, minimum width=12.2cm, minimum height=2.2cm, align=left] at (0,4.25) {
+    \textbf{Six incident families in the final window}\\[2pt]
+    Firewall gateway flaw: 4 reports \hfill Supply-chain backdoor: 4 reports \hfill Remote-login race: 4 reports\\
+    Web runtime bug: 4 reports \hfill VPN gateway flaw: 4 reports \hfill Build-server auth bypass: 4 reports
+  };
+
+  \node[redbox, anchor=north west, minimum width=3.75cm, minimum height=1.45cm, align=left] at (0,1.55) {
+    \textbf{LLM-facing effect}\\
+    Grounded incident explanation
+  };
+  \node[redbox, anchor=north west, minimum width=3.75cm, minimum height=1.45cm, align=left] at (4.25,1.55) {
+    \textbf{Routing effect}\\
+    Owner queue plus evidence ids
+  };
+  \node[redbox, anchor=north west, minimum width=3.75cm, minimum height=1.45cm, align=left] at (8.5,1.55) {
+    \textbf{Escalation effect}\\
+    High-risk watch or page action
   };
 \end{tikzpicture}
