@@ -99,13 +99,11 @@ class PersistentVectorJoinRuntime {
         env_ = std::make_shared<StreamEnvironment>();
         left_source_ = std::make_shared<StreamingSource>("persistent_join_left", queue_capacity_);
         right_source_ = std::make_shared<StreamingSource>("persistent_join_right", queue_capacity_);
-        left_source_->setSnapshotCapacity(queue_capacity_ == 0 ? 10000 : queue_capacity_);
-        right_source_->setSnapshotCapacity(queue_capacity_ == 0 ? 10000 : queue_capacity_);
 
         auto join_func = std::make_unique<JoinFunction>(
             "persistent_join",
-            [this](const sageFlow::SharedRecord& left,
-                   const sageFlow::SharedRecord& right) -> std::unique_ptr<VectorRecord> {
+            [this](std::unique_ptr<VectorRecord>& left,
+                   std::unique_ptr<VectorRecord>& right) -> std::unique_ptr<VectorRecord> {
                 if (!left || !right || left->uid_ == right->uid_) {
                     return nullptr;
                 }
@@ -187,8 +185,8 @@ class PersistentVectorJoinRuntime {
         info["similarity_threshold"] = similarity_threshold_;
         info["window_size_ms"] = window_size_ms_;
         info["parallelism"] = parallelism_;
-        info["retained_left_records"] = left_source_ ? left_source_->snapshotRecords().size() : 0;
-        info["retained_right_records"] = right_source_ ? right_source_->snapshotRecords().size() : 0;
+        info["retained_left_records"] = 0;
+        info["retained_right_records"] = 0;
         info["queued_left_records"] = left_source_ ? left_source_->size() : 0;
         info["queued_right_records"] = right_source_ ? right_source_->size() : 0;
         info["emitted_pairs"] = emitted_pairs_.size();

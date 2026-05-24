@@ -1,65 +1,34 @@
-% Generated summary view for the prepared BriskSnapshot run.
+% Generated from data/prepared_demo_run.json and data/prepared_demo_evidence.json.
+\resizebox{\columnwidth}{!}{%
 \begin{tikzpicture}[
   font=\scriptsize,
-  x=0.72cm,
-  y=0.52cm,
-  box/.style={draw=black!18, rounded corners=2pt, fill=gray!4, inner sep=4pt},
-  bluebox/.style={draw=blue!35, rounded corners=2pt, fill=blue!6, inner sep=4pt},
-  greenbox/.style={draw=teal!45, rounded corners=2pt, fill=teal!6, inner sep=4pt},
-  orangebox/.style={draw=orange!55, rounded corners=2pt, fill=orange!8, inner sep=4pt},
-  redbox/.style={draw=red!45, rounded corners=2pt, fill=red!6, inner sep=4pt}
+  box/.style={draw=black!18, rounded corners=2pt, fill=gray!4, inner sep=4pt, align=center},
+  runbox/.style={draw=teal!45, rounded corners=2pt, fill=teal!6, inner sep=4pt, align=center},
+  outbox/.style={draw=orange!55, rounded corners=2pt, fill=orange!8, inner sep=4pt, align=center},
+  arrow/.style={->, thick, draw=black!55}
 ]
-  \node[box, anchor=north west, minimum width=12.2cm, minimum height=1.0cm, align=left] at (0,8.4) {
-    \textbf{Prepared run: 24 public security reports} \hfill
-    5 source classes \quad 6 incident families \quad 72 runtime match pairs \quad 18 LLM-facing contracts
+  \node[box, minimum width=2.55cm, minimum height=1.0cm] (input) at (0,2.8) {
+    \textbf{Input}\\24 events\\5 source classes
   };
+  \node[runbox, minimum width=2.65cm, minimum height=1.0cm] (runtime) at (3.45,2.8) {
+    \textbf{Runtime}\\72 match pairs\\6 active clusters
+  };
+  \node[outbox, minimum width=2.75cm, minimum height=1.0cm] (contracts) at (6.95,2.8) {
+    \textbf{Contracts}\\18 outputs\\12 correlated / 6 emerging
+  };
+  \draw[arrow] (input) -- node[above, font=\tiny] {vector updates} (runtime);
+  \draw[arrow] (runtime) -- node[above, font=\tiny] {bounded evidence} (contracts);
 
-  \node[bluebox, anchor=north west, minimum width=3.7cm, minimum height=2.1cm, align=left] at (0,6.9) {
-    \textbf{Input stream}\\
-    National catalog records\\
-    Vendor advisories\\
-    Exploit warnings\\
-    Emergency alerts\\
-    Research notes
+  \node[anchor=north west, align=left] at (-1.35,1.45) {
+    \begin{tabular}{@{}lrrrrr@{}}
+      \toprule
+      Run & Events & Window & Clusters & Contracts & Wall \\
+      \midrule
+    Live walkthrough & 24 & 24 & 6 & 18 & 1.33s \\
+    Extended replay & 240 & 28 & 6 & 234 & 3.47s \\
+    Scale replay & 2,400 & 28 & 6 & 2,394 & 37.59s \\
+      \bottomrule
+    \end{tabular}
   };
-
-  \node[greenbox, anchor=north west, minimum width=3.7cm, minimum height=2.1cm, align=left] at (4.25,6.9) {
-    \textbf{Runtime evidence}\\
-    24 retained records\\
-    72 match pairs\\
-    3 nearest neighbors\\
-    Novelty per event
-  };
-
-  \node[orangebox, anchor=north west, minimum width=3.7cm, minimum height=2.1cm, align=left] at (8.5,6.9) {
-    \textbf{Application contracts}\\
-    6 evidence clusters\\
-    12 correlated snapshots\\
-    6 emerging-risk notes\\
-    Routing/escalation ready
-  };
-
-  \draw[->, thick, orange!80!black] (3.75,5.85) -- (4.2,5.85)
-    node[midway, above, font=\tiny] {vector update};
-  \draw[->, thick, teal!80!black] (8.05,5.55) -- (8.45,5.55)
-    node[midway, below, font=\tiny] {match evidence};
-
-  \node[box, anchor=north west, minimum width=12.2cm, minimum height=2.2cm, align=left] at (0,4.25) {
-    \textbf{Six incident families in the final window}\\[2pt]
-    Firewall gateway flaw: 4 reports \hfill Supply-chain backdoor: 4 reports \hfill Remote-login race: 4 reports\\
-    Web runtime bug: 4 reports \hfill VPN gateway flaw: 4 reports \hfill Build-server auth bypass: 4 reports
-  };
-
-  \node[redbox, anchor=north west, minimum width=3.75cm, minimum height=1.45cm, align=left] at (0,1.55) {
-    \textbf{LLM-facing effect}\\
-    Grounded incident explanation
-  };
-  \node[redbox, anchor=north west, minimum width=3.75cm, minimum height=1.45cm, align=left] at (4.25,1.55) {
-    \textbf{Routing effect}\\
-    Owner queue plus evidence ids
-  };
-  \node[redbox, anchor=north west, minimum width=3.75cm, minimum height=1.45cm, align=left] at (8.5,1.55) {
-    \textbf{Escalation effect}\\
-    High-risk watch or page action
-  };
-\end{tikzpicture}
+\end{tikzpicture}%
+}

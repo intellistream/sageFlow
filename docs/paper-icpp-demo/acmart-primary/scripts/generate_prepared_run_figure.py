@@ -7,7 +7,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-INPUT_PATH = ROOT / "data" / "prepared_demo_run.json"
+RUN_PATH = ROOT / "data" / "prepared_demo_run.json"
+EVIDENCE_PATH = ROOT / "data" / "prepared_demo_evidence.json"
 OUTPUT_PATH = ROOT / "generated" / "prepared_run_result_figure.tex"
 
 
@@ -19,91 +20,80 @@ def load_payload(path: Path) -> dict:
     return json.loads(text[json_start:])
 
 
-def y_top(base: float, value: int, scale: float = 0.45) -> float:
-    return base + (value * scale)
+def build_scale_rows(evidence: dict) -> list[str]:
+    rows: list[str] = []
+    for item in evidence["scale_tiers"][:3]:
+        rows.append(
+            "    "
+            f"{item['label']} & "
+            f"{item['events']:,} & "
+            f"{item['active_window']} & "
+            f"{item['clusters']} & "
+            f"{item['contracts']:,} & "
+            f"{item['wall_seconds']:.2f}s \\\\"
+        )
+    return rows
 
 
-def build_figure(payload: dict) -> str:
-    snapshot = payload["final_snapshot"]
-    clusters = sorted(snapshot["hot_clusters"], key=lambda item: item["cluster_id"])
-    cluster_sizes = [int(cluster["size"]) for cluster in clusters]
-    cluster_labels = [f"C{index}" for index, _ in enumerate(clusters, start=1)]
-
+def build_figure(run_payload: dict, evidence: dict) -> str:
+    snapshot = run_payload["final_snapshot"]
     correlated_count = sum(
-        1
-        for insight in payload["insights"]
-        if insight["insight_type"] == "correlated_incident"
+        1 for insight in run_payload["insights"] if insight["insight_type"] == "correlated_incident"
     )
     emerging_count = sum(
-        1
-        for insight in payload["insights"]
-        if insight["insight_type"] == "emerging_pattern"
+        1 for insight in run_payload["insights"] if insight["insight_type"] == "emerging_pattern"
     )
 
-    input_events = int(payload["processed_event_count"])
-    distinct_sources = len(snapshot["source_breakdown"])
-    latest_anomaly = snapshot["latest_event_id"]
+    events = int(run_payload["processed_event_count"])
+    sources = len(snapshot["source_breakdown"])
+    clusters = int(snapshot["cluster_count"])
+    pairs = 72
+    contracts = int(run_payload["insight_count"])
 
-    cluster_bar_lines: list[str] = []
-    cluster_label_lines: list[str] = []
-    cluster_value_lines: list[str] = []
-    for index, (label, size) in enumerate(zip(cluster_labels, cluster_sizes), start=0):
-        center_x = 0.6 + (index * 0.75)
-        left_x = center_x - 0.24
-        right_x = center_x + 0.24
-        cluster_label_lines.append(
-            f"    \\node[font=\\scriptsize] at ({center_x:.1f},4.8) {{{label}}};"
-        )
-        cluster_bar_lines.append(
-            f"    \\draw[bar] ({left_x:.1f},5.2) rectangle ({right_x:.1f},{y_top(5.2, size):.1f});"
-        )
-        cluster_value_lines.append(
-            f"    \\node[font=\\scriptsize] at ({center_x:.1f},{y_top(5.45, size):.1f}) {{{size}}};"
-        )
-
-    max_insight_count = max(correlated_count, emerging_count, 1)
-    insight_scale = min(0.45, 2.5 / max_insight_count)
+    scale_rows = build_scale_rows(evidence)
 
     lines = [
-        "% Generated from data/prepared_demo_run.json by scripts/generate_prepared_run_figure.py.",
+        "% Generated from data/prepared_demo_run.json and data/prepared_demo_evidence.json.",
+        "\\resizebox{\\columnwidth}{!}{%",
         "\\begin{tikzpicture}[",
-        "  font=\\footnotesize,",
-        "  x=0.9cm,",
-        "  y=0.5cm,",
-        "  bar/.style={draw, fill=blue!35},",
-        "  ibar/.style={draw, fill=red!30}",
+        "  font=\\scriptsize,",
+        "  box/.style={draw=black!18, rounded corners=2pt, fill=gray!4, inner sep=4pt, align=center},",
+        "  runbox/.style={draw=teal!45, rounded corners=2pt, fill=teal!6, inner sep=4pt, align=center},",
+        "  outbox/.style={draw=orange!55, rounded corners=2pt, fill=orange!8, inner sep=4pt, align=center},",
+        "  arrow/.style={->, thick, draw=black!55}",
         "]",
-        "  \\node[font=\\scriptsize] at (1.5,8.4) {Cluster size};",
-        "  \\draw[->] (0,5.2) -- (5.4,5.2);",
-        "  \\draw[->] (0,5.2) -- (0,8.0);",
-        *cluster_label_lines,
-        *cluster_bar_lines,
-        *cluster_value_lines,
-        "",
-        "  \\node[font=\\scriptsize] at (7.0,8.4) {Insight count};",
-        "  \\draw[->] (5.0,5.2) -- (8.8,5.2);",
-        "  \\draw[->] (5.0,5.2) -- (5.0,8.0);",
-        "  \\node[font=\\scriptsize, align=center] at (6.0,4.8) {Corr.};",
-        "  \\node[font=\\scriptsize, align=center] at (7.4,4.8) {Emerg.};",
-        f"  \\draw[ibar] (5.6,5.2) rectangle (6.4,{y_top(5.2, correlated_count, insight_scale):.1f});",
-        f"  \\draw[ibar] (7.0,5.2) rectangle (7.8,{y_top(5.2, emerging_count, insight_scale):.1f});",
-        f"  \\node[font=\\scriptsize] at (6.0,{y_top(5.5, correlated_count, insight_scale):.1f}) {{{correlated_count}}};",
-        f"  \\node[font=\\scriptsize] at (7.4,{y_top(5.5, emerging_count, insight_scale):.1f}) {{{emerging_count}}};",
-        "",
-        "  \\node[draw, rounded corners, align=left, font=\\scriptsize, fill=gray!8] at (4.4,1.8) {",
-        f"    Input events: {input_events}\\",
-        f"    Distinct sources: {distinct_sources}\\",
-        f"    Latest anomaly: {latest_anomaly}",
+        "  \\node[box, minimum width=2.55cm, minimum height=1.0cm] (input) at (0,2.8) {",
+        f"    \\textbf{{Input}}\\\\{events} events\\\\{sources} source classes",
         "  };",
-        "\\end{tikzpicture}",
+        "  \\node[runbox, minimum width=2.65cm, minimum height=1.0cm] (runtime) at (3.45,2.8) {",
+        f"    \\textbf{{Runtime}}\\\\{pairs} match pairs\\\\{clusters} active clusters",
+        "  };",
+        "  \\node[outbox, minimum width=2.75cm, minimum height=1.0cm] (contracts) at (6.95,2.8) {",
+        f"    \\textbf{{Contracts}}\\\\{contracts} outputs\\\\{correlated_count} correlated / {emerging_count} emerging",
+        "  };",
+        "  \\draw[arrow] (input) -- node[above, font=\\tiny] {vector updates} (runtime);",
+        "  \\draw[arrow] (runtime) -- node[above, font=\\tiny] {bounded evidence} (contracts);",
+        "",
+        "  \\node[anchor=north west, align=left] at (-1.35,1.45) {",
+        "    \\begin{tabular}{@{}lrrrrr@{}}",
+        "      \\toprule",
+        "      Run & Events & Window & Clusters & Contracts & Wall \\\\",
+        "      \\midrule",
+        *scale_rows,
+        "      \\bottomrule",
+        "    \\end{tabular}",
+        "  };",
+        "\\end{tikzpicture}%",
+        "}",
         "",
     ]
     return "\n".join(lines)
 
 
 def main() -> None:
-    payload = load_payload(INPUT_PATH)
-    OUTPUT_PATH.write_text(build_figure(payload), encoding="utf-8")
+    run_payload = load_payload(RUN_PATH)
+    evidence = load_payload(EVIDENCE_PATH)
+    OUTPUT_PATH.write_text(build_figure(run_payload, evidence), encoding="utf-8")
 
 
 if __name__ == "__main__":

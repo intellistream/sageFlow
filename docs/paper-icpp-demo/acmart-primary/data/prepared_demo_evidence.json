@@ -79,7 +79,12 @@
       "events": 24,
       "repetitions": 1,
       "source_classes": 5,
-      "families": 6,
+      "family_instances": 6,
+      "active_window": 24,
+      "clusters": 6,
+      "contracts": 18,
+      "wall_seconds": 1.33,
+      "throughput_per_second": 18,
       "use": "step-by-step UI narration"
     },
     {
@@ -87,7 +92,12 @@
       "events": 240,
       "repetitions": 10,
       "source_classes": 5,
-      "families": 60,
+      "family_instances": 60,
+      "active_window": 28,
+      "clusters": 6,
+      "contracts": 234,
+      "wall_seconds": 3.47,
+      "throughput_per_second": 69,
       "use": "parameter sensitivity and snapshot stability"
     },
     {
@@ -95,7 +105,12 @@
       "events": 2400,
       "repetitions": 100,
       "source_classes": 5,
-      "families": 600,
+      "family_instances": 600,
+      "active_window": 28,
+      "clusters": 6,
+      "contracts": 2394,
+      "wall_seconds": 37.59,
+      "throughput_per_second": 64,
       "use": "runtime handoff and retained-window stress"
     },
     {
@@ -103,7 +118,7 @@
       "events": 24000,
       "repetitions": 1000,
       "source_classes": 5,
-      "families": 6000,
+      "family_instances": 6000,
       "use": "offline prepared evidence for the paper"
     }
   ]

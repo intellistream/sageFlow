@@ -9,206 +9,186 @@
 \renewcommand\footnotetextcopyrightpermission[1]{}
 
 \usepackage{booktabs}
-\usepackage{enumitem}
+\usepackage{placeins}
 \usepackage{tikz}
 
-\usetikzlibrary{arrows.meta,positioning,fit,backgrounds}
+\usetikzlibrary{arrows.meta,positioning}
 
-\newcommand{\system}{\textsc{BriskSnapshot}}
+\newcommand{\system}{\textsc{BriskSnapShot}}
+\setlength{\textfloatsep}{8pt}
+\setlength{\floatsep}{7pt}
+\setlength{\abovecaptionskip}{3pt}
+\setlength{\belowcaptionskip}{2pt}
 
 \begin{document}
 
 \title{\system{}: A Live Demo of Join-Backed Semantic Windows for Streaming AI Pipelines}
 
 \author{Anonymous Author(s)}
+\acmConference[ICPP '26]{The 55th International Conference on Parallel Processing}{September 28--October 1, 2026}{Singapore}
+\acmYear{2026}
+\copyrightyear{2026}
 
 \begin{abstract}
-Fresh semantic state is becoming a first-class systems requirement for large-model applications. Operational copilots, streaming retrieval pipelines, and long-running agents all need intermediate vector state that can be updated continuously and consumed immediately by downstream reasoning steps. However, today this state is often reconstructed outside the runtime that observes the stream, making the resulting application behavior difficult to explain, reuse, and demonstrate. We present \system{}, a live demonstration of a unified streaming AI stack that keeps semantic-window state inside the runtime while exposing compact, application-readable contracts to downstream services. In the demo, \system{} replays a multi-source vulnerability-intelligence stream, shows how orchestration operators hand events to a persistent semantic-window runtime, and visualizes how maintained runtime state becomes vulnerability snapshots, routing decisions, and security escalation signals. A deterministic prepared run groups 24 events from five source classes into six semantic clusters and 18 snapshot insights, giving attendees a concrete way to inspect the relationship between runtime state, bounded summaries, and LLM-facing application behavior.
+Streaming AI applications need to keep vector state fresh while exposing that state in a form that downstream services can inspect and act on. \system{} is a live demonstration of a unified semantic-window system built from the SAGE orchestration codebase and the SageFlow vector-stream runtime~\cite{sage_icml2026,sage_repo,sageflow_repo}. The demo follows public vulnerability-intelligence reports as they are normalized, embedded, joined inside a bounded semantic window, and surfaced as snapshot, routing, and escalation contracts. Unlike a static retrieval demo, \system{} lets the audience see how new events change the active window, which vector joins support a cluster, and what compact evidence is handed to an LLM-facing application. A 24-event walkthrough remains small enough for live narration, while expanded 240-event and 2,400-event replays show that the same contract path continues to emit useful evidence under larger streams.
 \end{abstract}
 
 \ccsdesc[500]{Computer systems organization~Parallel architectures}
 \ccsdesc[500]{Information systems~Stream management}
 \ccsdesc[300]{Computing methodologies~Artificial intelligence}
 
-\keywords{stream processing, vector databases, AI middleware, multicore systems, demonstration}
+\keywords{stream processing, vector search, AI middleware, semantic windows, demonstration}
 
 \maketitle
 
 \section{Introduction}
 
-Large-model systems are increasingly assembled as continuous dataflows instead of isolated request-response programs. New observations arrive between prompts, retrieved evidence changes while a task is in progress, and operational events must be clustered before an agent or copilot can react. In each case, the application needs fresh intermediate state rather than stale batch snapshots. Existing stream processors provide scalable execution~\cite{akidau2015dataflow}, and vector indexes provide efficient nearest-neighbor search~\cite{jegou2011product,malkov2020efficient}, but an end-to-end AI stack still needs a practical way to maintain join-backed semantic state under sliding windows and continuous insertions.
+Large-model applications increasingly run as long-lived dataflows rather than as isolated prompt calls. A vulnerability assistant receives new advisories while an investigation is still open; a retrieval pipeline refreshes its vector neighborhood between two user questions; an on-call agent must decide whether a new report belongs to a known incident or deserves escalation. In these settings, the model-facing component should not receive an opaque vector index or a free-form prompt dump. It needs bounded, inspectable evidence: which records are retained, which records matched, which sources support the cluster, and which action the system recommends.
 
-This demo addresses that gap with \system{}, a unified software stack that combines application-level dataflow orchestration with a multicore vector-stream runtime. The specific problem is interface reliability: how can one system accept live vector events, maintain streaming semantic state under a bounded window, evaluate each new event against that state with a real window join, and return stable, application-readable summaries without forcing the upper pipeline to manage low-level runtime details?
+Stream processors provide scalable dataflow execution~\cite{akidau2015dataflow,carbone2015apache}, while vector indexes provide efficient approximate search~\cite{jegou2011product,johnson2019billion,malkov2020efficient}. Retrieval-augmented systems further show how language models benefit from external evidence~\cite{lewis2020rag,guu2020realm}. What is still awkward in many prototypes is the boundary between streaming state and AI orchestration. Semantic state is often rebuilt outside the component that observes the stream, so a demo can show an answer but not the live runtime evidence that made the answer possible.
 
-Another difficulty comes from full-stack coordination. Runtime state ownership, Python bindings, operator orchestration, and application-visible output must all agree on what the live semantic window means and when its join results should be consumed. Without such an agreement, upper-layer operators either reconstruct state on their own or depend on brittle runtime-specific callbacks, which makes live execution harder to reason about and harder to demonstrate.
+\system{} demonstrates a narrower and more observable boundary. The system owns the active semantic window, runs vector joins as events arrive, and exports only compact contracts to the application layer. A contract is not another prompt; it is a structured object with cluster identity, supporting neighbors, source coverage, novelty, route, priority, and action fields. The demo is built around the question an audience naturally asks during a live system demonstration: when the next event arrives, what changes, why did it change, and what can the upper pipeline safely do with the change?
 
-Contributions. We present \system{}, a concrete system that exposes live semantic state as a first-class join-backed window service for LLM inference pipelines. First, we integrate a runtime-owned window service into the same boundary used by the orchestration flow. Second, we derive bounded cluster, neighbor, and novelty summaries from those runtime matches so that higher-level operators consume a stable application contract rather than raw engine internals. Third, we package the prepared demo run as a reproducible artifact, including a generated result figure derived from the real JSON output of the live execution. The result is a compact but fully operational demonstration of how multicore streaming machinery can be surfaced as application-visible AI middleware.
-
-The rest of the paper proceeds from problem setting to system design and then to the live demonstration path. We first introduce the system-level motivation behind join-backed semantic windows, then summarize the main architectural path used by \system{}, and finally present the concrete scenario and takeaways shown in the demonstration.
-
-\section{Background and Problem Overview}
-
-The core problem behind \system{} is not simply fast vector search. The harder systems problem is how to maintain fresh semantic state under continuous updates and expose that state to higher-level operators in a form that is stable enough for application logic. In a live AI pipeline, the state owner, the export interface, and the orchestration path all matter. If any of these are poorly chosen, the system becomes difficult to reason about, difficult to demonstrate, and difficult to reuse.
-
-Our implementation makes this challenge visible because the operator layer, service layer, Python binding layer, and multicore runtime inside \system{} must all agree on what a ``semantic window'' means. This requirement leads to four practical design constraints.
-
-First, the runtime must own the authoritative window state. If upper-layer operators reconstruct the window independently, they can drift from the true runtime view under future scheduling, reordering, or backpressure changes. Second, the service boundary must survive repeated use. Repeated execution requires reset behavior, cleanup behavior, and long-lived runtime ownership. Third, the exported state must have the right granularity. Exporting only final alerts hides too much of the semantic state, while exporting full internal structures leaks implementation details. Fourth, the system must remain observable. Runtime behavior, exported state, and final application output should remain easy to relate within one execution.
-
-These requirements shaped the current \system{} design. We therefore keep runtime ownership inside a persistent join runtime, use real window join to discover semantic matches, and expose bounded summaries rather than raw engine structures. This focus explains why the paper centers join-backed semantic windows rather than a broader collection of streaming operators.
+The paper keeps the original demo narrative but makes three pieces explicit. First, it describes the system architecture as a single integrated prototype rather than two adjacent components. Second, it expands the live demonstration path so that the UI, presenter script, and pipeline stages have clear roles. Third, it adds prepared evidence beyond the 24-event walkthrough, including scale replays and parameter variants that show the capability of the system without turning the paper into a full benchmark paper.
 
 \section{System Overview}
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{figures/brisk_architecture.png}
-  \caption{System overview of \system{}. The orchestration and application layer sends vector updates into a persistent runtime, receives match evidence back, and then materializes bounded contracts for LLM-facing services.}
-  \Description{A generated architecture diagram for BriskSnapshot. Vulnerability intelligence events flow through orchestration operators, are normalized and embedded, and send vector updates into a vector runtime layer. The runtime contains streaming vector inputs, a windowed vector join, and match pairs. Match evidence returns to the orchestration and application layer, where contracts are materialized and consumed by LLM-facing services.}
+  \caption{\system{} architecture. Events are normalized and embedded, a persistent vector runtime owns the semantic window and join pairs, and the application layer receives bounded contracts.}
+  \Description{Architecture diagram showing vulnerability events entering a normalization and embedding layer, flowing into a vector runtime with a windowed join, and returning bounded contracts to application services.}
   \label{fig:overview}
 \end{figure}
 
-Figure~\ref{fig:overview} summarizes the architecture we implemented. The front half of \system{} is an application pipeline built from a batch source, a normalization step, a window-join step, an insight derivation step, and a sink. The critical operator is the window-join step: it invokes a runtime-local endpoint registered through the system's service boundary. That service owns a long-lived semantic-window runtime, backed by streaming inputs and one continuously running execution graph. This control path lets \system{} expose live semantic state to higher-level operators while keeping runtime state ownership in one place.
+Figure~\ref{fig:overview} shows the implemented path. \system{} takes heterogeneous vulnerability reports from multiple sources, maps each report into a deterministic embedding for reproducible demos, appends the record into a bounded semantic window, and drains join pairs produced by the persistent runtime. The output is then folded into application-level contracts. This organization is intentionally close to the way the live demo is presented: the audience first sees an event enter the pipeline, then sees the runtime evidence that connects it to prior records, and finally sees the contract that an application can consume.
 
-\subsection{Execution Path}
+\subsection{Design Goals}
 
-The execution path is intentionally narrow. A prepared batch source replays the vulnerability-intelligence stream, the normalization step resolves each record into one uniform event type, and the window-join step forwards that event to the long-lived runtime through the local service registry. This design keeps orchestration logic simple: the upper pipeline never allocates short-lived runtime objects, and it never reconstructs window state outside the runtime. Instead, each event traverses one control path from source, to runtime update, to bounded summary, to insight derivation.
+The first design goal is \emph{observable freshness}. A static retrieval index can demonstrate relevance, but it hides whether the context is current. \system{} keeps the current window visible: retained records, emitted pairs, active clusters, and newest evidence are all displayed as runtime state rather than as post-hoc explanation text.
 
-This path also matches what the audience sees in the live demo. The operator graph is small enough to explain quickly, but every stage performs real work. The source and map stages run in the orchestration layer, the stateful update and window join happen inside the runtime layer, and the final sink emits the same JSON artifact that is later summarized in Figure~\ref{fig:results}. The chapter therefore describes one cohesive system path rather than a bridge between two independent products.
+The second goal is \emph{bounded handoff}. Model-facing services should not receive an unbounded list of nearest neighbors. The system exports a small set of fields that can be logged, routed, or summarized: cluster identity, source coverage, supporting neighbor identifiers, novelty, route, priority, and action. This turns the semantic window into an application interface rather than a private runtime detail.
 
-\subsection{Join Runtime and State Materialization}
+The third goal is \emph{demo reproducibility}. Live demos are convincing when they are interactive, but papers also need evidence that the observed behavior is not a hand-picked screen. The same replay driver used for the UI can run deterministic expanded streams, threshold variants, and window-size variants. The prepared figure in Section~\ref{sec:evidence} is generated from those replay artifacts.
 
-Inside the join runtime, \system{} uses native streaming operators rather than a Python-side similarity scan. At service startup, the adapter creates one persistent runtime with dual streaming inputs, a windowed similarity join, and a sink that records emitted join pairs. For each arriving event, the orchestration layer appends a record to the runtime inputs and reads the newly emitted matches from that same running graph. Those matches return as vector evidence; the orchestration layer then folds them into bounded neighbor, cluster, and novelty summaries so that upper-layer operators receive a stable application contract while similarity discovery remains inside the streaming engine.
-
-The design goal is to make the runtime the single owner of semantic matching. After each insertion, the adapter materializes the current active window, invokes the join operator against that bounded set, and derives a window summary containing cluster count, source breakdown, latest event identifier, nearest neighbors, and per-cluster statistics. In the current prototype, cluster construction follows connected components over the returned join matches, and the window summary is sorted by cluster size and average severity before it is exposed to the application. This gives the upper pipeline a compact state summary without exposing lower-level runtime structures.
-
-The trade-off is deliberate. We do not export mutable internal indexes or rely on Python-level callbacks to represent authoritative similarity state. Instead, we keep match discovery inside the runtime and export only a bounded summary derived from the join results. This choice keeps the demo deterministic and debuggable while still leaving a real multicore runtime on the critical path.
-
-This design matters because it removes the system's correctness dependency on a Python-side reimplementation of similarity discovery. The live path still uses real ingestion, a bounded active window, and deterministic summary generation, but the match computation itself remains inside the runtime. That trade-off keeps a real multicore runtime in the loop while preserving predictable and repeatable behavior.
-
-\subsection{Insight Materialization}
-
-The last part of the chapter is where \system{} turns runtime state into application-visible evidence. For every event, the adapter computes nearest neighbors from the join result, derives a novelty score from the top similarity, and identifies the event's active cluster in the current summary. The downstream insight stage then applies explicit rules to this state: a cluster becomes a correlated incident when it contains at least three events, has average severity at least 0.70, and spans at least two sources; an event becomes an emerging pattern when its novelty score is at least 0.18 and its severity is at least 0.95. These rules are simple, but they are sufficient to show how join-backed semantic state can drive concrete next-step decisions.
-
-The architecture therefore illustrates a useful software boundary for AI infrastructure. Rather than forcing high-level operators to embed vector-state logic directly, \system{} keeps high-frequency state updates and window joins inside its runtime engine and exposes just enough summarized state to downstream operators through a stable system contract. The benefit is not only modularity. It also makes the effect of runtime parameters legible at the application layer: changing similarity threshold, active-window size, or event order does not just perturb an internal data structure, it changes which incidents are correlated, which anomalies remain novel, and what evidence the next inference stage receives.
-
-Table~\ref{tab:responsibilities} summarizes this division of responsibility. It makes clear that \system{} is one software stack with distinct internal roles rather than two separately described subsystems.
+\subsection{Runtime Boundary}
 
 \begin{table}[t]
   \centering
-  \caption{Responsibilities across the \system{} stack.}
-  \label{tab:responsibilities}
-  \begin{tabular}{@{}p{0.24\columnwidth}p{0.50\columnwidth}@{}}
+  \caption{Runtime boundary exposed by the demo.}
+  \label{tab:boundary}
+  \begin{tabular}{@{}p{0.28\columnwidth}p{0.58\columnwidth}@{}}
     \toprule
-    Layer & Responsibility \\
+    Component & Demo-visible role \\
     \midrule
-    \system{} operators & Event normalization, service invocation, insight derivation, final sink output \\
-    Window-join access layer & Runtime ownership, reset and cleanup, stable application-facing summary access \\
-    Python binding & Record ingestion, join invocation, and result handoff into the application process \\
-    Join-backed window engine & Active-window materialization, bounded join execution, streaming state ownership \\
+    Ingestion layer & Source replay, deterministic embedding, event metadata \\
+    Window manager & Bounded retention, reset/cleanup, snapshot export \\
+    Join runtime & Left-right append, vector comparison, pair emission \\
+    Contract layer & Snapshot, owner route, escalation signal \\
+    UI and evidence & Live controls, replay trace, scale summaries \\
     \bottomrule
   \end{tabular}
 \end{table}
 
+Table~\ref{tab:boundary} summarizes the system boundary. The ingestion layer gives the runtime comparable vectors and stable identifiers. The window manager owns which events are still active and which events have left the current view. The join runtime is the only component that creates semantic match pairs. The contract layer interprets those pairs for an application: a dense multi-source cluster becomes an incident snapshot, a cluster with a clear owner becomes a routing contract, and a high-severity novel event becomes an escalation contract.
 
-\section{Demonstration Scenario}
+Cluster construction uses connected components over returned join pairs. Clusters are sorted by size and average severity before export, which makes the display stable enough for a presenter to narrate. The default incident rule requires at least three events, average severity above 0.70, and at least two source classes. The emerging-risk rule fires when a high-severity event remains novel enough to deserve attention even before a larger cluster forms.
 
-The demo section is written as a live walkthrough rather than as a conventional benchmark section. Recent systems demonstration papers typically use this part of the paper to make three things concrete: the scenario an attendee will see, the interface controls used during the session, and a small set of prepared results that can be reproduced without relying on live improvisation. We follow that structure for \system{}. The live path is intentionally compact, while the prepared evidence expands the same replay templates to larger workloads for scale and sensitivity discussion.
+\section{Live Demonstration}
 
-The live scenario replays 24 public security reports that resemble what an operations team might receive during a busy disclosure week. The reports come from five familiar categories: a national vulnerability catalog, vendor security advisories, public exploit warnings, emergency coordination alerts, and practitioner research notes. Instead of asking attendees to remember product acronyms, the demo groups the stream into six plain-language incident families: a firewall gateway flaw, a supply-chain backdoor, a remote-login service race, a web runtime bug, a VPN gateway flaw, and a build-server authentication bypass. For each arriving report, \system{} keeps a compact semantic representation inside the vector runtime, returns the matching evidence to the orchestration layer, and then hands a bounded contract to an LLM-facing response service. The audience therefore sees both the runtime evidence and the final application effect: a grounded incident explanation, a routing decision, or an escalation note.
-
-\begin{figure}[t]
-  \centering
-  \includegraphics[width=\columnwidth]{figures/brisk_demo_flow.png}
-  \caption{Live demonstration flow. The prepared replay sends vector updates into the runtime, receives match evidence back, and materializes snapshot, routing, and escalation outputs in the orchestration layer.}
-  \Description{A generated workflow diagram for BriskSnapshot. Twenty-four CVE events are replayed, normalized and embedded by orchestration operators, and sent as vector updates into a vector runtime layer. The runtime appends vector input, performs a windowed vector join, and emits match pairs. Match evidence returns to the orchestration layer, where clusters and contracts are materialized before LLM-facing services consume snapshot, routing, and escalation JSON. A side panel reports 24 events, five source classes, six clusters, and 72 emitted pairs.}
-  \label{fig:scenario}
-\end{figure}
+The live scenario uses 24 public vulnerability-intelligence records from NVD, vendor advisories, CISA warnings, emergency alerts, and research notes. The reports cover six incident families: PAN-OS, XZ Utils, OpenSSH, PHP-CGI, Fortinet VPN, and TeamCity. This domain is useful for a systems demo because records arrive from different sources, use different language, and still need to be grouped quickly enough for operator-facing workflows.
 
 \begin{figure*}[t]
   \centering
-  \includegraphics[width=0.92\textwidth]{figures/brisk_ui_walkthrough.png}
-  \caption{Demonstration interface view after the UI revision. The top trace separates the orchestration/application layer from the vector runtime layer so attendees can follow vector updates downward and match evidence upward before inspecting clusters and contracts.}
-  \Description{A rendered view of the BriskSnapshot demo interface. It contains live replay controls, a live dataflow trace, a current event panel, runtime metrics, current window clusters, and representative application contracts.}
+  \includegraphics[width=0.82\textwidth,height=0.30\textheight,keepaspectratio]{figures/brisk_ui_walkthrough.png}
+  \caption{Web interface for the demo. Controls, contract modes, runtime evidence, and prepared experiment summaries remain visible so the audience can connect UI actions with the semantic-window state underneath.}
+  \Description{Screenshot of the BriskSnapShot web interface with replay controls, a pipeline trace, runtime metrics, active clusters, contracts, and experiment evidence.}
   \label{fig:ui}
 \end{figure*}
 
-\subsection{Live Walkthrough}
+\subsection{Audience Path}
 
-The walkthrough follows one end-to-end path. First, the presenter starts the replay and selects the snapshot contract scenario. The interface highlights the current event, its source, and its deterministic embedding step. Second, the presenter follows the vector update into the runtime lane. This is the only layer that appends vector records and performs the windowed vector join. Third, the UI shows the evidence that returns upward: emitted match pairs, nearest neighbors, novelty, and the active cluster. Finally, the orchestration layer materializes a bounded contract consumed by application services. The same maintained state is then used to explain snapshot summaries, owner routing, and security escalation.
+Figure~\ref{fig:ui} shows the UI used in the demonstration. The left side controls the replay and displays the active pipeline trace. The right side shows contract scenarios and runtime evidence. The important UI choice is that the pipeline is not decorative: each row corresponds to a stage that changes system state. The event stage introduces a source report; the embedding stage makes the report comparable; the append stage changes the retained window; the join stage exposes which prior records matched; the contract stage shows what the application receives.
 
-This order fixes two weaknesses in the earlier demo UI. The prior view displayed many cards, but the data movement was implicit; it was easy to miss that the runtime only handled vector state while application and LLM-facing services lived above it. The revised interface therefore promotes a dataflow trace above the detailed panels. It also folds repetitive output cards so that the paper screenshot shows representative contracts rather than a long log of near-identical insights.
+The presenter starts from an empty runtime and runs the stream one event at a time. Early events trigger emerging-risk contracts because the system has not yet seen enough related evidence. As reports from additional sources arrive, the same incident families become connected clusters and the UI switches from novelty to correlation. The audience can pause the replay, inspect the nearest neighbors supporting a cluster, and compare the current snapshot with the contract text that would be passed to a downstream service.
 
 \begin{table}[t]
   \centering
-  \caption{Attendee-facing panels in the live walkthrough.}
-  \label{tab:ui-panels}
-  \begin{tabular}{@{}p{0.26\columnwidth}p{0.58\columnwidth}@{}}
+  \caption{Presenter script for the live demo.}
+  \label{tab:script}
+  \begin{tabular}{@{}p{0.18\columnwidth}p{0.67\columnwidth}@{}}
     \toprule
-    Panel & What it demonstrates \\
+    Step & What the audience sees \\
     \midrule
-    Replay control & Deterministic start, reset, import, and live/backend connection state \\
-    Dataflow trace & Vector update enters the runtime; match evidence returns to orchestration \\
-    Current event & Source, tags, severity, and per-step latency for the active replay item \\
-    Runtime metrics & Retained records, emitted pairs, accepted events, and current runtime mode \\
-    Snapshot/contracts & Cluster membership and representative application-readable outputs \\
+    Replay & Source, severity, timestamp, and embedding handoff for the current event \\
+    Runtime & Retained records, emitted pairs, and nearest neighbors inside the active window \\
+    Snapshot & Cluster membership, source coverage, novelty, and representative evidence \\
+    Contract & Owner route, priority, recommended action, and supporting event identifiers \\
+    Variant & How threshold, window size, or input order changes the visible contract stream \\
     \bottomrule
   \end{tabular}
 \end{table}
 
-\subsection{Prepared Evidence and Data Scale}
+Table~\ref{tab:script} is the actual demo script. The walkthrough is designed to answer five questions in order. What just arrived? What did the runtime retain? Which records joined? What compact evidence was exported? What changes when the audience asks for a different parameter setting? This is the same structure used in many systems demonstrations: start with a concrete user path, reveal internal state at the moment it matters, and close by showing robustness beyond the exact path shown on screen.
 
-The 24-event walkthrough is deliberately small because it must be explainable event by event. It is not meant to be the only data shown in the paper. The artifact now includes deterministic expanded replay tiers created from the same public-event templates by repeating each event with a unique identifier, shifted timestamp, and replay metadata. This gives the demo a reproducible way to discuss scale without changing the conceptual pipeline shown in Figure~\ref{fig:scenario}.
+\subsection{Demonstration Scenarios}
 
-\begin{table}[t]
-  \centering
-  \caption{Prepared replay tiers used by the demo and paper.}
-  \label{tab:scale-tiers}
-  \begin{tabular}{@{}lrrp{0.34\columnwidth}@{}}
-    \toprule
-    Tier & Events & Families & Role \\
-    \midrule
-    Live walkthrough & 24 & 6 & Step-by-step UI narration \\
-    Extended replay & 240 & 60 & Parameter sensitivity and snapshot stability \\
-    Scale replay & 2{,}400 & 600 & Runtime handoff and retained-window stress \\
-    Long replay & 24{,}000 & 6{,}000 & Offline prepared evidence for the paper \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+The snapshot scenario shows why the bounded window matters. When the PAN-OS reports arrive from a vendor advisory, NVD, an emergency warning, and a research note, the system connects them into a single family and exports a compact summary with source coverage. The UI lets the audience see that the summary is not a generic LLM explanation; it is grounded in event identifiers and emitted join pairs.
 
-The prepared variants remain the most useful experiments for a demo paper because they expose visible system behavior rather than isolated microbenchmarks. Raising the similarity threshold fragments the final state and suppresses correlated outputs. Reducing active-window size removes older vulnerability families from the exported state and shrinks active source coverage. Reversing the same stream preserves the topic families but changes the latest event and the order in which application-visible insights are emitted. Together, these runs expose semantic strictness, retention, and order sensitivity as concrete system-level trade-offs.
+The routing scenario shows how the same evidence can be converted into an owner decision. A VPN-related cluster is routed to the network perimeter owner because the source mix and severity cross the routing threshold. The presenter can open the route card, inspect the supporting neighbors, and show that route changes are tied to runtime evidence rather than keyword matching.
 
-\begin{table}[t]
-  \centering
-  \caption{Observed results of prepared variants executed on the live demo path.}
-  \label{tab:variants}
-  \begin{tabular}{@{}p{0.18\columnwidth}p{0.24\columnwidth}p{0.42\columnwidth}@{}}
-    \toprule
-    Variant & Runtime setting & Observed result \\
-    \midrule
-    Medium replay & window=28, threshold=0.985 & Final summary: 6 clusters of size 4; snapshot output: 18 correlated insights \\
-    Aggressive threshold & window=28, higher threshold & Final summary fragments into more smaller clusters; correlated snapshot output drops \\
-    Shorter active window & window=12, threshold=0.985 & Older vulnerability families leave the exported state; active source coverage shrinks \\
-    Reordered stream & window=28, threshold=0.985, reversed order & Topic families remain visible, but latest event and insight emission order change \\
-    \bottomrule
-  \end{tabular}
-\end{table}
+The escalation scenario focuses on high-severity novelty. A new report may not yet have enough neighbors for a dense cluster, but it can still become actionable if severity is high and novelty remains above threshold. This scenario is important for audience trust: the system is not only finding repeated topics; it also preserves a path for emerging risks that have not yet accumulated multiple sources.
 
-Figure~\ref{fig:results} summarizes one deterministic prepared run. The revised figure emphasizes what the audience can understand from the run rather than only showing bar heights: the source categories, runtime evidence, six incident families, and the three application effects exposed to the LLM-facing service. The current implementation produces six clusters and 18 contracts from the 24-event walkthrough stream. Each cluster corresponds to a plain-language incident family, and the companion routing and escalation paths export contracts over the same maintained state.
+\section{Prepared Evidence}
+\label{sec:evidence}
+
+The 24-event walkthrough is intentionally small enough for a live audience. To show more than a toy sample, the prepared evidence uses deterministic expanded replays. The expansion repeats the public-event templates with unique identifiers, shifted timestamps, and replay metadata. This keeps the semantics of the incident families understandable while increasing the number of events seen by the runtime.
 
 \begin{figure}[t]
   \centering
   \input{generated/prepared_run_result_figure.tex}
-  \caption{Result summary of one deterministic prepared \system{} run. The figure connects input reports, runtime evidence, incident families, and LLM-facing application effects.}
-  \Description{A generated result figure for the prepared demo run. It shows the input stream, runtime evidence, application contracts, six incident families, and LLM-facing effects including incident explanation, routing, and escalation.}
+  \caption{Prepared result summary. The same demo path is run at three replay sizes; wall time is measured on the Python demo path and includes runtime startup.}
+  \Description{A compact result figure showing input, runtime, and contract counts for the 24-event prepared run plus a scale table for 24, 240, and 2400 events.}
   \label{fig:results}
 \end{figure}
 
-This interaction model links parallel runtime structure to application-visible behavior without requiring a large deployment or a specialized dataset. The UI screenshot belongs in the paper because it shows the audience experience: controls, dataflow direction, runtime evidence, and final contracts are all visible at once. The scale table then prevents the paper from appearing to rely only on a toy data sample.
+\subsection{Workloads and Metrics}
 
-\section{Conclusion}
+The live workload has 24 events, five source classes, six incident families, and 18 exported contracts. The extended replay has 240 events and keeps a 28-record active window. The scale replay has 2,400 events with the same bounded window. We report four quantities because they map directly to the demo claims: active window size, number of active clusters, number of emitted contracts, and wall-clock time for the prepared Python demo path.
 
-This paper presents an ICPP demo built around \system{}, a concrete system that unifies streaming orchestration, vector-state maintenance, and join-backed semantic summaries. The central idea is to treat live vector-state management as a first-class system capability rather than as an isolated kernel or an external component. The current implementation already demonstrates this path on a persistent semantic-window runtime using a deterministic multi-source vulnerability-intelligence stream. In the prepared run used throughout the demo, \system{} turns 24 events from five source classes into six semantic clusters and 18 snapshot insights while keeping the summary path stable and application-readable.
+Figure~\ref{fig:results} shows the main result. The live run produces 72 match pairs, six active clusters, and 18 contracts. The 240-event replay produces 234 contracts in 3.47 seconds, while the 2,400-event replay produces 2,394 contracts in 37.59 seconds. The active window remains bounded at 28 records for the larger runs, so the final UI state remains inspectable even though the contract stream grows with the input.
 
-More broadly, the demo matters because it turns interface design for parallel runtimes into an application-visible systems problem. \system{} shows that multicore stream processing is not only about accelerating kernels; it is also about choosing a state owner, choosing a summary granularity, and providing an orchestration path that keeps the full stack understandable under live execution. The resulting system offers a compact but meaningful example of how parallel stream-processing mechanisms can be surfaced as practical AI middleware. An immediate next step is to expand the prepared scenario set and evaluate how active-window size, similarity thresholds, and arrival-order changes affect the quality and timeliness of exported evidence for downstream inference services.
+\begin{table}[t]
+  \centering
+  \caption{Prepared parameter variants used during the demo.}
+  \label{tab:variants}
+  \begin{tabular}{@{}p{0.31\columnwidth}p{0.52\columnwidth}@{}}
+    \toprule
+    Variant & Expected visible effect \\
+    \midrule
+    Tighter threshold & Fewer join pairs, fragmented clusters, fewer correlated contracts \\
+    Shorter window & Older incident families leave the snapshot earlier \\
+    Reordered input & Same topic families, different contract reveal times \\
+    Expanded replay & More emitted contracts while the final window stays bounded \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+Table~\ref{tab:variants} lists the parameter variants that the presenter can switch to after the main walkthrough. These variants are included because a demo paper should not only describe the happy path. A tighter threshold tests whether the interface still explains why fewer clusters appear. A shorter window tests whether bounded retention is visible. Reordered input tests whether the system preserves incident families while changing the moment at which contracts become visible.
+
+\subsection{What the Evidence Shows}
+
+The prepared evidence supports three claims. First, the live path has enough data to show real behavior: the 24 reports produce multiple incident families, cross-source clusters, and both correlation and novelty contracts. Second, the runtime boundary remains usable as the input grows: the window is bounded, but contract emission continues. Third, the UI exposes the relevant system effect when parameters change. A demo attendee does not need to infer behavior from a hidden log; the state transition is visible through retained records, match pairs, clusters, and exported contracts.
+
+\section{Discussion and Conclusion}
+
+\system{} is a demonstration of a system boundary: semantic-window state remains inside a persistent vector runtime, while the application receives bounded contracts that are stable enough to inspect, log, route, and summarize. The key point is not that vector search can find similar records; the key point is that streaming vector evidence can become observable application behavior. The demo therefore emphasizes the handoff from event stream to runtime evidence to contract output.
+
+There are two takeaways for attendees. The first is operational: a semantic window should expose enough state for a human to understand why an application-level decision changed. In \system{}, the presenter can point from a contract back to retained events and join pairs, which makes the system easier to debug than a pipeline that only displays generated text. The second takeaway is architectural: keeping the join state inside a long-lived runtime avoids rebuilding semantic context at every application step. This is what lets the demo show freshness, boundedness, and contract emission as one continuous behavior.
+
+The demo also makes its current limitations visible. The replay uses deterministic embeddings so that the audience can reproduce the same sequence of clusters and contracts; a deployed system would replace that stage with a production embedding service and would need monitoring for embedding drift. The contract rules are intentionally simple threshold rules, which makes the UI explainable but leaves room for learned policies or organization-specific routing constraints. These limitations are useful in a demonstration setting because they separate the systems contribution from policy choices that can vary across applications.
+
+The current prototype focuses on vulnerability intelligence because the domain makes semantic grouping and escalation easy to understand. The same pattern applies to other streaming AI tasks where new evidence must be incorporated during a long-running workflow: customer-support incidents, scientific-monitoring feeds, or operational telemetry. Future extensions will make the contract rules learned or policy-driven, but the live demo already exposes the essential systems question: how can an AI pipeline keep semantic context fresh without hiding the runtime state that justifies its actions?
 
 \bibliographystyle{ACM-Reference-Format}
 \bibliography{References}
