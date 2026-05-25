@@ -30,7 +30,7 @@
 \copyrightyear{2026}
 
 \begin{abstract}
-Streaming AI applications need to keep vector state fresh while exposing that state in a form that downstream services can inspect and act on. \system{} is a live demonstration of a unified semantic-window system built from the SAGE orchestration codebase and the SageFlow vector-stream runtime~\cite{sage_icml2026,sage_repo,sageflow_repo}. The demo follows public vulnerability-intelligence reports as they are normalized, embedded, joined inside a bounded semantic window, and surfaced as snapshot, routing, and escalation contracts. Unlike a static retrieval demo, \system{} lets the audience see how new events change the active window, which vector joins support a cluster, and what compact evidence is handed to an LLM-facing application. A 24-event walkthrough remains small enough for live narration, while expanded 240-event and 2,400-event replays show that the same contract path continues to emit useful evidence under larger streams.
+Streaming AI applications need to keep vector state fresh while exposing that state in a form that downstream services can inspect and act on. \system{} is a live demonstration of a unified semantic-window system built from the SAGE orchestration codebase and the SageFlow vector-stream runtime~\cite{sage_icml2026,sage_repo,sageflow_repo}. The demo follows public vulnerability-intelligence reports as they are normalized, embedded with BGE, joined inside a bounded semantic window, and surfaced as snapshot, routing, and escalation contracts for an LLM-facing application. Unlike a static retrieval demo, \system{} lets the audience see how new events change the active window, which vector joins support a cluster, and what compact evidence is handed to the generator. The live walkthrough stays small enough for narration, while a 3,000-record NVD replay shows measured runtime behavior under real embeddings.
 \end{abstract}
 
 \ccsdesc[500]{Computer systems organization~Parallel architectures}
@@ -47,9 +47,9 @@ Large-model applications increasingly run as long-lived dataflows rather than as
 
 Stream processors provide scalable dataflow execution~\cite{akidau2015dataflow,carbone2015apache}, while vector indexes provide efficient approximate search~\cite{jegou2011product,johnson2019billion,malkov2020efficient}. Retrieval-augmented systems further show how language models benefit from external evidence~\cite{lewis2020rag,guu2020realm}. What is still awkward in many prototypes is the boundary between streaming state and AI orchestration. Semantic state is often rebuilt outside the component that observes the stream, so a demo can show an answer but not the live runtime evidence that made the answer possible.
 
-\system{} demonstrates a narrower and more observable boundary. The system owns the active semantic window, runs vector joins as events arrive, and exports only compact contracts to the application layer. A contract is not another prompt; it is a structured object with cluster identity, supporting neighbors, source coverage, novelty, route, priority, and action fields. The demo is built around the question an audience naturally asks during a live system demonstration: when the next event arrives, what changes, why did it change, and what can the upper pipeline safely do with the change?
+\system{} demonstrates a narrower and more observable boundary. The system owns the active semantic window, runs vector joins as events arrive, and exports only compact contracts to the application layer. A contract is not another prompt; it is a structured object with cluster identity, supporting neighbors, source coverage, novelty, route, priority, and action fields. Those fields are then rendered in the UI and placed into the LLM context, so the audience can trace an answer back to runtime-owned evidence rather than to hidden prompt construction. The demo is built around the question an audience naturally asks during a live system demonstration: when the next event arrives, what changes, why did it change, and what can the upper pipeline safely do with the change?
 
-The paper keeps the original demo narrative but makes three pieces explicit. First, it describes the system architecture as a single integrated prototype rather than two adjacent components. Second, it expands the live demonstration path so that the UI, presenter script, and pipeline stages have clear roles. Third, it adds prepared evidence beyond the 24-event walkthrough, including scale replays and parameter variants that show the capability of the system without turning the paper into a full benchmark paper.
+The paper keeps the original demo narrative but makes three pieces explicit. First, it describes the system architecture as a single integrated prototype rather than two adjacent components. Second, it expands the live demonstration path so that the UI, presenter script, and pipeline stages have clear roles. Third, it adds prepared evidence from real public records and real embedding vectors, including a parallelism sweep that shows both the benefit and the current cost of clustered multicast joins without turning the paper into a full benchmark paper.
 
 \section{System Overview}
 
@@ -61,7 +61,7 @@ The paper keeps the original demo narrative but makes three pieces explicit. Fir
   \label{fig:overview}
 \end{figure}
 
-Figure~\ref{fig:overview} shows the implemented path. \system{} takes heterogeneous vulnerability reports from multiple sources, maps each report into a deterministic embedding for reproducible demos, appends the record into a bounded semantic window, and drains join pairs produced by the persistent runtime. The output is then folded into application-level contracts. This organization is intentionally close to the way the live demo is presented: the audience first sees an event enter the pipeline, then sees the runtime evidence that connects it to prior records, and finally sees the contract that an application can consume.
+Figure~\ref{fig:overview} shows the implemented path. \system{} takes heterogeneous vulnerability reports from multiple sources, maps each report into a 384-dimensional \texttt{BAAI/bge-small-en-v1.5} embedding, appends the record into a bounded semantic window, and drains join pairs produced by the persistent runtime. The output is then folded into application-level contracts and, in the API-backed mode, into a bounded prompt context for GLM generation. This organization is intentionally close to the way the live demo is presented: the audience first sees an event enter the pipeline, then sees the runtime evidence that connects it to prior records, and finally sees the contract that an application can consume.
 
 \subsection{Design Goals}
 
@@ -69,7 +69,7 @@ The first design goal is \emph{observable freshness}. A static retrieval index c
 
 The second goal is \emph{bounded handoff}. Model-facing services should not receive an unbounded list of nearest neighbors. The system exports a small set of fields that can be logged, routed, or summarized: cluster identity, source coverage, supporting neighbor identifiers, novelty, route, priority, and action. This turns the semantic window into an application interface rather than a private runtime detail.
 
-The third goal is \emph{demo reproducibility}. Live demos are convincing when they are interactive, but papers also need evidence that the observed behavior is not a hand-picked screen. The same replay driver used for the UI can run deterministic expanded streams, threshold variants, and window-size variants. The prepared figure in Section~\ref{sec:evidence} is generated from those replay artifacts.
+The third goal is \emph{demo reproducibility}. Live demos are convincing when they are interactive, but papers also need evidence that the observed behavior is not a hand-picked screen. The same replay driver used for the UI can run public NVD/CISA inputs, cached real embeddings, threshold variants, and window-size variants. The prepared figure in Section~\ref{sec:evidence} is generated from those replay artifacts.
 
 \subsection{Runtime Boundary}
 
@@ -81,7 +81,7 @@ The third goal is \emph{demo reproducibility}. Live demos are convincing when th
     \toprule
     Component & Demo-visible role \\
     \midrule
-    Ingestion layer & Source replay, deterministic embedding, event metadata \\
+    Ingestion layer & Source replay, BGE embedding cache, event metadata \\
     Window manager & Bounded retention, reset/cleanup, snapshot export \\
     Join runtime & Left-right append, vector comparison, pair emission \\
     Contract layer & Snapshot, owner route, escalation signal \\
@@ -96,7 +96,7 @@ Cluster construction uses connected components over returned join pairs. Cluster
 
 \section{Live Demonstration}
 
-The live scenario uses 24 public vulnerability-intelligence records from NVD, vendor advisories, CISA warnings, emergency alerts, and research notes. The reports cover six incident families: PAN-OS, XZ Utils, OpenSSH, PHP-CGI, Fortinet VPN, and TeamCity. This domain is useful for a systems demo because records arrive from different sources, use different language, and still need to be grouped quickly enough for operator-facing workflows.
+The live scenario uses a narrated subset of public vulnerability-intelligence records from NVD, vendor advisories, CISA warnings, emergency alerts, and research notes. The reports cover familiar incident families such as PAN-OS, XZ Utils, OpenSSH, PHP-CGI, Fortinet VPN, and TeamCity. This domain is useful for a systems demo because records arrive from different sources, use different language, and still need to be grouped quickly enough for operator-facing workflows. The larger evidence run uses 3,000 NVD records published in the first quarter of 2024, embedded once with BGE and replayed through the same SageFlow runtime path.
 
 \begin{figure*}[t]
   \centering
@@ -142,21 +142,21 @@ The escalation scenario focuses on high-severity novelty. A new report may not y
 \section{Prepared Evidence}
 \label{sec:evidence}
 
-The 24-event walkthrough is intentionally small enough for a live audience. To show more than a toy sample, the prepared evidence uses deterministic expanded replays. The expansion repeats the public-event templates with unique identifiers, shifted timestamps, and replay metadata. This keeps the semantics of the incident families understandable while increasing the number of events seen by the runtime.
+The narrated walkthrough is intentionally small enough for a live audience. To show more than a toy sample, the prepared evidence uses 3,000 public NVD records from 2024-Q1. Embeddings are produced by \texttt{BAAI/bge-small-en-v1.5} through SentenceTransformers, normalized to 384 dimensions, sharded for artifact storage, and replayed from cache so the runtime experiment is deterministic. A sampled vector was recomputed from the original text and matched the cache within floating-point roundoff, which guards against reporting placeholder vectors.
 
 \begin{figure}[t]
   \centering
   \input{generated/prepared_run_result_figure.tex}
-  \caption{Prepared result summary. The same demo path is run at three replay sizes; wall time is measured on the Python demo path and includes runtime startup.}
-  \Description{A compact result figure showing input, runtime, and contract counts for the 24-event prepared run plus a scale table for 24, 240, and 2400 events.}
+  \caption{Prepared runtime result on 3,000 real NVD records with BGE embeddings. The clustered join uses threshold 0.5 and multicast fanout two; p=2 gives the best throughput in the current prototype, while larger p increases multicast work and emitted pairs.}
+  \Description{A compact result table showing throughput, speedup, latency, and emitted pairs for clustered join over two window sizes and four parallelism settings.}
   \label{fig:results}
 \end{figure}
 
 \subsection{Workloads and Metrics}
 
-The live workload has 24 events, five source classes, six incident families, and 18 exported contracts. The extended replay has 240 events and keeps a 28-record active window. The scale replay has 2,400 events with the same bounded window. We report four quantities because they map directly to the demo claims: active window size, number of active clusters, number of emitted contracts, and wall-clock time for the prepared Python demo path.
+The runtime workload contains 3,000 NVD records and 6,000 vector insertions because each event is replayed into the two input sides of the join. We report feed-and-drain latency, event throughput, speedup relative to one worker at the same window size, and emitted pair count. The experiment uses \texttt{clustered\_join}, a low similarity threshold of 0.5, multicast fanout two, and sequence timestamps so window sizes correspond to recent vector arrivals rather than calendar time.
 
-Figure~\ref{fig:results} shows the main result. The live run produces 72 match pairs, six active clusters, and 18 contracts. The 240-event replay produces 234 contracts in 3.47 seconds, while the 2,400-event replay produces 2,394 contracts in 37.59 seconds. The active window remains bounded at 28 records for the larger runs, so the final UI state remains inspectable even though the contract stream grows with the input.
+Figure~\ref{fig:results} shows the main result. With a 512-arrival window, throughput improves from 22.7k events/s at p=1 to 26.4k events/s at p=2. With a 1,024-arrival window, throughput improves from 18.0k events/s to 28.1k events/s, a 1.57$\times$ speedup. Higher parallelism exposes a current engineering limit: multicast increases the number of emitted candidates and synchronization work, so p=4 and p=8 do not monotonically improve throughput. This is still useful demo evidence because the UI and paper can explain both the concurrency benefit and the cost of broader candidate coverage.
 
 \begin{table}[t]
   \centering
@@ -169,7 +169,7 @@ Figure~\ref{fig:results} shows the main result. The live run produces 72 match p
     Tighter threshold & Fewer join pairs, fragmented clusters, fewer correlated contracts \\
     Shorter window & Older incident families leave the snapshot earlier \\
     Reordered input & Same topic families, different contract reveal times \\
-    Expanded replay & More emitted contracts while the final window stays bounded \\
+    Clustered fanout & More candidate coverage, higher emitted-pair count, more runtime overhead \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -178,7 +178,7 @@ Table~\ref{tab:variants} lists the parameter variants that the presenter can swi
 
 \subsection{What the Evidence Shows}
 
-The prepared evidence supports three claims. First, the live path has enough data to show real behavior: the 24 reports produce multiple incident families, cross-source clusters, and both correlation and novelty contracts. Second, the runtime boundary remains usable as the input grows: the window is bounded, but contract emission continues. Third, the UI exposes the relevant system effect when parameters change. A demo attendee does not need to infer behavior from a hidden log; the state transition is visible through retained records, match pairs, clusters, and exported contracts.
+The prepared evidence supports three claims. First, the live path has enough data to show real behavior: reports from multiple source classes produce incident families, cross-source clusters, and both correlation and novelty contracts. Second, the runtime boundary remains measurable on a larger public stream: the same cached embeddings and runtime API process thousands of records and expose throughput, latency, and emitted pairs. Third, the UI exposes the relevant system effect when parameters change. A demo attendee does not need to infer behavior from a hidden log; the state transition is visible through retained records, match pairs, clusters, exported contracts, and the final generated answer.
 
 \section{Discussion and Conclusion}
 
@@ -186,7 +186,7 @@ The prepared evidence supports three claims. First, the live path has enough dat
 
 There are two takeaways for attendees. The first is operational: a semantic window should expose enough state for a human to understand why an application-level decision changed. In \system{}, the presenter can point from a contract back to retained events and join pairs, which makes the system easier to debug than a pipeline that only displays generated text. The second takeaway is architectural: keeping the join state inside a long-lived runtime avoids rebuilding semantic context at every application step. This is what lets the demo show freshness, boundedness, and contract emission as one continuous behavior.
 
-The demo also makes its current limitations visible. The replay uses deterministic embeddings so that the audience can reproduce the same sequence of clusters and contracts; a deployed system would replace that stage with a production embedding service and would need monitoring for embedding drift. The contract rules are intentionally simple threshold rules, which makes the UI explainable but leaves room for learned policies or organization-specific routing constraints. These limitations are useful in a demonstration setting because they separate the systems contribution from policy choices that can vary across applications.
+The demo also makes its current limitations visible. The embedding cache is a replay artifact built from a real model; a deployed system would refresh vectors online and monitor embedding drift. The current clustered join profile benefits from modest parallelism but pays overhead at larger multicast fanout, which we expose rather than hide. The contract rules are intentionally simple threshold rules, which makes the UI explainable but leaves room for learned policies or organization-specific routing constraints. These limitations are useful in a demonstration setting because they separate the systems contribution from policy choices that can vary across applications.
 
 The current prototype focuses on vulnerability intelligence because the domain makes semantic grouping and escalation easy to understand. The same pattern applies to other streaming AI tasks where new evidence must be incorporated during a long-running workflow: customer-support incidents, scientific-monitoring feeds, or operational telemetry. Future extensions will make the contract rules learned or policy-driven, but the live demo already exposes the essential systems question: how can an AI pipeline keep semantic context fresh without hiding the runtime state that justifies its actions?
 

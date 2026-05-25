@@ -1,34 +1,18 @@
-% Generated from data/prepared_demo_run.json and data/prepared_demo_evidence.json.
+% Generated from the clustered NVD Q1 2024 runtime replay.
 \resizebox{\columnwidth}{!}{%
-\begin{tikzpicture}[
-  font=\scriptsize,
-  box/.style={draw=black!18, rounded corners=2pt, fill=gray!4, inner sep=4pt, align=center},
-  runbox/.style={draw=teal!45, rounded corners=2pt, fill=teal!6, inner sep=4pt, align=center},
-  outbox/.style={draw=orange!55, rounded corners=2pt, fill=orange!8, inner sep=4pt, align=center},
-  arrow/.style={->, thick, draw=black!55}
-]
-  \node[box, minimum width=2.55cm, minimum height=1.0cm] (input) at (0,2.8) {
-    \textbf{Input}\\24 events\\5 source classes
-  };
-  \node[runbox, minimum width=2.65cm, minimum height=1.0cm] (runtime) at (3.45,2.8) {
-    \textbf{Runtime}\\72 match pairs\\6 active clusters
-  };
-  \node[outbox, minimum width=2.75cm, minimum height=1.0cm] (contracts) at (6.95,2.8) {
-    \textbf{Contracts}\\18 outputs\\12 correlated / 6 emerging
-  };
-  \draw[arrow] (input) -- node[above, font=\tiny] {vector updates} (runtime);
-  \draw[arrow] (runtime) -- node[above, font=\tiny] {bounded evidence} (contracts);
-
-  \node[anchor=north west, align=left] at (-1.35,1.45) {
-    \begin{tabular}{@{}lrrrrr@{}}
-      \toprule
-      Run & Events & Window & Clusters & Contracts & Wall \\
-      \midrule
-    Live walkthrough & 24 & 24 & 6 & 18 & 1.33s \\
-    Extended replay & 240 & 28 & 6 & 234 & 3.47s \\
-    Scale replay & 2,400 & 28 & 6 & 2,394 & 37.59s \\
-      \bottomrule
-    \end{tabular}
-  };
-\end{tikzpicture}%
+\begin{tabular}{@{}rrrrr@{}}
+  \toprule
+  Window & Parallelism & Throughput & Speedup & Pairs \\
+  \midrule
+  512 & 1 & 22.7k ev/s & 1.00$\times$ & 6,480 \\
+  512 & 2 & 26.4k ev/s & 1.16$\times$ & 8,450 \\
+  512 & 4 & 20.1k ev/s & 0.89$\times$ & 12,841 \\
+  512 & 8 & 11.9k ev/s & 0.52$\times$ & 28,509 \\
+  \addlinespace[2pt]
+  1024 & 1 & 18.0k ev/s & 1.00$\times$ & 9,025 \\
+  1024 & 2 & 28.1k ev/s & 1.57$\times$ & 7,260 \\
+  1024 & 4 & 20.8k ev/s & 1.16$\times$ & 12,667 \\
+  1024 & 8 & 12.3k ev/s & 0.69$\times$ & 30,137 \\
+  \bottomrule
+\end{tabular}%
 }

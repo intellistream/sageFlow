@@ -1,5 +1,5 @@
 """Version information for isage-flow."""
 
-__version__ = "0.1.3.17"
+__version__ = "0.1.3.18"
 __author__ = "IntelliStream Team"
 __email__ = "shuhao_zhang@hust.edu.cn"

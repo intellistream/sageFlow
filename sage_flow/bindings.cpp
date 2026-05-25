@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cctype>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -26,6 +27,7 @@
 #include "stream/stream_environment.h"
 #include "stream/data_stream_source/simple_stream_source.h"
 #include "stream/data_stream_source/streaming_source.h"
+#include "operator/utils/join_strategy_config.h"
 
 namespace py = pybind11;
 using namespace sageFlow;  // NOLINT
@@ -68,13 +70,21 @@ class PersistentVectorJoinRuntime {
         double similarity_threshold,
         int64_t window_size_ms,
         size_t queue_capacity,
-        size_t parallelism)
+        size_t parallelism,
+        int clustered_multicast_k,
+        double clustered_overlap_ratio,
+        int clustered_training_samples,
+        std::string clustered_index_type)
         : dim_(dim),
           join_method_(std::move(join_method)),
           similarity_threshold_(similarity_threshold),
           window_size_ms_(window_size_ms),
           queue_capacity_(queue_capacity),
-          parallelism_(parallelism == 0 ? 1 : parallelism) {
+          parallelism_(parallelism == 0 ? 1 : parallelism),
+          clustered_multicast_k_(clustered_multicast_k),
+          clustered_overlap_ratio_(clustered_overlap_ratio),
+          clustered_training_samples_(clustered_training_samples),
+          clustered_index_type_(std::move(clustered_index_type)) {
         if (dim_ <= 0) {
             throw std::runtime_error("dim must be positive");
         }
@@ -135,6 +145,21 @@ class PersistentVectorJoinRuntime {
             join_method_,
             similarity_threshold_,
             parallelism_);
+        if (isClusteredJoinMethod()) {
+            auto config = createJoinStrategyConfigFromMethodName(
+                join_method_,
+                similarity_threshold_,
+                dim_,
+                window_size_ms_,
+                10);
+            config.num_partitions = static_cast<int>(parallelism_);
+            config.clustered_multicast_k = clustered_multicast_k_;
+            config.clustered_overlap_ratio = clustered_overlap_ratio_;
+            config.clustered_training_samples = clustered_training_samples_;
+            config.clustered_multicast_enabled = true;
+            config.clustered_index_type = parseClusteredIndexType(clustered_index_type_);
+            joined->setJoinStrategyConfig(config);
+        }
         joined->writeSink(
             std::make_unique<SinkFunction>(
                 "persistent_join_sink",
@@ -260,12 +285,24 @@ class PersistentVectorJoinRuntime {
         }
     }
 
+    bool isClusteredJoinMethod() const {
+        std::string method = join_method_;
+        std::transform(method.begin(), method.end(), method.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        return method == "clustered_join" || method == "clusteredjoin" ||
+               method == "clustered_join_eager" || method == "clustered_join_lazy";
+    }
+
     int dim_;
     std::string join_method_;
     double similarity_threshold_;
     int64_t window_size_ms_;
     size_t queue_capacity_;
     size_t parallelism_;
+    int clustered_multicast_k_;
+    double clustered_overlap_ratio_;
+    int clustered_training_samples_;
+    std::string clustered_index_type_;
 
     mutable std::mutex mutex_;
     mutable std::condition_variable pair_cv_;
@@ -392,13 +429,17 @@ PYBIND11_MODULE(_sage_flow, m) {
 
     py::class_<PersistentVectorJoinRuntime>(m, "PersistentVectorJoinRuntime", py::module_local(),
         "Long-lived two-input SageFlow join runtime backed by StreamingSource and StreamEnvironment.")
-        .def(py::init<int, std::string, double, int64_t, size_t, size_t>(),
+        .def(py::init<int, std::string, double, int64_t, size_t, size_t, int, double, int, std::string>(),
              py::arg("dim"),
              py::arg("join_method") = "bruteforce_lazy",
              py::arg("similarity_threshold") = 0.985,
              py::arg("window_size_ms") = 24 * 60 * 60 * 1000,
              py::arg("queue_capacity") = 1024,
-             py::arg("parallelism") = 1)
+             py::arg("parallelism") = 1,
+             py::arg("clustered_multicast_k") = 0,
+             py::arg("clustered_overlap_ratio") = 0.1,
+             py::arg("clustered_training_samples") = 1000,
+             py::arg("clustered_index_type") = "bruteforce")
         .def("start", &PersistentVectorJoinRuntime::start,
              "Start the persistent StreamingSource-backed join graph.")
         .def("add_left", &PersistentVectorJoinRuntime::addLeft,
