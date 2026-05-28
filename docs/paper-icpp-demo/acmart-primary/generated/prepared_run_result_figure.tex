@@ -1,5 +1,9 @@
 % Generated from the clustered NVD Q1 2024 runtime replay.
-\resizebox{\columnwidth}{!}{%
+\begingroup
+\scriptsize
+\setlength{\tabcolsep}{2.6pt}
+\begin{minipage}{\columnwidth}
+\centering
 \begin{tabular}{@{}rrrrr@{}}
   \toprule
   Window & Parallelism & Throughput & Speedup & Pairs \\
@@ -14,5 +18,15 @@
   1024 & 4 & 20.8k ev/s & 1.16$\times$ & 12,667 \\
   1024 & 8 & 12.3k ev/s & 0.69$\times$ & 30,137 \\
   \bottomrule
-\end{tabular}%
-}
+\end{tabular}
+
+\vspace{3pt}
+\begin{tabular}{@{}lrrrrr@{}}
+  \toprule
+  Gen. run & Ev. & Ans. & FB & Faith. & LLM p50/p95 \\
+  \midrule
+  Contract-to-answer & 20 & 20 & 0 & 0.95 & 8.12/11.01s \\
+  \bottomrule
+\end{tabular}
+\end{minipage}
+\endgroup
