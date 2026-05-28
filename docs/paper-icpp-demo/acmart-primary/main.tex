@@ -30,7 +30,7 @@
 \copyrightyear{2026}
 
 \begin{abstract}
-Streaming AI applications need to keep vector state fresh while exposing that state in a form that downstream services can inspect and act on. \system{} is a live demonstration of a unified semantic-window system implemented over a streaming AI control layer and a vector-stream runtime~\cite{sage_icml2026}. The demo follows public vulnerability-intelligence reports as they are normalized, embedded with BGE, joined inside a bounded semantic window, and surfaced as snapshot contracts for a provider-agnostic generator service. Unlike a static retrieval demo, \system{} lets the audience configure the stream, join strategy, retention window, parallelism, and generator endpoint while seeing how those choices affect runtime evidence and downstream answers. The live walkthrough stays small enough for narration, while a 3,000-record NVD replay and a 20-answer generator run show measured behavior under real embeddings and API-backed generation.
+Streaming AI applications need to keep vector state fresh while exposing that state in a form that downstream services can inspect and act on. \system{} is a live demonstration of a unified semantic-window system implemented over a streaming AI control layer and a vector-stream runtime~\cite{sage_icml2026}. The demo follows public vulnerability-intelligence reports as they are normalized, embedded, joined inside a bounded semantic window, and surfaced as snapshot contracts for a provider-agnostic generator service. Unlike a static retrieval demo, \system{} lets the audience configure the stream, join strategy, retention window, parallelism, and generator backend while seeing how those choices affect runtime evidence and downstream answers. The live walkthrough stays small enough for narration, while a 3,000-record NVD replay and a 20-answer generator run show measured behavior across the vector runtime and contract-to-generation path.
 \end{abstract}
 
 \ccsdesc[500]{Computer systems organization~Parallel architectures}
@@ -61,7 +61,7 @@ The paper keeps the original demo narrative but makes three pieces explicit. Fir
   \label{fig:overview}
 \end{figure*}
 
-Figure~\ref{fig:overview} shows the implemented path. \system{} takes heterogeneous vulnerability reports from multiple sources, maps each report into a 384-dimensional \texttt{BAAI/bge-small-en-v1.5} embedding, appends the record into a bounded semantic window, and drains join pairs produced by the persistent runtime. The output is then folded into application-level contracts and, in the API-backed mode, into a bounded prompt context for an OpenAI-compatible generator endpoint. This organization is intentionally close to the live demo: the top-level event-to-answer pipeline stays visible while the semantic-window stage expands into append lanes, window state, join strategy, pair emission, cluster update, and snapshot export. The audience can therefore follow the same event from stream input to runtime-owned evidence to generated answer.
+Figure~\ref{fig:overview} shows the implemented path. \system{} takes heterogeneous vulnerability reports from multiple sources, maps each report into a dense text embedding, appends the record into a bounded semantic window, and drains join pairs produced by the persistent runtime. The output is then folded into application-level contracts and passed to a provider-agnostic generator service through a bounded evidence context. This organization is intentionally close to the live demo: the top-level event-to-answer pipeline stays visible while the semantic-window stage expands into append lanes, window state, join strategy, pair emission, cluster update, and snapshot export. The audience can therefore follow the same event from stream input to runtime-owned evidence to generated answer.
 
 \subsection{Design Goals}
 
@@ -69,7 +69,7 @@ The first design goal is \emph{observable freshness}. A static retrieval index c
 
 The second goal is \emph{bounded handoff}. Model-facing services should not receive an unbounded list of nearest neighbors. The system exports a small set of fields that can be logged, routed, or summarized: cluster identity, source coverage, supporting neighbor identifiers, novelty, route, priority, and action. This turns the semantic window into an application interface rather than a private runtime detail.
 
-The third goal is \emph{demo reproducibility}. Live demos are convincing when they are interactive, but papers also need evidence that the observed behavior is not a hand-picked screen. The same replay driver used for the UI can run public NVD/CISA inputs, cached real embeddings, threshold variants, and window-size variants. The prepared figure in Section~\ref{sec:evidence} is generated from those replay artifacts.
+The third goal is \emph{demo reproducibility}. Live demos are convincing when they are interactive, but papers also need evidence that the observed behavior is not a hand-picked screen. The same replay driver used for the UI can run public NVD/CISA inputs, cached vector artifacts, threshold variants, and window-size variants. The prepared figure in Section~\ref{sec:evidence} is generated from those replay artifacts.
 
 \subsection{Runtime Boundary}
 
@@ -93,9 +93,29 @@ The live scenario uses public vulnerability-intelligence records from NVD, vendo
 
 Figure~\ref{fig:ui} shows the UI used in the demonstration. Its role is not to be a dashboard after the fact, but to make the experiment protocol visible while the pipeline runs. The top surface fixes the workload and runtime parameters. The pipeline view keeps the event-to-answer path in one place. The zoom view opens the semantic-window stage into the operators that actually create evidence: append lanes, retained state, join probe, pair stream, cluster update, and snapshot export. The lower surfaces then carry that evidence into rows, clusters, neighbor records, a bounded contract, and provider-agnostic generation.
 
-The presenter can run the stream stepwise or as a replay, change configuration, and then inspect how the same pipeline responds. This is the main demonstration point: parameter changes are not frontend decoration. They alter the boundary between retained runtime state, emitted semantic matches, exported contracts, and the text produced by the generator. The audience therefore sees a traceable AI pipeline rather than a static retrieval example: each answer can be followed back through contract fields, cluster evidence, join output, and the configured semantic window.
+The presenter can run the stream stepwise or as a replay, change configuration, and then inspect how the same pipeline responds. This is the main demonstration point: parameter changes are not frontend decoration. They alter the boundary between retained runtime state, emitted semantic matches, exported contracts, and the text produced by the generator. The metrics/profile view records the selected workload, join method, threshold, window, parallelism, and generator backend next to runtime, evidence, and generation counters.
 
 The walkthrough is designed to answer five questions in order. What just arrived? Where is it in the pipeline? What did the runtime retain and join? Which records became evidence? What did the generator receive and produce? This is the same structure used in many systems demonstrations: start with a concrete user path, reveal internal state at the moment it matters, and close by showing measured evidence beyond the exact path shown on screen.
+
+\begin{table}[t]
+  \centering
+  \caption{Default live-demo configuration and interactive controls.}
+  \label{tab:controls}
+  \scriptsize
+  \setlength{\tabcolsep}{3pt}
+  \begin{tabular}{@{}lll@{}}
+    \toprule
+    Control & Default & What changes in the demo \\
+    \midrule
+    Replay source & 100 events & Stream length and visible event path \\
+    Join method & clustered join & Join probe and emitted-pair behavior \\
+    Window & 32 records & Retention horizon and cluster timing \\
+    Threshold & 0.95 & Neighbor density and contract evidence \\
+    Parallelism & p=2 & Runtime profile and metrics view \\
+    Generator & selected backend & Contract-to-answer handoff \\
+    \bottomrule
+  \end{tabular}
+\end{table}
 
 \subsection{Demonstration Scenarios}
 
@@ -103,28 +123,28 @@ The snapshot scenario shows why the bounded window matters. When related reports
 
 The runtime-inspection scenario shows how the same event is visible at two levels. At the outer level, the application pipeline shows the control path from event to generator. At the inner level, the runtime view shows the operator path that owns the semantic state. This zoomed view is important for a demo paper because the system contribution is not only the final answer but the observable runtime boundary that produces the contract.
 
-The generator scenario closes the loop. The audience can inspect the contract first, then compare it with the generated response and token/latency metadata. A provider-agnostic display keeps this stage reusable for local vLLM or API-backed services while preserving the main claim: the generator consumes bounded evidence, and evidence identifiers can be traced back to the runtime state.
+The generator scenario closes the loop. The audience can inspect the contract first, then compare it with the generated response and token/latency metadata. A provider-agnostic display keeps this stage reusable across generator backends while preserving the main claim: the generator consumes bounded evidence, and evidence identifiers can be traced back to the runtime state.
 
 \section{Prepared Evidence}
 \label{sec:evidence}
 
 The narrated walkthrough is intentionally small enough for a live audience. To show more than a toy sample, the prepared evidence uses 3,000 public NVD records from 2024-Q1. Embeddings are produced by \texttt{BAAI/bge-small-en-v1.5} through SentenceTransformers, normalized to 384 dimensions, sharded for artifact storage, and replayed from cache so the runtime experiment is deterministic. A sampled vector was recomputed from the original text and matched the cache within floating-point roundoff, which guards against reporting placeholder vectors.
 
-\begin{figure}[t]
+\begin{table}[t]
   \centering
   \input{generated/prepared_run_result_figure.tex}
-  \caption{Prepared evidence from real runs. Top: clustered runtime replay on 3,000 NVD records with BGE embeddings; p=2 gives the best measured throughput in this configuration. Bottom: a 20-event contract-to-answer generator run reports answer coverage, fallback count, evidence faithfulness, and LLM latency.}
-  \Description{A compact result table showing throughput, speedup, latency, and emitted pairs for clustered join over two window sizes and four parallelism settings, plus a generator run summary.}
-  \label{fig:results}
-\end{figure}
+  \caption{Prepared evidence from real runs. Top: clustered runtime replay on 3,000 NVD records with BGE embeddings, using the p=1 baseline and the p=2 operating point used in the live profile. Bottom: a 20-event contract-to-answer generator run reports answer coverage, fallback count, evidence faithfulness, and LLM latency.}
+  \Description{A compact result table showing throughput, speedup, latency, and emitted pairs for clustered join over two window sizes at p=1 and p=2, plus a generator run summary.}
+  \label{tab:results}
+\end{table}
 
 \subsection{Workloads and Metrics}
 
-The runtime workload contains 3,000 NVD records and 6,000 vector insertions because each event is replayed into the two input sides of the join. We report feed-and-drain latency, event throughput, speedup relative to one worker at the same window size, and emitted pair count. The experiment uses \texttt{clustered\_join}, a low similarity threshold of 0.5, multicast fanout two, and sequence timestamps so window sizes correspond to recent vector arrivals rather than calendar time. The generator workload replays 20 public vulnerability events through the same contract layer and reports generated answers, fallback count, evidence faithfulness, and LLM p50/p95 latency separately from runtime throughput.
+The runtime workload contains 3,000 NVD records and 6,000 vector insertions because each event is replayed into the two input sides of the join. We report feed-and-drain latency, event throughput, speedup relative to one worker at the same window size, and emitted pair count for p=1 and p=2. The prepared runtime run uses \texttt{clustered\_join}, a low similarity threshold of 0.5, multicast fanout two, and sequence timestamps so window sizes correspond to recent vector arrivals rather than calendar time. The generator workload replays 20 public vulnerability events through the same contract layer and reports generated answers, fallback count, evidence faithfulness, and LLM p50/p95 latency separately from runtime throughput.
 
-Figure~\ref{fig:results} shows the main result. With a 512-arrival window, throughput improves from 22.7k events/s at p=1 to 26.4k events/s at p=2. With a 1,024-arrival window, throughput improves from 18.0k events/s to 28.1k events/s, a 1.57$\times$ speedup. Across both windows, the p=2 clustered profile gives the strongest measured operating point, while higher fanout settings increase candidate coverage and emitted-pair volume. The generator run completes all 20 answers without fallback and keeps answer evidence tied to exported contract identifiers. Together, these results give the demo two kinds of evidence: runtime behavior at stream scale and end-to-end behavior at human-inspectable scale.
+At a 512-arrival window, Table~\ref{tab:results} reports throughput rising from 22.7k events/s at p=1 to 26.4k events/s at p=2. At 1,024 arrivals, throughput rises from 18.0k events/s to 28.1k events/s, a 1.57$\times$ speedup. The p=2 clustered profile is therefore the default parallel operating point used in the console metrics view. The generator run completes all 20 answers without fallback and keeps answer evidence tied to exported contract identifiers. Together, these results show runtime behavior at stream scale and contract-to-answer behavior at demo scale.
 
-After the main walkthrough, the presenter can switch threshold, window size, input order, and clustered fanout. These variants make the demo interactive in a systems sense: the same controls that define the experiment also reshape evidence density, retention horizon, contract timing, and the amount of runtime work visible in the operator view.
+After the main walkthrough, the presenter can switch threshold, window size, input order, and the parallel profile. These variants make the demo interactive in a systems sense: the same controls that define the experiment also reshape evidence density, retention horizon, contract timing, and the amount of runtime work visible in the operator view.
 
 \subsection{What the Evidence Shows}
 
