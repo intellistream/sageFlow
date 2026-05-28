@@ -10,7 +10,7 @@ workspace. Full cross-repository context is in:
 ## Workspace
 
 ```text
-/home/zero/intelliStream/icpp-demo
+/~/icpp-demo
 ├── SAGE/                 # SAGE orchestration/runtime context and demo plan
 ├── sageFlow/             # C++ vector stream runtime, Python bindings, paper
 ├── sage-examples/        # demo pipeline, datasets, configs, experiments
@@ -69,9 +69,7 @@ brisksnapshot-ui/src/components/
 - Do not fabricate experiment data.
 - Do not commit or print API keys.
 - Do not present prepared fallback data as live paper evidence.
-- Do not claim linear scaling; p=2 is the current best measured clustered
-  runtime point.
+- Do not claim linear scaling;
 - Keep the ICPP demo paper within 4 pages.
 - If live state lacks a metric, display/document it as unavailable rather than
   inventing counters, latency, tokens, or throughput.
-
