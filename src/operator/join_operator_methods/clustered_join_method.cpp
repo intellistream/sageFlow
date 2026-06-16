@@ -175,12 +175,12 @@ IndexParameters ClusteredJoinMethod::getPreferredIndexParams() const {
 
 // ==================== BaseMethod 接口实现 ====================
 
-std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::ExecuteEager(
+std::vector<RecordView> ClusteredJoinMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
   
-  std::vector<std::unique_ptr<VectorRecord>> results;
+  std::vector<RecordView> results;
   
   if (!initialized_) {
     SAGEFLOW_LOG_WARN("ClusteredJoin", 
@@ -201,12 +201,12 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::ExecuteEager(
   }
 }
 
-std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerBruteForce(
+std::vector<RecordView> ClusteredJoinMethod::executeEagerBruteForce(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
   
-  std::vector<std::unique_ptr<VectorRecord>> results;
+  std::vector<RecordView> results;
   
   // 获取对侧窗口状态
   WindowState* target_state = (query_slot == 0) ? right_state_ : left_state_;
@@ -248,7 +248,8 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerBrut
     if (similarity >= config_.similarity_threshold) {
       // 直接输出所有匹配 - Sink 层会进行去重
       // (移除 Owner-Computes，与 executeEagerIndexed 保持一致)
-      results.push_back(std::make_unique<VectorRecord>(*record_ptr));
+      // 共享视图，零拷贝
+      results.push_back(record_ptr);
       
       SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
           "BruteForce match: subtask {} found ({}, {}), sim={:.4f}", 
@@ -267,12 +268,12 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerBrut
   return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerIndexed(
+std::vector<RecordView> ClusteredJoinMethod::executeEagerIndexed(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
   
-  std::vector<std::unique_ptr<VectorRecord>> results;
+  std::vector<RecordView> results;
   
   // 查询对侧索引
   int target_index = getOppositeIndexId(query_slot);
@@ -300,7 +301,8 @@ std::vector<std::unique_ptr<VectorRecord>> ClusteredJoinMethod::executeEagerInde
   for (const auto& candidate : candidates) {
     if (!candidate) continue;
     
-    results.push_back(std::make_unique<VectorRecord>(*candidate));
+    // 共享视图，零拷贝
+    results.push_back(candidate);
     
     SAGEFLOW_LOG_DEBUG("ClusteredJoin", 
         "Indexed match: subtask {} found candidate uid={}", 

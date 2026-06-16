@@ -46,10 +46,10 @@ std::vector<std::shared_ptr<const VectorRecord>> HNSWJoinMethod::rangeSearchViaK
   return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> HNSWJoinMethod::ExecuteEager(
+std::vector<RecordView> HNSWJoinMethod::ExecuteEager(
     const VectorRecord& query_record, int query_slot,
     size_t subtask_index) {
-  std::vector<std::unique_ptr<VectorRecord>> results;
+  std::vector<RecordView> results;
   
   if (!concurrency_manager_) {
     SAGEFLOW_LOG_WARN("HNSW_JOIN", "ExecuteEager: concurrency_manager is null");
@@ -71,7 +71,8 @@ std::vector<std::unique_ptr<VectorRecord>> HNSWJoinMethod::ExecuteEager(
   results.reserve(candidates.size());
   for (auto& c : candidates) {
     if (c) {
-      results.emplace_back(std::make_unique<VectorRecord>(*c));
+      // 共享视图，零拷贝
+      results.emplace_back(c);
       SAGEFLOW_LOG_DEBUG("HNSW_JOIN", "ExecuteEager: matched candidate uid={}", c->uid_);
     }
   }

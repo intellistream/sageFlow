@@ -8,31 +8,24 @@ auto sageFlow::StorageManager::insert(std::unique_ptr<VectorRecord> record) -> v
   if (record == nullptr) {
     throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
   }
+  RecordView shared_record = std::move(record);
+  insert(std::move(shared_record));
+}
+
+auto sageFlow::StorageManager::insert(RecordView record) -> void {
+  if (record == nullptr) {
+    throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
+  }
   std::unique_lock<std::shared_mutex> lock(map_mutex_);
   const auto uid = record->uid_;
   SAGEFLOW_LOG_DEBUG("STORAGE", "Inserting record uid={} current_size={} ", uid, records_.size());
   if (map_.find(uid) != map_.end()) {
     return; // UID 已存在
   }
-  std::shared_ptr<VectorRecord> shared_record = std::move(record);
   auto idx = static_cast<int32_t>(records_.size());
-  records_.push_back(shared_record);
+  records_.push_back(std::move(record));
   map_.emplace(uid, idx);
 }
-
-// auto sageFlow::StorageManager::insert(std::shared_ptr<VectorRecord> record) -> void {
-//   if (record == nullptr) {
-//     throw std::runtime_error("StorageManager::insert: Attempt to insert a null record.");
-//   }
-//   std::unique_lock<std::shared_mutex> lock(map_mutex_);
-//   const auto uid = record->uid_;
-//   if (map_.contains(uid)) {
-//     return; // UID 已存在
-//   }
-//   const auto idx = static_cast<int32_t>(records_.size());
-//   records_.push_back(std::move(record));
-//   map_.emplace(uid, idx);
-// }
 
 auto sageFlow::StorageManager::erase(const uint64_t vector_id) -> bool {
   std::unique_lock<std::shared_mutex> lock(map_mutex_);

@@ -14,6 +14,7 @@ class BlankController final : public ConcurrencyController {
   ~BlankController() override;
 
   auto insert(std::unique_ptr<VectorRecord> record) -> bool override;
+  auto insert(RecordView record) -> bool override;
 
   auto erase(std::unique_ptr<VectorRecord> record) -> bool override;
 

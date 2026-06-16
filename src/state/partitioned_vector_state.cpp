@@ -51,7 +51,7 @@ PartitionedVectorState::PartitionedVectorState(
         num_partitions_, compact_threshold_, enable_boundary_tracking_);
 }
 
-void PartitionedVectorState::addRecord(std::unique_ptr<VectorRecord> record,
+void PartitionedVectorState::addRecord(RecordView record,
                                         size_t /*subtask_index*/) {
     if (!record) {
         return;
@@ -100,7 +100,7 @@ void PartitionedVectorState::addRecord(std::unique_ptr<VectorRecord> record,
     }
 }
 
-const std::deque<std::unique_ptr<VectorRecord>>&
+const std::deque<RecordView>&
 PartitionedVectorState::getRecords(size_t /*subtask_index*/) const {
     std::shared_lock lock(merge_mutex_);
 
@@ -113,11 +113,11 @@ PartitionedVectorState::getRecords(size_t /*subtask_index*/) const {
     return merged_view_;
 }
 
-std::vector<std::shared_ptr<const VectorRecord>> 
+std::vector<RecordView>
 PartitionedVectorState::getRecordsSnapshot(size_t /*subtask_index*/) const {
     std::shared_lock lock(merge_mutex_);
     
-    std::vector<std::shared_ptr<const VectorRecord>> snapshot;
+    std::vector<RecordView> snapshot;
     
     // 计算总大小
     size_t total_size = 0;
@@ -126,12 +126,12 @@ PartitionedVectorState::getRecordsSnapshot(size_t /*subtask_index*/) const {
     }
     snapshot.reserve(total_size);
     
-    // 收集所有分区的记录
+    // 收集所有分区的记录（零拷贝：复用各分区快照的 shared_ptr）
     for (size_t i = 0; i < num_partitions_; ++i) {
-        auto all_records = partitions_[i]->getAllRecords(0);
-        for (const auto* record : all_records) {
+        auto part_snapshot = partitions_[i]->getRecordsSnapshot(0);
+        for (auto& record : part_snapshot) {
             if (record) {
-                snapshot.push_back(std::make_shared<const VectorRecord>(*record));
+                snapshot.push_back(std::move(record));
             }
         }
     }
@@ -439,24 +439,20 @@ void PartitionedVectorState::updateMergedView() const {
     // 清空旧视图
     merged_view_.clear();
 
-    // 合并所有分区的记录
+    // 合并所有分区的记录（零拷贝：复用各分区快照的 shared_ptr）
     for (size_t i = 0; i < num_partitions_; ++i) {
-        auto records = partitions_[i]->getAllRecords(0);
-        for (const auto* rec : records) {
-            // 创建记录的深拷贝
-            auto copy = std::make_unique<VectorRecord>(
-                rec->uid_,
-                rec->timestamp_,
-                rec->data_
-            );
-            merged_view_.push_back(std::move(copy));
+        auto records = partitions_[i]->getRecordsSnapshot(0);
+        for (auto& rec : records) {
+            if (rec) {
+                merged_view_.push_back(std::move(rec));
+            }
         }
     }
 
     // 按时间戳排序
     std::sort(merged_view_.begin(), merged_view_.end(),
-              [](const std::unique_ptr<VectorRecord>& a,
-                 const std::unique_ptr<VectorRecord>& b) {
+              [](const RecordView& a,
+                 const RecordView& b) {
                   return a->timestamp_ < b->timestamp_;
               });
 
@@ -505,16 +501,10 @@ int64_t PartitionedVectorState::getSafeEvictTimestamp(size_t /*subtask_index*/,
     
     int64_t other_max = other_state->getMaxSeenTimestamp(0);
     
-    // 处理初始状态
-    if (this_max == kMinTimestamp && other_max == kMinTimestamp) {
+    if (this_max == kMinTimestamp || other_max == kMinTimestamp) {
         return kMinTimestamp;
-    } else if (this_max == kMinTimestamp) {
-        return other_max;
-    } else if (other_max == kMinTimestamp) {
-        return this_max;
-    } else {
-        return std::min(this_max, other_max);
     }
+    return std::min(this_max, other_max);
 }
 
 } // namespace sageFlow

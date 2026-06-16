@@ -63,6 +63,14 @@ auto BlankController::insert(std::unique_ptr<VectorRecord> record) -> bool {
   if (!record) {
     return false;
   }
+  RecordView shared_record = std::move(record);
+  return insert(std::move(shared_record));
+}
+
+auto BlankController::insert(RecordView record) -> bool {
+  if (!record) {
+    return false;
+  }
 
   const auto uid = record->uid_;
 
@@ -70,7 +78,7 @@ auto BlankController::insert(std::unique_ptr<VectorRecord> record) -> bool {
   if (!storage_manager_) {
     return false;
   }
-  storage_manager_->insert(std::move(record));
+  storage_manager_->insert(record);
 
   // 2) 获取当前索引快照（在锁内复制 shared_ptr，然后解锁进行 insert）
   std::shared_ptr<Index> idx;

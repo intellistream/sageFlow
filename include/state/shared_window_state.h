@@ -30,13 +30,13 @@ class SharedWindowState : public WindowState {
 public:
     SharedWindowState();
 
-    void addRecord(std::unique_ptr<VectorRecord> record, 
+    void addRecord(RecordView record,
                   size_t subtask_index) override;
 
-    const std::deque<std::unique_ptr<VectorRecord>>& 
+    const std::deque<RecordView>&
         getRecords(size_t subtask_index) const override;
 
-    std::vector<std::shared_ptr<const VectorRecord>> 
+    std::vector<RecordView>
         getRecordsSnapshot(size_t subtask_index) const override;
 
     bool containsUid(uint64_t uid, size_t subtask_index) const override;
@@ -68,7 +68,7 @@ public:
 
 private:
     // 所有子任务共享的窗口
-    std::deque<std::unique_ptr<VectorRecord>> shared_window_;
+    std::deque<RecordView> shared_window_;
     
     // 已过期但未从 Index/Storage 删除的 UID 集合
     std::unordered_set<uint64_t> expired_uids_;

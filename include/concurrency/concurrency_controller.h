@@ -16,6 +16,7 @@ class ConcurrencyController {
   // Destructor
   virtual ~ConcurrencyController() = default;
   virtual auto insert(std::unique_ptr<VectorRecord> record) -> bool = 0;
+  virtual auto insert(RecordView record) -> bool = 0;
 
   virtual auto erase(std::unique_ptr<VectorRecord> record) -> bool = 0;  // maybe local index would use this
 

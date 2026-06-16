@@ -21,7 +21,7 @@ public:
 
     ~HDRTreeMethod() override = default;
 
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+    std::vector<RecordView> ExecuteEager(
         const VectorRecord& query_record,
         int query_slot,
         size_t subtask_index = 0) override;

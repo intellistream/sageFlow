@@ -83,7 +83,7 @@ public:
      * @param subtask_index 当前执行的 subtask 索引
      * @return 匹配结果列表（记录副本）
      */
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+    std::vector<RecordView> ExecuteEager(
         const VectorRecord& query_record,
         int query_slot,
         size_t subtask_index = 0) override;
@@ -162,9 +162,9 @@ private:
      * @param records 待搜索的记录快照（shared_ptr 版本）
      * @return 匹配结果列表（记录副本）
      */
-    std::vector<std::unique_ptr<VectorRecord>> searchInRecordsSnapshot(
+    std::vector<RecordView> searchInRecordsSnapshot(
         const VectorRecord& query,
-        const std::vector<std::shared_ptr<const VectorRecord>>& records) const;
+        const std::vector<RecordView>& records) const;
     
     /**
      * @brief 在给定记录集中搜索满足阈值的匹配
@@ -172,9 +172,9 @@ private:
      * @param records 待搜索的记录集
      * @return 匹配结果列表（记录副本）
      */
-    std::vector<std::unique_ptr<VectorRecord>> searchInRecords(
+    std::vector<RecordView> searchInRecords(
         const VectorRecord& query,
-        const std::deque<std::unique_ptr<VectorRecord>>& records) const;
+        const std::deque<RecordView>& records) const;
 };
 
 } // namespace sageFlow

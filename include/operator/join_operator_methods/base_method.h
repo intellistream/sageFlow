@@ -41,9 +41,9 @@ class BaseMethod {
     * @param query_record 查询记录
     * @param query_slot 查询来源的 slot（0=左流，1=右流）
     * @param subtask_index 当前执行的 subtask 索引（用于 PartitionedWindowState 分区访问）
-    * @return 满足阈值的候选向量列表
+    * @return 满足阈值的候选向量列表（共享视图，零拷贝）
     */
-   virtual std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+   virtual std::vector<RecordView> ExecuteEager(
        const VectorRecord& query_record,
        int query_slot,
        size_t subtask_index = 0) = 0;

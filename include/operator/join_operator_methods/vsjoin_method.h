@@ -17,7 +17,7 @@ public:
     
     void initialize(const RuntimeContext& context, std::shared_ptr<ConcurrencyManager> concurrency_manager);
 
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+    std::vector<RecordView> ExecuteEager(
         const VectorRecord& query_record,
         int query_slot,
         size_t subtask_index) override;
@@ -31,7 +31,7 @@ private:
     std::vector<uint64_t> queryGlobalIndex(const VectorRecord& query, int target_index_id);
     std::vector<uint64_t> queryLocalIndex(const VectorRecord& query, int query_slot, size_t subtask_index);
 
-    std::vector<std::unique_ptr<VectorRecord>> resolveUidsToRecords(
+    std::vector<RecordView> resolveUidsToRecords(
         const std::vector<uint64_t>& uids, WindowState* state, size_t subtask_index);
 
 private:

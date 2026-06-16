@@ -21,7 +21,7 @@ class StorageManager {
   std::shared_ptr<ComputeEngine> engine_ = nullptr;
   // data
   std::unordered_map<uint64_t, int32_t> map_;
-  std::vector<std::shared_ptr<VectorRecord>> records_;
+  std::vector<RecordView> records_;
   // Constructor
   StorageManager() = default;
 
@@ -30,7 +30,7 @@ class StorageManager {
 
   auto insert(std::unique_ptr<VectorRecord> record) -> void;
 
-  // auto insert(std::shared_ptr<VectorRecord> record) -> void;
+  auto insert(RecordView record) -> void;
 
   auto erase(uint64_t vector_id) -> bool;
 

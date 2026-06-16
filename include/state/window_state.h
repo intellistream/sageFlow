@@ -32,10 +32,13 @@ public:
 
     /**
      * @brief 添加记录到窗口
-     * @param record 待添加的记录
+     * @param record 待添加的记录（不可变共享视图；窗口与存储等共享同一实例）
      * @param subtask_index 子任务索引（用于分区状态）
+     *
+     * 说明：参数为 RecordView。现有以 unique_ptr<VectorRecord> 调用的位置仍可编译，
+     * 因为 unique_ptr<VectorRecord>&& 可隐式转换为 shared_ptr<const VectorRecord>。
      */
-    virtual void addRecord(std::unique_ptr<VectorRecord> record, 
+    virtual void addRecord(RecordView record,
                           size_t subtask_index) = 0;
 
     /**
@@ -45,15 +48,15 @@ public:
      * @warning 对于 SharedWindowState，返回的引用在多线程下不安全，
      *          应使用 getRecordsSnapshot() 获取线程安全的副本
      */
-    virtual const std::deque<std::unique_ptr<VectorRecord>>& 
+    virtual const std::deque<RecordView>&
         getRecords(size_t subtask_index) const = 0;
 
     /**
-     * @brief 获取窗口记录的线程安全快照
+     * @brief 获取窗口记录的线程安全快照（零拷贝：仅拷贝 shared_ptr，不复制向量数据）
      * @param subtask_index 子任务索引（用于分区状态）
-     * @return 窗口记录的指针向量副本（线程安全）
+     * @return 窗口记录的共享视图向量（持读锁期间采集，快照点之后的插入不可见）
      */
-    virtual std::vector<std::shared_ptr<const VectorRecord>> 
+    virtual std::vector<RecordView>
         getRecordsSnapshot(size_t subtask_index) const = 0;
 
     /**
@@ -173,8 +176,9 @@ public:
      * @brief 计算安全的 evict 时间戳
      * 
      * 返回可以安全清理记录的时间戳阈值。
-     * - 分区模式：返回该分区的 max_seen_ts
-     * - 共享模式：返回全局 min(left_max, right_max)
+     * - 分区模式：返回该分区两侧 max_seen_ts 的 min
+     * - 共享模式：返回全局两侧 max_seen_ts 的 min
+     * 任何一侧尚未见到记录时返回 min timestamp，避免单侧推进误删。
      * 
      * @param subtask_index 子任务索引
      * @param other_state 对侧窗口状态（用于共享模式取 min）

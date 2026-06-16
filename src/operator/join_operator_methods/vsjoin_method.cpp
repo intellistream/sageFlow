@@ -29,7 +29,7 @@ void VSJoinMethod::setWindowStates(WindowState* left_state, WindowState* right_s
     right_state_ = right_state;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> VSJoinMethod::ExecuteEager(
+std::vector<RecordView> VSJoinMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
@@ -89,24 +89,25 @@ std::vector<uint64_t> VSJoinMethod::queryGlobalIndex(const VectorRecord& query, 
     return uids;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> VSJoinMethod::resolveUidsToRecords(
+std::vector<RecordView> VSJoinMethod::resolveUidsToRecords(
     const std::vector<uint64_t>& uids, WindowState* state, size_t subtask_index) {
     if (!state) return {};
 
     auto snapshot = state->getRecordsSnapshot(subtask_index);
-    std::unordered_map<uint64_t, const VectorRecord*> record_map;
+    std::unordered_map<uint64_t, RecordView> record_map;
     for (const auto& rec_ptr : snapshot) {
         if (rec_ptr) {
-            record_map[rec_ptr->uid_] = rec_ptr.get();
+            record_map[rec_ptr->uid_] = rec_ptr;
         }
     }
 
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     results.reserve(uids.size());
     for (uint64_t uid : uids) {
         auto it = record_map.find(uid);
         if (it != record_map.end()) {
-            results.push_back(std::make_unique<VectorRecord>(*it->second));
+            // 共享视图，零拷贝
+            results.push_back(it->second);
         }
     }
     return results;

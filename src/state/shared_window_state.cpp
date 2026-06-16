@@ -8,30 +8,30 @@ namespace sageFlow {
 
 SharedWindowState::SharedWindowState() = default;
 
-void SharedWindowState::addRecord(std::unique_ptr<VectorRecord> record, 
+void SharedWindowState::addRecord(RecordView record,
                                   size_t subtask_index) {
     // subtask_index 在共享状态中被忽略
     std::unique_lock lock(mutex_);
     shared_window_.push_back(std::move(record));
 }
 
-const std::deque<std::unique_ptr<VectorRecord>>& 
+const std::deque<RecordView>&
 SharedWindowState::getRecords(size_t subtask_index) const {
     // subtask_index 在共享状态中被忽略
     std::shared_lock lock(mutex_);
     return shared_window_;
 }
 
-std::vector<std::shared_ptr<const VectorRecord>> 
+std::vector<RecordView>
 SharedWindowState::getRecordsSnapshot(size_t subtask_index) const {
     // subtask_index 在共享状态中被忽略
+    // 零拷贝快照：持读锁期间仅拷贝 shared_ptr（引用计数+1），不复制向量数据。
     std::shared_lock lock(mutex_);
-    std::vector<std::shared_ptr<const VectorRecord>> snapshot;
+    std::vector<RecordView> snapshot;
     snapshot.reserve(shared_window_.size());
     for (const auto& record : shared_window_) {
         if (record) {
-            // 创建 shared_ptr 指向 VectorRecord 的拷贝
-            snapshot.push_back(std::make_shared<const VectorRecord>(*record));
+            snapshot.push_back(record);
         }
     }
     return snapshot;
@@ -136,8 +136,7 @@ int64_t SharedWindowState::getMaxSeenTimestamp(size_t /*subtask_index*/) const {
 
 int64_t SharedWindowState::getSafeEvictTimestamp(size_t /*subtask_index*/, 
                                                   const WindowState* other_state) const {
-    // 共享模式：需要取 this 和 other_state 的 min 值
-    // 确保两侧都已处理到某个时间点后才能安全 evict
+    // 共享模式：必须等两侧都推进后才能安全 evict。
     constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
     
     int64_t this_max = max_seen_timestamp_.load(std::memory_order_acquire);
@@ -148,16 +147,10 @@ int64_t SharedWindowState::getSafeEvictTimestamp(size_t /*subtask_index*/,
     
     int64_t other_max = other_state->getMaxSeenTimestamp(0);
     
-    // 处理初始状态
-    if (this_max == kMinTimestamp && other_max == kMinTimestamp) {
+    if (this_max == kMinTimestamp || other_max == kMinTimestamp) {
         return kMinTimestamp;
-    } else if (this_max == kMinTimestamp) {
-        return other_max;
-    } else if (other_max == kMinTimestamp) {
-        return this_max;
-    } else {
-        return std::min(this_max, other_max);
     }
+    return std::min(this_max, other_max);
 }
 
 } // namespace sageFlow

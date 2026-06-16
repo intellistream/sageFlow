@@ -62,7 +62,7 @@ public:
      * @param record 待添加的记录
      * @param subtask_index 子任务索引（在此实现中被忽略，分区由向量内容决定）
      */
-    void addRecord(std::unique_ptr<VectorRecord> record,
+    void addRecord(RecordView record,
                    size_t subtask_index) override;
 
     /**
@@ -74,7 +74,7 @@ public:
      * @param subtask_index 子任务索引（在此实现中被忽略）
      * @return 窗口记录的引用（只读）
      */
-    const std::deque<std::unique_ptr<VectorRecord>>&
+    const std::deque<RecordView>&
         getRecords(size_t subtask_index) const override;
 
     /**
@@ -82,7 +82,7 @@ public:
      * @param subtask_index 子任务索引（在此实现中被忽略）
      * @return 窗口记录的指针向量副本（线程安全）
      */
-    std::vector<std::shared_ptr<const VectorRecord>> 
+    std::vector<RecordView>
         getRecordsSnapshot(size_t subtask_index) const override;
 
     /**
@@ -258,7 +258,7 @@ private:
     mutable std::shared_mutex uid_map_mutex_;
 
     /// 用于 getRecords() 的合并视图
-    mutable std::deque<std::unique_ptr<VectorRecord>> merged_view_;
+    mutable std::deque<RecordView> merged_view_;
     mutable std::shared_mutex merge_mutex_;
     mutable bool view_dirty_ = true;
 

@@ -118,12 +118,12 @@ void IVFMethod::open(
     open(context, left_state, right_state, nullptr);
 }
 
-std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
+std::vector<RecordView> IVFMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     // 获取对侧窗口状态
     WindowState* target_state = (query_slot == 0) ? right_state_ : left_state_;
@@ -157,11 +157,11 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::ExecuteEager(
             "ExecuteEager: query_uid={}, slot={}, index_id={}, found {} candidates via IVF index",
             query_record.uid_, query_slot, target_index_id, candidates.size());
         
-        // 转换为 unique_ptr 结果
+        // 共享视图，零拷贝（candidates 已是 shared_ptr）
         results.reserve(candidates.size());
         for (const auto& candidate : candidates) {
             if (candidate && candidate->uid_ != query_record.uid_) {
-                results.push_back(std::make_unique<VectorRecord>(*candidate));
+                results.push_back(candidate);
             }
         }
     } else {
@@ -249,11 +249,11 @@ std::vector<std::shared_ptr<const VectorRecord>> IVFMethod::rangeSearchWithIndex
     return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> IVFMethod::rangeSearchBruteForceSnapshot(
+std::vector<RecordView> IVFMethod::rangeSearchBruteForceSnapshot(
     const VectorRecord& query,
-    const std::vector<std::shared_ptr<const VectorRecord>>& records) {
+    const std::vector<RecordView>& records) {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     if (records.empty()) {
         return results;
@@ -286,18 +286,18 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::rangeSearchBruteForceSnaps
         double similarity = computeSimilarity(query_vec, record_vec);
         
         if (similarity >= config_.similarity_threshold) {
-            results.push_back(std::make_unique<VectorRecord>(*record));
+            results.push_back(record);
         }
     }
     
     return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> IVFMethod::rangeSearchBruteForce(
+std::vector<RecordView> IVFMethod::rangeSearchBruteForce(
     const VectorRecord& query,
-    const std::deque<std::unique_ptr<VectorRecord>>& records) {
+    const std::deque<RecordView>& records) {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     if (records.empty()) {
         return results;
@@ -330,7 +330,7 @@ std::vector<std::unique_ptr<VectorRecord>> IVFMethod::rangeSearchBruteForce(
         double similarity = computeSimilarity(query_vec, record_vec);
         
         if (similarity >= config_.similarity_threshold) {
-            results.push_back(std::make_unique<VectorRecord>(*record));
+            results.push_back(record);
         }
     }
     

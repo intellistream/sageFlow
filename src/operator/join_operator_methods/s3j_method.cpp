@@ -64,13 +64,13 @@ void S3JMethod::open(const RuntimeContext& context,
                  context.getTaskName(), config_.similarity_threshold);
 }
 
-std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
+std::vector<RecordView> S3JMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t /*subtask_index*/) {
     
     auto start = std::chrono::steady_clock::now();
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     // 方法1：使用 ConcurrencyManager（如果可用）
     if (concurrency_manager_) {
@@ -82,7 +82,8 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::ExecuteEager(
             results.reserve(candidates.size());
             for (const auto& c : candidates) {
                 if (c) {
-                    results.emplace_back(std::make_unique<VectorRecord>(*c));
+                    // 共享视图，零拷贝
+                    results.emplace_back(c);
                 }
             }
         }
@@ -251,10 +252,10 @@ std::vector<std::shared_ptr<const VectorRecord>> S3JMethod::searchInPartition(
     return concurrency_manager_->query_for_join(idx, query, threshold, similarity_alpha_);
 }
 
-std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
+std::vector<RecordView> S3JMethod::searchInWindowState(
     const VectorRecord& query, int slot) {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     // 选择对侧窗口状态
     WindowState* target_state = (slot == 0) ? right_state_ : left_state_;
@@ -276,7 +277,7 @@ std::vector<std::unique_ptr<VectorRecord>> S3JMethod::searchInWindowState(
         double similarity = computeCosineSimilarity(query_vec, candidate_vec);
         
         if (similarity >= join_similarity_threshold_) {
-            results.emplace_back(std::make_unique<VectorRecord>(*record));
+            results.emplace_back(record);
         }
     }
     

@@ -113,7 +113,7 @@ public:
      * @param query_slot 查询来源槽位 (0=左流, 1=右流)
      * @return 匹配结果列表
      */
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+    std::vector<RecordView> ExecuteEager(
         const VectorRecord& query_record,
         int query_slot,
         size_t subtask_index = 0) override;
@@ -219,7 +219,7 @@ private:
     /**
      * @brief 使用窗口状态执行搜索
      */
-    std::vector<std::unique_ptr<VectorRecord>> searchInWindowState(
+    std::vector<RecordView> searchInWindowState(
         const VectorRecord& query, int slot);
     
     /**

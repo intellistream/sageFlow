@@ -164,6 +164,11 @@ auto ConcurrencyManager::register_index(const std::string& name, std::shared_ptr
 auto ConcurrencyManager::drop_index(const std::string& name) -> bool { return false; }
 
 auto ConcurrencyManager::insert(int index_id, std::unique_ptr<VectorRecord> record) -> bool {
+  RecordView shared_record = std::move(record);
+  return insert(index_id, std::move(shared_record));
+}
+
+auto ConcurrencyManager::insert(int index_id, RecordView record) -> bool {
   std::shared_ptr<ConcurrencyController> controller;
   {
     std::shared_lock<std::shared_mutex> lk(controller_map_mutex_);

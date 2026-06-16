@@ -25,7 +25,7 @@ TwoTierWindowState::TwoTierWindowState(size_t parallelism,
         parallelism, compact_threshold, merge_batch_size);
 }
 
-void TwoTierWindowState::addRecord(std::unique_ptr<VectorRecord> record,
+void TwoTierWindowState::addRecord(RecordView record,
                                    size_t subtask_index) {
     std::unique_lock lock(partitions_[subtask_index].mutex_);
     
@@ -41,7 +41,7 @@ void TwoTierWindowState::addRecord(std::unique_ptr<VectorRecord> record,
     }
 }
 
-const std::deque<std::unique_ptr<VectorRecord>>& 
+const std::deque<RecordView>&
 TwoTierWindowState::getRecords(size_t subtask_index) const {
     std::shared_lock lock(partitions_[subtask_index].mutex_);
     
@@ -58,27 +58,27 @@ TwoTierWindowState::getRecords(size_t subtask_index) const {
     return tier_pair.merged_view_;
 }
 
-std::vector<std::shared_ptr<const VectorRecord>> 
+std::vector<RecordView>
 TwoTierWindowState::getRecordsSnapshot(size_t subtask_index) const {
     std::shared_lock lock(partitions_[subtask_index].mutex_);
     
     const auto& tier_pair = partitions_[subtask_index];
-    std::vector<std::shared_ptr<const VectorRecord>> snapshot;
+    std::vector<RecordView> snapshot;
     
     size_t total_size = tier_pair.write_tier_.size() + tier_pair.compact_tier_.size();
     snapshot.reserve(total_size);
     
-    // 添加紧凑层记录
+    // 添加紧凑层记录（零拷贝：仅拷贝 shared_ptr）
     for (const auto& record : tier_pair.compact_tier_) {
         if (record) {
-            snapshot.push_back(std::make_shared<const VectorRecord>(*record));
+            snapshot.push_back(record);
         }
     }
     
     // 添加写层记录
     for (const auto& record : tier_pair.write_tier_) {
         if (record) {
-            snapshot.push_back(std::make_shared<const VectorRecord>(*record));
+            snapshot.push_back(record);
         }
     }
     
@@ -220,8 +220,8 @@ void TwoTierWindowState::compactTiers(size_t subtask_index) {
     
     // 对紧凑层按时间戳排序（保持有序以优化查询）
     std::sort(tier_pair.compact_tier_.begin(), tier_pair.compact_tier_.end(),
-              [](const std::unique_ptr<VectorRecord>& a, 
-                 const std::unique_ptr<VectorRecord>& b) {
+              [](const RecordView& a,
+                 const RecordView& b) {
                   return a->timestamp_ < b->timestamp_;
               });
     
@@ -234,7 +234,7 @@ void TwoTierWindowState::compactTiers(size_t subtask_index) {
         tier_pair.write_tier_.size(), tier_pair.compact_tier_.size());
 }
 
-const std::vector<std::unique_ptr<VectorRecord>>&
+const std::vector<RecordView>&
 TwoTierWindowState::getCompactRecords(size_t subtask_index) const {
     std::shared_lock lock(partitions_[subtask_index].mutex_);
     return partitions_[subtask_index].compact_tier_;
@@ -289,26 +289,15 @@ void TwoTierWindowState::updateMergedView(size_t subtask_index) const {
     // 清空旧视图
     tier_pair.merged_view_.clear();
     
-    // 由于接口要求返回 unique_ptr 的 deque，我们需要创建深拷贝
+    // 合并视图共享同一记录实例（零拷贝：仅拷贝 shared_ptr）
     // 先添加紧凑层记录（已排序，时间戳较早）
     for (const auto& record : tier_pair.compact_tier_) {
-        // 创建记录的深拷贝
-        auto copy = std::make_unique<VectorRecord>(
-            record->uid_, 
-            record->timestamp_, 
-            record->data_
-        );
-        tier_pair.merged_view_.push_back(std::move(copy));
+        tier_pair.merged_view_.push_back(record);
     }
     
     // 再添加写层记录
     for (const auto& record : tier_pair.write_tier_) {
-        auto copy = std::make_unique<VectorRecord>(
-            record->uid_, 
-            record->timestamp_, 
-            record->data_
-        );
-        tier_pair.merged_view_.push_back(std::move(copy));
+        tier_pair.merged_view_.push_back(record);
     }
     
     tier_pair.view_dirty_ = false;
@@ -333,9 +322,17 @@ int64_t TwoTierWindowState::getMaxSeenTimestamp(size_t subtask_index) const {
 }
 
 int64_t TwoTierWindowState::getSafeEvictTimestamp(size_t subtask_index, 
-                                                   const WindowState* /*other_state*/) const {
-    // TwoTierWindowState 作为分区状态，直接返回该分区的 max_seen_ts
-    return max_seen_timestamps_[subtask_index].load(std::memory_order_acquire);
+                                                   const WindowState* other_state) const {
+    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    int64_t this_max = max_seen_timestamps_[subtask_index].load(std::memory_order_acquire);
+    if (!other_state) {
+        return this_max;
+    }
+    int64_t other_max = other_state->getMaxSeenTimestamp(subtask_index);
+    if (this_max == kMinTimestamp || other_max == kMinTimestamp) {
+        return kMinTimestamp;
+    }
+    return std::min(this_max, other_max);
 }
 
 } // namespace sageFlow

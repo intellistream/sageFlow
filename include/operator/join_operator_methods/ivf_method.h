@@ -118,7 +118,7 @@ public:
      * @param subtask_index 当前执行的 subtask 索引
      * @return 匹配结果列表
      */
-    std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+    std::vector<RecordView> ExecuteEager(
         const VectorRecord& query_record,
         int query_slot,
         size_t subtask_index = 0) override;
@@ -219,9 +219,9 @@ private:
      * @param records 待搜索的记录快照
      * @return 满足阈值的匹配记录
      */
-    std::vector<std::unique_ptr<VectorRecord>> rangeSearchBruteForceSnapshot(
+    std::vector<RecordView> rangeSearchBruteForceSnapshot(
         const VectorRecord& query,
-        const std::vector<std::shared_ptr<const VectorRecord>>& records);
+        const std::vector<RecordView>& records);
     
     /**
      * @brief 通过窗口状态执行暴力范围搜索（降级模式）
@@ -229,9 +229,9 @@ private:
      * @param records 待搜索的记录集
      * @return 满足阈值的匹配记录
      */
-    std::vector<std::unique_ptr<VectorRecord>> rangeSearchBruteForce(
+    std::vector<RecordView> rangeSearchBruteForce(
         const VectorRecord& query,
-        const std::deque<std::unique_ptr<VectorRecord>>& records);
+        const std::deque<RecordView>& records);
     
     /**
      * @brief 计算两个向量的相似度

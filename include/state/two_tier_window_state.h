@@ -40,7 +40,7 @@ public:
      * @param record 待添加的记录
      * @param subtask_index 子任务索引
      */
-    void addRecord(std::unique_ptr<VectorRecord> record, 
+    void addRecord(RecordView record,
                    size_t subtask_index) override;
 
     /**
@@ -48,7 +48,7 @@ public:
      * @param subtask_index 子任务索引
      * @return 窗口记录的引用（只读）
      */
-    const std::deque<std::unique_ptr<VectorRecord>>& 
+    const std::deque<RecordView>&
         getRecords(size_t subtask_index) const override;
 
     /**
@@ -56,7 +56,7 @@ public:
      * @param subtask_index 子任务索引
      * @return 窗口记录的指针向量副本（线程安全）
      */
-    std::vector<std::shared_ptr<const VectorRecord>> 
+    std::vector<RecordView>
         getRecordsSnapshot(size_t subtask_index) const override;
 
     /**
@@ -141,7 +141,7 @@ public:
      * @param subtask_index 子任务索引
      * @return 紧凑层记录的只读引用
      */
-    const std::vector<std::unique_ptr<VectorRecord>>& 
+    const std::vector<RecordView>&
         getCompactRecords(size_t subtask_index) const;
 
     /**
@@ -170,13 +170,13 @@ private:
      * @brief 每个分区的双层结构
      */
     struct TierPair {
-        std::deque<std::unique_ptr<VectorRecord>> write_tier_;
-        std::vector<std::unique_ptr<VectorRecord>> compact_tier_;
+        std::deque<RecordView> write_tier_;
+        std::vector<RecordView> compact_tier_;
         std::unordered_set<uint64_t> expired_uids_;  // 已过期但未删除的 UID
         mutable std::shared_mutex mutex_;
         
         // 用于 getRecords() 返回的临时合并视图
-        mutable std::deque<std::unique_ptr<VectorRecord>> merged_view_;
+        mutable std::deque<RecordView> merged_view_;
         mutable bool view_dirty_ = true;
     };
 

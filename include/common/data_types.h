@@ -111,6 +111,12 @@ struct Response {
   }
 };
 
+// 算子内部状态层的统一记录视图：不可变共享所有权。
+// 用于窗口状态 / StorageManager / 候选 / 快照之间以引用计数共享同一实例，
+// 避免在热路径上重复深拷贝 VectorRecord（含 VectorData 的 char[]）。
+// 注意：算子间传输层（Response/队列）仍使用 unique_ptr<VectorRecord> + move，不受影响。
+using RecordView = std::shared_ptr<const VectorRecord>;
+
 struct UidAndDist {
   uint64_t uid_;
   double distance_;

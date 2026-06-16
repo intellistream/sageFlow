@@ -31,13 +31,13 @@ class PartitionedWindowState : public WindowState {
 public:
     explicit PartitionedWindowState(size_t parallelism);
 
-    void addRecord(std::unique_ptr<VectorRecord> record, 
+    void addRecord(RecordView record,
                   size_t subtask_index) override;
 
-    const std::deque<std::unique_ptr<VectorRecord>>& 
+    const std::deque<RecordView>&
         getRecords(size_t subtask_index) const override;
 
-    std::vector<std::shared_ptr<const VectorRecord>> 
+    std::vector<RecordView>
         getRecordsSnapshot(size_t subtask_index) const override;
 
     bool containsUid(uint64_t uid, size_t subtask_index) const override;
@@ -69,7 +69,7 @@ public:
 
 private:
     // 每个子任务一个独立的窗口
-    std::vector<std::deque<std::unique_ptr<VectorRecord>>> partitions_;
+    std::vector<std::deque<RecordView>> partitions_;
     
     // 每个分区的已过期 UID 集合
     std::vector<std::unordered_set<uint64_t>> expired_uids_;

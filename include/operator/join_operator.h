@@ -118,29 +118,29 @@ namespace sageFlow {
         int slot) -> bool;
 
     // 获取候选项的辅助方法
-    std::vector<std::unique_ptr<VectorRecord>> getCandidates(
+    std::vector<RecordView> getCandidates(
         const std::unique_ptr<VectorRecord>& data_ptr, int slot);
 
     // 获取候选项的辅助方法（假定已持有两个窗口的锁）
-    std::vector<std::unique_ptr<VectorRecord>> getCandidatesWithLocksHeld(
+    std::vector<RecordView> getCandidatesWithLocksHeld(
         const std::unique_ptr<VectorRecord>& data_ptr, int slot);
 
     // 验证候选项是否在指定窗口中的辅助方法（容器改为 deque）
     bool validateCandidateInWindow(
-        const std::unique_ptr<VectorRecord>& candidate,
+        const RecordView& candidate,
         const std::deque<std::unique_ptr<VectorRecord>>& window_records,
         int64_t logical_lower_bound);
 
     // 执行join操作的辅助方法
     void executeJoinForCandidates(
-        const std::vector<std::unique_ptr<VectorRecord>>& candidates,
+        const std::vector<RecordView>& candidates,
         const std::unique_ptr<VectorRecord>& data_ptr,
         int slot,
         std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
 
     // 执行 join 操作的辅助方法（假定已持有对面窗口的锁）
     void executeJoinForCandidatesWithLockHeld(
-        const std::vector<std::unique_ptr<VectorRecord>>& candidates,
+        const std::vector<RecordView>& candidates,
         const std::unique_ptr<VectorRecord>& data_ptr,
         int slot,
         const std::deque<std::unique_ptr<VectorRecord>>& opposite_window,
@@ -163,7 +163,7 @@ namespace sageFlow {
     void initializeWithStrategyConfig(const RuntimeContext& context);
 
     // 使用 WindowState 获取候选项的辅助方法
-    std::vector<std::unique_ptr<VectorRecord>> getCandidatesFromState(
+    std::vector<RecordView> getCandidatesFromState(
         const VectorRecord* data_ptr,
         WindowState* state,
         size_t subtask_index);
@@ -171,8 +171,9 @@ namespace sageFlow {
     // 使用 WindowState 更新窗口的辅助方法
     auto updateSideWithState(
         WindowState* state,
+        WindowState* opposite_state,
         int index_id_for_cc,
-        std::unique_ptr<VectorRecord> data_ptr,
+        RecordView data_ptr,
         int64_t now_time_stamp,
         int slot,
         size_t subtask_index) -> bool;
@@ -184,6 +185,28 @@ namespace sageFlow {
         int slot,
         size_t subtask_index,
         std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
+
+    // VSJoin 路由：计算一条记录应写入/查询的目标 subtask 集合（支持 multicast，去重）
+    std::vector<size_t> computeVSJoinTargetSubtasks(
+        const Response& record,
+        const RuntimeContext& context,
+        size_t subtask_index) const;
+
+    void validateRuntimeContext(const RuntimeContext& context) const;
+
+    void recordVSJoinSubtaskDebugStats(
+        int slot,
+        size_t subtask_index,
+        const RuntimeContext& context) const;
+
+    int indexIdForSlot(int slot) const;
+
+    int localIndexIdForSlotAndSubtask(int slot, size_t subtask_index) const;
+
+    void emitJoinResults(
+        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool,
+        Collector& collector,
+        uint64_t apply_enter_ns);
 
     std::unique_ptr<JoinFunction> join_func_;
     std::shared_ptr<Operator> mother_;
@@ -222,31 +245,6 @@ namespace sageFlow {
     // 线程安全的初始化标志
     std::once_flag init_flag_;
     
-    // ====== 并发控制：PIM-Tree 风格 QIQ 策略 ======
-    // 
-    // 参考 PIM-Tree 论文的设计，使用 Query-Insert-Query (QIQ) 策略
-    // 解决并发 Join 的召回率问题，同时实现真正的并行加速。
-    // 
-    // 核心流程：
-    // 1. 第一次 Query：查询当前索引（捕获已入索引的记录）
-    // 2. Insert：插入当前记录（依赖内部细粒度锁）
-    // 3. 第二次 Query：再次查询（捕获同时插入的记录）
-    // 
-    // 性能特性（1000 records, bruteforce）：
-    // - p=1: ~3160ms, 98.5% recall（两次查询开销）
-    // - p=2: ~1641ms, 98.5% recall, 1.9x speedup
-    // - p=4: ~952ms, 97.3% recall, 3.3x speedup ⭐ 最佳平衡
-    // - p=8: ~634ms, 94.6% recall, 5.0x speedup
-    // 
-    // 与原始 PIM-Tree 的差异：
-    // - PIM-Tree 使用 edge_tuple 区分已索引/未索引区，线性扫描未索引区
-    // - 我们使用两次索引查询 + UID 去重，更简单且与现有架构兼容
-    // 
-    // 注意：以下变量已废弃，保留供参考
-    std::atomic<uint64_t> insert_sequence_{0};      // [废弃] 序列号机制
-    std::atomic<uint64_t> complete_sequence_{0};    // [废弃] 序列号机制
-    mutable std::shared_mutex join_rw_mutex_;       // [废弃] 全局读写锁
-    
     std::shared_ptr<ConcurrencyManager> concurrency_manager_;
 
     // 通用索引 id（不再混用 IVF 命名）
@@ -263,12 +261,6 @@ namespace sageFlow {
     // 由 Planner 注入的左右侧 slot id，用于区分左右输入与默认下游 slot
     int left_slot_id_ = 0;
     int right_slot_id_ = 1;
-    
-    // 全局最大已见时间戳（用于安全的 evict 策略）
-    // 在多线程环境下，乱序处理可能导致较早的记录在较晚的记录之后处理
-    // 使用全局 max_seen_timestamp 确保只有当所有时间戳都已超过窗口边界时才 evict
-    std::atomic<int64_t> max_seen_left_ts_{std::numeric_limits<int64_t>::min()};
-    std::atomic<int64_t> max_seen_right_ts_{std::numeric_limits<int64_t>::min()};
     
     // ====== 批量删除配置 ======
     // 当 WindowState 中过期记录数超过此阈值时，触发批量删除索引中的过期数据

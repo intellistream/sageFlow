@@ -144,11 +144,11 @@ void LSHMethod::onRecordAdded(const VectorRecord& record, int slot) {
     }
 }
 
-std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
+std::vector<RecordView> LSHMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     WindowState* target_state = (query_slot == 0) ? right_state_ : left_state_;
     if (!target_state) {
         SAGEFLOW_LOG_WARN("LSHMethod", "执行时目标窗口为空，slot={}", query_slot);
@@ -267,7 +267,8 @@ std::vector<std::unique_ptr<VectorRecord>> LSHMethod::ExecuteEager(
         }
         const double sim = l2Similarity(query_vec, cand_vec);
         if (sim >= join_similarity_threshold_) {
-            results.emplace_back(std::make_unique<VectorRecord>(*candidate_ptr));
+            // 共享视图，零拷贝
+            results.emplace_back(candidate_ptr);
         }
     }
 

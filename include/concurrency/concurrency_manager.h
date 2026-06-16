@@ -49,6 +49,7 @@ class ConcurrencyManager {
   auto drop_index(const std::string &name) -> bool;
 
   auto insert(int index_id, std::unique_ptr<VectorRecord> record) -> bool;
+  auto insert(int index_id, RecordView record) -> bool;
 
   auto erase(int index_id, std::unique_ptr<VectorRecord> record) -> bool;  // maybe local index would use this
 

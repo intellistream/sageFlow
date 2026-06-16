@@ -4,6 +4,8 @@
 
 #include "state/partitioned_window_state.h"
 
+#include <algorithm>
+
 namespace sageFlow {
 
 PartitionedWindowState::PartitionedWindowState(size_t parallelism)
@@ -17,27 +19,28 @@ PartitionedWindowState::PartitionedWindowState(size_t parallelism)
     }
 }
 
-void PartitionedWindowState::addRecord(std::unique_ptr<VectorRecord> record, 
+void PartitionedWindowState::addRecord(RecordView record,
                                        size_t subtask_index) {
     std::unique_lock lock(mutexes_[subtask_index]);
     partitions_[subtask_index].push_back(std::move(record));
 }
 
-const std::deque<std::unique_ptr<VectorRecord>>& 
+const std::deque<RecordView>&
 PartitionedWindowState::getRecords(size_t subtask_index) const {
     std::shared_lock lock(mutexes_[subtask_index]);
     return partitions_[subtask_index];
 }
 
-std::vector<std::shared_ptr<const VectorRecord>> 
+std::vector<RecordView>
 PartitionedWindowState::getRecordsSnapshot(size_t subtask_index) const {
+    // 零拷贝快照：仅拷贝 shared_ptr，不复制向量数据。
     std::shared_lock lock(mutexes_[subtask_index]);
-    std::vector<std::shared_ptr<const VectorRecord>> snapshot;
+    std::vector<RecordView> snapshot;
     const auto& partition = partitions_[subtask_index];
     snapshot.reserve(partition.size());
     for (const auto& record : partition) {
         if (record) {
-            snapshot.push_back(std::make_shared<const VectorRecord>(*record));
+            snapshot.push_back(record);
         }
     }
     return snapshot;
@@ -132,10 +135,17 @@ int64_t PartitionedWindowState::getMaxSeenTimestamp(size_t subtask_index) const 
 }
 
 int64_t PartitionedWindowState::getSafeEvictTimestamp(size_t subtask_index, 
-                                                       const WindowState* /*other_state*/) const {
-    // 分区模式：直接返回该分区的 max_seen_ts，因为分区之间是隔离的
-    // other_state 参数在分区模式下不使用
-    return max_seen_timestamps_[subtask_index].load(std::memory_order_acquire);
+                                                       const WindowState* other_state) const {
+    constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
+    int64_t this_max = max_seen_timestamps_[subtask_index].load(std::memory_order_acquire);
+    if (!other_state) {
+        return this_max;
+    }
+    int64_t other_max = other_state->getMaxSeenTimestamp(subtask_index);
+    if (this_max == kMinTimestamp || other_max == kMinTimestamp) {
+        return kMinTimestamp;
+    }
+    return std::min(this_max, other_max);
 }
 
 } // namespace sageFlow

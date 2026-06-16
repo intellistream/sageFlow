@@ -83,12 +83,12 @@ void BruteForceBaseline::open(
         (right_state_ ? "valid" : "null"));
 }
 
-std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::ExecuteEager(
+std::vector<RecordView> BruteForceBaseline::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t subtask_index) {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     // 获取对侧窗口的记录
     // query_slot == 0 表示查询来自左流，需要搜索右流窗口
@@ -199,11 +199,11 @@ double BruteForceBaseline::computeSimilarity(
     return std::exp(-similarity_alpha_ * distance);
 }
 
-std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecordsSnapshot(
+std::vector<RecordView> BruteForceBaseline::searchInRecordsSnapshot(
     const VectorRecord& query,
-    const std::vector<std::shared_ptr<const VectorRecord>>& records) const {
+    const std::vector<RecordView>& records) const {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     if (records.empty()) {
         return results;
@@ -236,19 +236,19 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecordsSn
         double similarity = computeSimilarity(query_vec, record_vec);
         
         if (similarity >= join_similarity_threshold_) {
-            // 创建匹配记录的副本
-            results.push_back(std::make_unique<VectorRecord>(*record));
+            // 共享视图，零拷贝（引用计数+1，不复制向量数据）
+            results.push_back(record);
         }
     }
     
     return results;
 }
 
-std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecords(
+std::vector<RecordView> BruteForceBaseline::searchInRecords(
     const VectorRecord& query,
-    const std::deque<std::unique_ptr<VectorRecord>>& records) const {
+    const std::deque<RecordView>& records) const {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     if (records.empty()) {
         return results;
@@ -281,8 +281,7 @@ std::vector<std::unique_ptr<VectorRecord>> BruteForceBaseline::searchInRecords(
         double similarity = computeSimilarity(query_vec, record_vec);
         
         if (similarity >= join_similarity_threshold_) {
-            // 创建匹配记录的副本
-            results.push_back(std::make_unique<VectorRecord>(*record));
+            results.push_back(record);
         }
     }
     

@@ -15,12 +15,12 @@ HDRTreeMethod::HDRTreeMethod(int left_index_id, int right_index_id,
       config_(config) {
 }
 
-std::vector<std::unique_ptr<VectorRecord>> HDRTreeMethod::ExecuteEager(
+std::vector<RecordView> HDRTreeMethod::ExecuteEager(
     const VectorRecord& query_record,
     int query_slot,
     size_t /*subtask_index*/) {
     
-    std::vector<std::unique_ptr<VectorRecord>> results;
+    std::vector<RecordView> results;
     
     // 确定要查询的索引
     // 如果查询来自左侧（slot 0），则查询右侧索引
@@ -37,11 +37,11 @@ std::vector<std::unique_ptr<VectorRecord>> HDRTreeMethod::ExecuteEager(
     auto shared_results = concurrency_manager_->query_for_join(
         target_index_id, query_record, join_similarity_threshold_, similarity_alpha_);
         
-    // 将 shared_ptr 转换为 unique_ptr（复制）
+    // 共享视图，零拷贝
     results.reserve(shared_results.size());
     for (const auto& rec : shared_results) {
         if (rec) {
-            results.push_back(std::make_unique<VectorRecord>(*rec));
+            results.push_back(rec);
         }
     }
     

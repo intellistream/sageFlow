@@ -348,6 +348,7 @@ void JoinOperator::open() {
 }
 
 void JoinOperator::open(const RuntimeContext& context) {
+  validateRuntimeContext(context);
   // 使用 std::call_once 确保初始化只执行一次，即使在多线程环境下
   std::call_once(init_flag_, [this, &context]() {
     is_open_ = true;
@@ -359,89 +360,11 @@ void JoinOperator::open(const RuntimeContext& context) {
         SAGEFLOW_LOG_INFO("JOIN", "GPERFTOOLS profiling started");
     }
     
-    // E-01: 如果使用策略配置模式，通过 JoinStrategyFactory 初始化组件
-    if (use_strategy_config_) {
-        initializeWithStrategyConfig(context);
-        if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
-            startGlobalIndexRebuilder();
-        }
-        return;
-    }
-  
-    // VSJoin 特殊处理：启动后台重建线程
+    // 统一初始化路径：构造函数已将字符串方法名转换为 JoinStrategyConfig。
+    initializeWithStrategyConfig(context);
+
     if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
         startGlobalIndexRebuilder();
-    }
-  
-    // 根据配置创建窗口状态
-    if (use_shared_state_) {
-        left_state_ = std::make_unique<SharedWindowState>();
-        right_state_ = std::make_unique<SharedWindowState>();
-        SAGEFLOW_LOG_INFO("JOIN", "Using SharedWindowState");
-    } else {
-        left_state_ = std::make_unique<PartitionedWindowState>(context.getParallelism());
-        right_state_ = std::make_unique<PartitionedWindowState>(context.getParallelism());
-        SAGEFLOW_LOG_INFO("JOIN", "Using PartitionedWindowState with parallelism={}", 
-                        context.getParallelism());
-    }
-  
-    // 高并行度需要更大的 eviction buffer 来容忍处理延迟
-    // 高并行度下（shared state + 多线程），输入处理顺序可能出现“大幅乱序”，
-    // eviction 需要更大的 buffer 才能避免误删导致召回率抖动/下降。
-    //
-    // 经验默认值（可被环境变量覆盖）：
-    // - p>=16: 32
-    // - p>=8 : 16
-    // - p>=4 : 8
-    // - else : 1.5
-    //
-    // Debug override:
-    //   SAGEFLOW_EVICTION_MULTIPLIER=FLOAT (e.g. 1.5 / 3.0 / 5.0)
-    double eviction_multiplier = 1.5;
-    if (context.getParallelism() >= 4) {
-        eviction_multiplier = std::min(32.0, 2.0 * static_cast<double>(context.getParallelism()));
-    }
-    if (const char* v = std::getenv("SAGEFLOW_EVICTION_MULTIPLIER")) {
-        try {
-            eviction_multiplier = std::stod(v);
-        } catch (...) {
-            // ignore invalid override
-        }
-    }
-    left_state_->setEvictionBufferMultiplier(eviction_multiplier);
-    right_state_->setEvictionBufferMultiplier(eviction_multiplier);
-    SAGEFLOW_LOG_INFO("JOIN", "Eviction buffer multiplier set to {} for parallelism={}",
-                    eviction_multiplier, context.getParallelism());
-    
-    // 计算批量删除阈值：基于窗口向量数量和并行度动态调整
-    {
-        int64_t window_size = join_func_ ? join_func_->getWindowSize() : 10000;
-        size_t computed_threshold = window_size * parallelism_ / kBatchDeleteDivisor;
-        batch_delete_threshold_ = std::max(kMinBatchDeleteThreshold, computed_threshold);
-        SAGEFLOW_LOG_INFO("JOIN", "Batch delete threshold computed: {} (window={}, parallelism={})",
-                        batch_delete_threshold_, window_size, parallelism_);
-    }
-    
-    // 初始化新架构的 Join 方法（传入 WindowState）
-    if (join_method_) {
-        // 尝试作为 BruteForceBaseline 初始化 - 不使用索引，直接从 WindowState 查找
-        if (auto* bf = dynamic_cast<BruteForceBaseline*>(join_method_.get())) {
-            bf->open(context, left_state_.get(), right_state_.get());
-            SAGEFLOW_LOG_INFO("JOIN", "BruteForceBaseline method initialized with WindowState");
-        }
-        // 尝试作为 IVFMethod 初始化 - 使用 ConcurrencyManager 中的索引
-        else if (auto* ivf = dynamic_cast<IVFMethod*>(join_method_.get())) {
-            // 传递索引 ID 和 ConcurrencyManager
-            ivf->setIndexIds(left_index_id_, right_index_id_);
-            ivf->open(context, left_state_.get(), right_state_.get(), concurrency_manager_.get());
-            SAGEFLOW_LOG_INFO("JOIN", "IVFMethod initialized with ConcurrencyManager index, left_idx={} right_idx={}",
-                            left_index_id_, right_index_id_);
-        }
-        // LSH path: initialize hyperplane tables with window state pointers
-        else if (auto* lsh = dynamic_cast<LSHMethod*>(join_method_.get())) {
-            lsh->open(context, left_state_.get(), right_state_.get());
-            SAGEFLOW_LOG_INFO("JOIN", "LSHMethod initialized with WindowState");
-        }
     }
     
     SAGEFLOW_LOG_INFO("JOIN", "JoinOperator opened: subtask={}/{}, shared_state={}", 
@@ -552,22 +475,14 @@ auto JoinOperator::updateSideThreadSafe(
 }
 
 auto JoinOperator::process(Response& input_data, int slot) -> std::optional<Response> {
-    if (!input_data.record_) return std::nullopt;
-    std::unique_ptr<VectorRecord> data_ptr = std::make_unique<VectorRecord>(*input_data.record_);
-    int64_t now_time_stamp = data_ptr->timestamp_;
-
-    bool trigger_flag = (slot == 0)
-        ? updateSideThreadSafe(left_records_, left_records_mutex_, left_index_id_, data_ptr, now_time_stamp, slot)
-        : updateSideThreadSafe(right_records_, right_records_mutex_, right_index_id_, data_ptr, now_time_stamp, slot);
-
-    if (!trigger_flag) return std::nullopt;
-
-    // 新框架中 process 不直接返回结果（改由 apply / collector 机制），保持兼容返回空
+    (void)input_data;
+    (void)slot;
+    // Join results require Collector emission; the supported execution path is apply().
     return std::nullopt;
 }
 
 auto JoinOperator::getCandidates(
-    const std::unique_ptr<VectorRecord>& data_ptr, int slot) -> std::vector<std::unique_ptr<VectorRecord>> {
+    const std::unique_ptr<VectorRecord>& data_ptr, int slot) -> std::vector<RecordView> {
     MetricsTimer t_fetch(JoinMetrics::instance().candidate_fetch_ns);
     metrics_increment(JoinMetrics::instance().candidate_fetch_count);
     // 所有方法均使用 Eager 模式：直接通过索引查询候选项
@@ -575,7 +490,7 @@ auto JoinOperator::getCandidates(
 }
 
 auto JoinOperator::getCandidatesWithLocksHeld(
-    const std::unique_ptr<VectorRecord>& data_ptr, int slot) -> std::vector<std::unique_ptr<VectorRecord>> {
+    const std::unique_ptr<VectorRecord>& data_ptr, int slot) -> std::vector<RecordView> {
     // This version assumes both window locks are already held by caller
     MetricsTimer t_fetch(JoinMetrics::instance().candidate_fetch_ns);
     metrics_increment(JoinMetrics::instance().candidate_fetch_count);
@@ -584,10 +499,10 @@ auto JoinOperator::getCandidatesWithLocksHeld(
 }
 
 auto JoinOperator::validateCandidateInWindow(
-    const std::unique_ptr<VectorRecord>& candidate,
+    const RecordView& candidate,
     const std::deque<std::unique_ptr<VectorRecord>>& window_records,
     int64_t logical_lower_bound) -> bool {
-    if (!isRecordFresh(candidate, logical_lower_bound)) {
+    if (!candidate || candidate->timestamp_ < logical_lower_bound) {
         return false;
     }
     for (auto &r : window_records) {
@@ -602,7 +517,7 @@ auto JoinOperator::validateCandidateInWindow(
 }
 
 void JoinOperator::executeJoinForCandidates(
-    const std::vector<std::unique_ptr<VectorRecord>>& candidates,
+    const std::vector<RecordView>& candidates,
     const std::unique_ptr<VectorRecord>& data_ptr,
     int slot,
     std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
@@ -627,7 +542,7 @@ void JoinOperator::executeJoinForCandidates(
 }
 
 void JoinOperator::executeJoinForCandidatesWithLockHeld(
-    const std::vector<std::unique_ptr<VectorRecord>>& candidates,
+    const std::vector<RecordView>& candidates,
     const std::unique_ptr<VectorRecord>& data_ptr,
     int slot,
     const std::deque<std::unique_ptr<VectorRecord>>& opposite_window,
@@ -646,7 +561,7 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
     // instances' windows fail validation. This is a known trade-off - without validation we get
     // incorrect joins with expired records.
     for (auto &cand : candidates) {
-        if (!isRecordFresh(cand, logical_lower_bound)) {
+        if (!cand || cand->timestamp_ < logical_lower_bound) {
             continue;
         }
         metrics_increment(JoinMetrics::instance().similarity_count);
@@ -693,68 +608,13 @@ void JoinOperator::executeJoinForCandidatesWithLockHeld(
 }
 
 auto JoinOperator::apply(Response&& record, int slot, Collector& collector) -> void {
-    // 统计 apply 处理总耗时（一次调用一次计数）
-    metrics_increment(JoinMetrics::instance().apply_processing_count);
-    MetricsTimer t_apply(JoinMetrics::instance().apply_processing_ns);
-    // 记录进入算子的实时时刻，用于端到端延迟统计
-    const uint64_t apply_enter_ns = metrics_timestamp();
-    if (!record.record_) return;
-    std::unique_ptr<VectorRecord> data_ptr = std::make_unique<VectorRecord>(*record.record_);
-    int64_t now_time_stamp = data_ptr->timestamp_;
-    SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "Apply called slot={} uid={} ts={} dim={} ", slot, data_ptr->uid_, now_time_stamp, data_ptr->data_.dim_);
-    // 重要：为窗口存储拷贝一份，避免 data_ptr 在 updateSideThreadSafe 中被移动导致后续 eager 路径解引用空指针
-    auto store_ptr = std::make_unique<VectorRecord>(*data_ptr);
-    bool trigger_flag = (slot == left_slot_id_)
-        ? updateSideThreadSafe(left_records_, left_records_mutex_, left_index_id_, store_ptr, now_time_stamp, slot)
-        : updateSideThreadSafe(right_records_, right_records_mutex_, right_index_id_, store_ptr, now_time_stamp, slot);
-    if (!trigger_flag) {
-      return;
-    }
-
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
-    size_t left_sz = 0, right_sz = 0;
-    
-    // Acquire both locks in consistent order (left first, then right) to avoid deadlock
-    uint64_t before_lock_L = metrics_timestamp();
-    std::shared_lock<std::shared_mutex> lkL(left_records_mutex_);
-    metrics_record_lock_wait(before_lock_L);
-    uint64_t before_lock_R = metrics_timestamp();
-    std::shared_lock<std::shared_mutex> lkR(right_records_mutex_);
-    metrics_record_lock_wait(before_lock_R);
-    
-    // Now holding both locks, get window sizes and candidates safely
-    left_sz = left_records_.size();
-    right_sz = right_records_.size();
-    
-    auto candidates = getCandidatesWithLocksHeld(data_ptr, slot);
-    
-    SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "slot={} cand={} left_win={} right_win={} use_index={} ",
-           slot, candidates.size(), left_sz, right_sz, (use_index_?1:0));
-
-    // 所有方法均使用 Eager 模式：每条记录到达时立即执行查询
-    // Execute join while holding both locks to ensure consistency
-    executeJoinForCandidatesWithLockHeld(candidates, data_ptr, slot, 
-                                          slot == left_slot_id_ ? right_records_ : left_records_,
-                                          local_return_pool);
-    
-    // Locks released here automatically when going out of scope
-    
-    {
-        MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
-        for (auto &p : local_return_pool) {
-            Response out{ResponseType::Record, std::move(p.second)};
-            collector.collect(std::make_unique<Response>(std::move(out)), p.first);
-            metrics_increment(JoinMetrics::instance().total_emits);
-            metrics_increment(JoinMetrics::instance().emit_count);
-            // 端到端延迟：从 apply 进入到对应结果发射的时长（按每条结果计）
-            metrics_record_e2e_latency(apply_enter_ns);
-        }
-    }
+    RuntimeContext default_context(0, parallelism_);
+    apply(std::move(record), slot, collector, default_context);
 }
 
 // ================== WindowState 辅助方法 ==================
 
-std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidatesFromState(
+std::vector<RecordView> JoinOperator::getCandidatesFromState(
     const VectorRecord* data_ptr,
     WindowState* state,
     size_t subtask_index) {
@@ -774,16 +634,14 @@ std::vector<std::unique_ptr<VectorRecord>> JoinOperator::getCandidatesFromState(
 
 auto JoinOperator::updateSideWithState(
     WindowState* state,
+    WindowState* opposite_state,
     int index_id_for_cc,
-    std::unique_ptr<VectorRecord> data_ptr,
+    RecordView data_ptr,
     int64_t now_time_stamp,
     int slot,
     size_t subtask_index) -> bool {
-    
-    // 为索引创建记录副本
-    std::unique_ptr<VectorRecord> data_for_index_insert = nullptr;
-    if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
-        data_for_index_insert = std::make_unique<VectorRecord>(*data_ptr);
+    if (!data_ptr) {
+        return false;
     }
     
     // 统计插入的记录数
@@ -802,88 +660,34 @@ auto JoinOperator::updateSideWithState(
     // 添加记录到窗口状态
     {
         MetricsTimer t_window_ins(JoinMetrics::instance().window_insert_ns);
-        state->addRecord(std::move(data_ptr), subtask_index);
+        state->addRecord(data_ptr, subtask_index);
     }
     metrics_increment(JoinMetrics::instance().window_insert_count);
     
     // 插入索引
-    if (use_index_ && concurrency_manager_ && data_for_index_insert && index_id_for_cc != -1) {
+    if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
         MetricsTimer t_idx(JoinMetrics::instance().index_insert_ns);
 
         // VSJoin 特殊处理：只插入到本分区的 Local Index
         if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
-            const auto& local_ids = (slot == left_slot_id_)
-                ? vsjoin_local_left_ids_
-                : vsjoin_local_right_ids_;
-
-            int local_index_id = (subtask_index < local_ids.size())
-                ? local_ids[subtask_index]
-                : -1;
-
+            const int local_index_id = localIndexIdForSlotAndSubtask(slot, subtask_index);
             if (local_index_id >= 0) {
-                concurrency_manager_->insert(local_index_id, std::move(data_for_index_insert));
+                concurrency_manager_->insert(local_index_id, data_ptr);
             }
 
             SAGEFLOW_LOG_DEBUG("VSJOIN", "subtask_{} inserted to local_id={}", subtask_index, local_index_id);
         } else {
-            concurrency_manager_->insert(index_id_for_cc, std::move(data_for_index_insert));
+            concurrency_manager_->insert(index_id_for_cc, data_ptr);
         }
 
         metrics_increment(JoinMetrics::instance().index_op_count);
     }
     
-    // 获取窗口配置
-    auto& window = (slot == left_slot_id_) ? join_func_->threadSafeWindowL : join_func_->threadSafeWindowR;
-    int64_t timelimit = window.windowTimeLimit(now_time_stamp);
-    
-    // 更新时间戳追踪
-    // - 分区策略：使用 WindowState 的分区级别时间戳追踪
-    // - 共享策略：使用全局时间戳追踪
-    if (isPartitionedStrategy()) {
-        // 分区策略：更新分区级别的 max_seen_timestamp
-        state->updateMaxSeenTimestamp(now_time_stamp, subtask_index);
-    } else {
-        // 共享策略：更新全局时间戳（原子操作，支持乱序）
-        std::atomic<int64_t>& max_seen_ts = (slot == left_slot_id_) 
-            ? max_seen_left_ts_ : max_seen_right_ts_;
-        int64_t current_max = max_seen_ts.load(std::memory_order_relaxed);
-        while (now_time_stamp > current_max && 
-               !max_seen_ts.compare_exchange_weak(current_max, now_time_stamp,
-                                                   std::memory_order_release,
-                                                   std::memory_order_relaxed)) {
-            // 重试直到成功或发现更大的值
-        }
-    }
-    
-    // 安全 evict 策略：
-    // - 分区策略：使用 WindowState 的分区级别 getSafeEvictTimestamp
-    // - 共享策略：使用全局双侧 max_seen_ts 的最小值
-    int64_t safe_evict_ts;
-    
-    if (isPartitionedStrategy()) {
-        // 分区策略：直接使用当前分区的 max_seen_ts
-        // 因为分区是隔离的，不需要考虑其他分区的状态
-        safe_evict_ts = state->getSafeEvictTimestamp(subtask_index, nullptr);
-    } else {
-        // 共享策略：需要等待双侧都推进，取最小值确保安全
-        int64_t left_max = max_seen_left_ts_.load(std::memory_order_acquire);
-        int64_t right_max = max_seen_right_ts_.load(std::memory_order_acquire);
-        
-        constexpr int64_t kMinTimestamp = std::numeric_limits<int64_t>::min();
-        
-        // 安全 evict 策略：只有当双侧都有记录时才进行 evict
-        // 这是因为在高并行度下，某些 subtask 可能只收到一侧数据，
-        // 如果使用单侧时间戳进行 evict，可能会删除另一侧需要匹配的记录
-        if (left_max == kMinTimestamp || right_max == kMinTimestamp) {
-            // 某侧还没有记录，暂不 evict，避免删除潜在匹配
-            safe_evict_ts = kMinTimestamp;
-        } else {
-            // 两侧都有记录，使用最小值确保安全
-            safe_evict_ts = std::min(left_max, right_max);
-        }
-    }
-    
-    {
+    state->updateMaxSeenTimestamp(now_time_stamp, subtask_index);
+    const int64_t safe_evict_ts =
+        state->getSafeEvictTimestamp(subtask_index, opposite_state);
+
+    if (safe_evict_ts != std::numeric_limits<int64_t>::min()) {
         size_t before_size = state->size(subtask_index);
         MetricsTimer t_window_evict(JoinMetrics::instance().expire_ns);
         state->evictExpired(safe_evict_ts, join_func_->getWindowSize(), subtask_index);
@@ -895,7 +699,10 @@ auto JoinOperator::updateSideWithState(
     
     // 检查是否需要批量删除 Index/Storage 中的过期记录
     // 只有当过期记录数超过阈值时才执行，避免频繁删除
-    if (use_index_ && concurrency_manager_ && index_id_for_cc != -1) {
+    const int erase_index_id = (strategy_config_.algorithm == JoinAlgorithm::VSJOIN)
+        ? localIndexIdForSlotAndSubtask(slot, subtask_index)
+        : index_id_for_cc;
+    if (use_index_ && concurrency_manager_ && erase_index_id != -1) {
         size_t expired_count = state->getExpiredCount(subtask_index);
         if (expired_count >= batch_delete_threshold_) {
             // 获取并清空过期 UID buffer
@@ -903,26 +710,19 @@ auto JoinOperator::updateSideWithState(
             
             // 批量从 Index/Storage 中删除
             for (uint64_t uid : expired_uids) {
-                concurrency_manager_->erase(index_id_for_cc, uid);
+                concurrency_manager_->erase(erase_index_id, uid);
                 metrics_increment(JoinMetrics::instance().index_op_count);
             }
             
             SAGEFLOW_LOG_DEBUG("JOIN_STATE", 
                 "Batch deleted {} expired records from index {}", 
-                expired_uids.size(), index_id_for_cc);
+                expired_uids.size(), erase_index_id);
         }
     }
     
-    // 检查是否需要触发
-    bool needTrigger = false;
-    try {
-        needTrigger = window.isNeedTrigger(now_time_stamp);
-    } catch (const std::exception& e) {
-        SAGEFLOW_LOG_ERROR("JOIN", "Exception during isNeedTrigger: what={} ", e.what());
-        throw;
-    }
-    
-    return needTrigger;
+    // WindowState path uses per-record IQ as the only trigger model.
+    // Legacy isNeedTrigger/SlidingWindow state is intentionally not consulted here.
+    return true;
 }
 
 void JoinOperator::executeJoinWithState(
@@ -984,22 +784,116 @@ void JoinOperator::executeJoinWithState(
     }
 }
 
-// ================== 带 RuntimeContext 的 apply 方法 ==================
+// ================== VSJoin 路由：计算目标 subtask 集合 ==================
+// 说明：从 apply() 抽离，逻辑与原内联实现逐字一致——通过 preferred partitioner
+// （当前为 CentroidPartitioner，支持 multicast）得到物理分区并映射为 subtask，
+// 去重并在为空时回退到当前 subtask。仅承担"计算目标"职责，不做插入/查询。
+std::vector<size_t> JoinOperator::computeVSJoinTargetSubtasks(
+    const Response& record,
+    const RuntimeContext& context,
+    size_t subtask_index) const {
+    auto preferred_partitioner = getPreferredPartitioner(
+        join_func_ ? join_func_->getDim() : strategy_config_.dimension,
+        static_cast<int>(context.getParallelism()));
 
-auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
-                        const RuntimeContext& context) -> void {
-    // 统计 apply 处理总耗时
-    metrics_increment(JoinMetrics::instance().apply_processing_count);
-    MetricsTimer t_apply(JoinMetrics::instance().apply_processing_ns);
-    const uint64_t apply_enter_ns = metrics_timestamp();
-    
-    if (!record.record_) return;
-    
-    size_t subtask_index = context.getSubtaskIndex();
-    std::unique_ptr<VectorRecord> data_ptr = std::make_unique<VectorRecord>(*record.record_);
-    int64_t now_time_stamp = data_ptr->timestamp_;
+    const size_t P = static_cast<size_t>(context.getParallelism());
+    std::vector<size_t> target_subtasks;
 
-    // VSJoin debug per-subtask counters (env SAGEFLOW_VSJOIN_DEBUG_SUBTASK=1)
+    // VSJoin debug routing stats (enabled by env SAGEFLOW_VSJOIN_DEBUG_ROUTING=1)
+    const bool vsjoin_debug_routing = []() {
+        if (const char* v = std::getenv("SAGEFLOW_VSJOIN_DEBUG_ROUTING")) {
+            return std::string(v) == "1";
+        }
+        return false;
+    }();
+    static std::atomic<uint64_t> vsjoin_route_events{0};
+    static std::atomic<uint64_t> vsjoin_route_total_targets{0};
+    static std::atomic<uint64_t> vsjoin_route_multicast_events{0};
+    static std::atomic<uint64_t> vsjoin_route_fallback_events{0};
+    static std::mutex vsjoin_route_mu;
+    static std::unordered_map<size_t, uint64_t> vsjoin_route_target_hist;
+
+    if (preferred_partitioner && preferred_partitioner->supportsMulticast()) {
+        auto physical_pids = preferred_partitioner->partitionMulti(record, P);
+        for (size_t pid : physical_pids) {
+            target_subtasks.push_back(pid % P);
+        }
+        if (physical_pids.size() > 1) {
+            vsjoin_route_multicast_events.fetch_add(1, std::memory_order_relaxed);
+        }
+    } else if (preferred_partitioner) {
+        target_subtasks.push_back(preferred_partitioner->partition(record, P) % P);
+    } else {
+        target_subtasks.push_back(subtask_index);
+        vsjoin_route_fallback_events.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    std::sort(target_subtasks.begin(), target_subtasks.end());
+    target_subtasks.erase(std::unique(target_subtasks.begin(), target_subtasks.end()), target_subtasks.end());
+
+    if (target_subtasks.empty()) {
+        target_subtasks.push_back(subtask_index);
+        vsjoin_route_fallback_events.fetch_add(1, std::memory_order_relaxed);
+    }
+
+    // record routing stats (sampled)
+    vsjoin_route_events.fetch_add(1, std::memory_order_relaxed);
+    vsjoin_route_total_targets.fetch_add(target_subtasks.size(), std::memory_order_relaxed);
+    if (vsjoin_debug_routing) {
+        {
+            std::lock_guard<std::mutex> lk(vsjoin_route_mu);
+            for (size_t t : target_subtasks) {
+                vsjoin_route_target_hist[t] += 1;
+            }
+        }
+        const uint64_t n = vsjoin_route_events.load(std::memory_order_relaxed);
+        if (n == 1 || (n % 20000 == 0)) {
+            // Print a compact snapshot periodically.
+            uint64_t total_targets = vsjoin_route_total_targets.load(std::memory_order_relaxed);
+            uint64_t mc = vsjoin_route_multicast_events.load(std::memory_order_relaxed);
+            uint64_t fb = vsjoin_route_fallback_events.load(std::memory_order_relaxed);
+            size_t nonzero = 0;
+            uint64_t minc = std::numeric_limits<uint64_t>::max();
+            uint64_t maxc = 0;
+            {
+                std::lock_guard<std::mutex> lk(vsjoin_route_mu);
+                nonzero = vsjoin_route_target_hist.size();
+                for (const auto& kv : vsjoin_route_target_hist) {
+                    minc = std::min(minc, kv.second);
+                    maxc = std::max(maxc, kv.second);
+                }
+            }
+            if (minc == std::numeric_limits<uint64_t>::max()) {
+                minc = 0;
+            }
+            double avg_targets = (n > 0) ? static_cast<double>(total_targets) / static_cast<double>(n) : 0.0;
+            SAGEFLOW_LOG_INFO("VSJOIN_ROUTING",
+                "p={} subtask={}/{} routed_records={} avg_targets={:.3f} multicast_events={} fallback_events={} active_targets={} min_per_target={} max_per_target={}",
+                P, subtask_index, context.getParallelism(), n, avg_targets, mc, fb, nonzero, minc, maxc);
+        }
+    }
+
+    return target_subtasks;
+}
+
+void JoinOperator::validateRuntimeContext(const RuntimeContext& context) const {
+    const size_t parallelism = context.getParallelism();
+    const size_t subtask_index = context.getSubtaskIndex();
+    if (parallelism == 0) {
+        throw std::runtime_error("JoinOperator: RuntimeContext parallelism must be greater than zero");
+    }
+    if (subtask_index >= parallelism) {
+        throw std::runtime_error("JoinOperator: RuntimeContext subtask_index must be less than parallelism");
+    }
+    if ((left_state_ || right_state_) && parallelism != parallelism_) {
+        throw std::runtime_error("JoinOperator: RuntimeContext parallelism differs from initialized operator parallelism");
+    }
+}
+
+void JoinOperator::recordVSJoinSubtaskDebugStats(
+    int slot,
+    size_t subtask_index,
+    const RuntimeContext& context) const {
     const bool vsjoin_debug_subtask = []() {
         if (const char* v = std::getenv("SAGEFLOW_VSJOIN_DEBUG_SUBTASK")) {
             return std::string(v) == "1";
@@ -1007,7 +901,10 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
         return false;
     }();
 
-    // Bucket stats by runtime parallelism to avoid mixing p=8 and p=32 in the same maps.
+    if (!vsjoin_debug_subtask || strategy_config_.algorithm != JoinAlgorithm::VSJOIN) {
+        return;
+    }
+
     struct VSJoinSubtaskStatsBucket {
         std::unordered_map<size_t, uint64_t> in_left;
         std::unordered_map<size_t, uint64_t> in_right;
@@ -1016,70 +913,131 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     static std::mutex vsjoin_subtask_mu;
     static std::unordered_map<size_t, VSJoinSubtaskStatsBucket> vsjoin_subtask_buckets;
 
-    if (vsjoin_debug_subtask && strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
-        const size_t P_runtime = static_cast<size_t>(context.getParallelism());
-        {
-            std::lock_guard<std::mutex> lk(vsjoin_subtask_mu);
-            auto& bucket = vsjoin_subtask_buckets[P_runtime];
-            if (slot == left_slot_id_) {
-                bucket.in_left[subtask_index] += 1;
-            } else {
-                bucket.in_right[subtask_index] += 1;
-            }
-        }
-
-        uint64_t n = 0;
-        {
-            std::lock_guard<std::mutex> lk(vsjoin_subtask_mu);
-            n = vsjoin_subtask_buckets[P_runtime].events.fetch_add(1, std::memory_order_relaxed) + 1;
-        }
-
-        if (n == 1 || (n % 50000 == 0)) {
-            size_t active = 0;
-            uint64_t totalL = 0, totalR = 0;
-            uint64_t minTot = std::numeric_limits<uint64_t>::max();
-            uint64_t maxTot = 0;
-            {
-                std::lock_guard<std::mutex> lk(vsjoin_subtask_mu);
-                auto it = vsjoin_subtask_buckets.find(P_runtime);
-                if (it != vsjoin_subtask_buckets.end()) {
-                    auto& bucket = it->second;
-                    std::unordered_set<size_t> keys;
-                    keys.reserve(bucket.in_left.size() + bucket.in_right.size());
-                    for (const auto& kv : bucket.in_left) keys.insert(kv.first);
-                    for (const auto& kv : bucket.in_right) keys.insert(kv.first);
-                    active = keys.size();
-                    for (size_t k : keys) {
-                        uint64_t l = 0, r = 0;
-                        auto itL = bucket.in_left.find(k);
-                        if (itL != bucket.in_left.end()) l = itL->second;
-                        auto itR = bucket.in_right.find(k);
-                        if (itR != bucket.in_right.end()) r = itR->second;
-                        uint64_t tot = l + r;
-                        totalL += l;
-                        totalR += r;
-                        minTot = std::min(minTot, tot);
-                        maxTot = std::max(maxTot, tot);
-                    }
-                }
-            }
-            if (minTot == std::numeric_limits<uint64_t>::max()) minTot = 0;
-            SAGEFLOW_LOG_INFO("VSJOIN_SUBTASK",
-                              "p={} events={} active_subtasks={} total_in(L={},R={}) min_total_per_subtask={} max_total_per_subtask={}",
-                              P_runtime, n, active, totalL, totalR, minTot, maxTot);
+    const size_t p_runtime = static_cast<size_t>(context.getParallelism());
+    {
+        std::lock_guard<std::mutex> lk(vsjoin_subtask_mu);
+        auto& bucket = vsjoin_subtask_buckets[p_runtime];
+        if (slot == left_slot_id_) {
+            bucket.in_left[subtask_index] += 1;
+        } else {
+            bucket.in_right[subtask_index] += 1;
         }
     }
-    
-    SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "Apply (with context) called slot={} uid={} ts={} subtask={}/{}", 
-                      slot, data_ptr->uid_, now_time_stamp, 
-                      subtask_index, context.getParallelism());
-    
-    // 检查是否已创建状态对象
-    if (!left_state_ || !right_state_) {
-        SAGEFLOW_LOG_WARN("JOIN", "WindowState not initialized, falling back to legacy apply");
-        apply(std::move(record), slot, collector);
+
+    uint64_t n = 0;
+    {
+        std::lock_guard<std::mutex> lk(vsjoin_subtask_mu);
+        n = vsjoin_subtask_buckets[p_runtime].events.fetch_add(1, std::memory_order_relaxed) + 1;
+    }
+
+    if (n != 1 && (n % 50000 != 0)) {
         return;
     }
+
+    size_t active = 0;
+    uint64_t total_left = 0;
+    uint64_t total_right = 0;
+    uint64_t min_total = std::numeric_limits<uint64_t>::max();
+    uint64_t max_total = 0;
+    {
+        std::lock_guard<std::mutex> lk(vsjoin_subtask_mu);
+        auto it = vsjoin_subtask_buckets.find(p_runtime);
+        if (it != vsjoin_subtask_buckets.end()) {
+            auto& bucket = it->second;
+            std::unordered_set<size_t> keys;
+            keys.reserve(bucket.in_left.size() + bucket.in_right.size());
+            for (const auto& kv : bucket.in_left) keys.insert(kv.first);
+            for (const auto& kv : bucket.in_right) keys.insert(kv.first);
+            active = keys.size();
+            for (size_t key : keys) {
+                uint64_t left = 0;
+                uint64_t right = 0;
+                auto left_it = bucket.in_left.find(key);
+                if (left_it != bucket.in_left.end()) left = left_it->second;
+                auto right_it = bucket.in_right.find(key);
+                if (right_it != bucket.in_right.end()) right = right_it->second;
+                const uint64_t total = left + right;
+                total_left += left;
+                total_right += right;
+                min_total = std::min(min_total, total);
+                max_total = std::max(max_total, total);
+            }
+        }
+    }
+    if (min_total == std::numeric_limits<uint64_t>::max()) min_total = 0;
+    SAGEFLOW_LOG_INFO("VSJOIN_SUBTASK",
+                      "p={} events={} active_subtasks={} total_in(L={},R={}) min_total_per_subtask={} max_total_per_subtask={}",
+                      p_runtime, n, active, total_left, total_right, min_total, max_total);
+}
+
+int JoinOperator::indexIdForSlot(int slot) const {
+    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        return (slot == left_slot_id_) ? vsjoin_global_left_id_ : vsjoin_global_right_id_;
+    }
+    return (slot == left_slot_id_) ? left_index_id_ : right_index_id_;
+}
+
+int JoinOperator::localIndexIdForSlotAndSubtask(int slot, size_t subtask_index) const {
+    const auto& local_ids = (slot == left_slot_id_)
+        ? vsjoin_local_left_ids_
+        : vsjoin_local_right_ids_;
+    return (subtask_index < local_ids.size()) ? local_ids[subtask_index] : -1;
+}
+
+void JoinOperator::emitJoinResults(
+    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool,
+    Collector& collector,
+    uint64_t apply_enter_ns) {
+    MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
+    for (auto& p : local_return_pool) {
+        Response out{ResponseType::Record, std::move(p.second)};
+        collector.collect(std::make_unique<Response>(std::move(out)), p.first);
+        metrics_increment(JoinMetrics::instance().total_emits);
+        metrics_increment(JoinMetrics::instance().emit_count);
+        metrics_record_e2e_latency(apply_enter_ns);
+    }
+}
+
+// ================== 带 RuntimeContext 的 apply 方法 ==================
+
+auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
+                        const RuntimeContext& context) -> void {
+    validateRuntimeContext(context);
+
+    // 统计 apply 处理总耗时
+    metrics_increment(JoinMetrics::instance().apply_processing_count);
+    MetricsTimer t_apply(JoinMetrics::instance().apply_processing_ns);
+    const uint64_t apply_enter_ns = metrics_timestamp();
+
+    if (!record.record_) return;
+
+    size_t subtask_index = context.getSubtaskIndex();
+    const VectorRecord* input_record = record.record_.get();
+    int64_t now_time_stamp = input_record->timestamp_;
+
+    recordVSJoinSubtaskDebugStats(slot, subtask_index, context);
+
+    SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "Apply (with context) called slot={} uid={} ts={} subtask={}/{}",
+                      slot, input_record->uid_, now_time_stamp,
+                      subtask_index, context.getParallelism());
+
+    // 检查是否已创建状态对象
+    if (!left_state_ || !right_state_) {
+        SAGEFLOW_LOG_WARN("JOIN", "WindowState not initialized; opening operator before apply");
+        open(context);
+        if (!left_state_ || !right_state_) {
+            throw std::runtime_error("JoinOperator: WindowState initialization failed before apply");
+        }
+    }
+
+    std::vector<size_t> target_subtasks;
+    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        // Routing must read the unique_ptr-backed record before apply takes shared ownership.
+        target_subtasks = computeVSJoinTargetSubtasks(record, context, subtask_index);
+    }
+
+    RecordView data_view = std::move(record.record_);
+    const VectorRecord* data_ptr = data_view.get();
     
     // 确定当前记录属于哪一侧
     WindowState* current_state = (slot == left_slot_id_) 
@@ -1087,276 +1045,43 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     WindowState* opposite_state = (slot == left_slot_id_) 
         ? right_state_.get() : left_state_.get();
     
-    // 计算索引 ID（VSJoin 使用 vsjoin_global_* 而非 left_/right_index_id_）
-    int index_id;
-    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
-        // VSJoin 使用专用的 global 索引 ID
-        // 注意：实际插入会在 updateSideWithState 中被特殊处理为插入到 local 索引
-        index_id = (slot == left_slot_id_) ? vsjoin_global_left_id_ : vsjoin_global_right_id_;
-    } else {
-        index_id = (slot == left_slot_id_) ? left_index_id_ : right_index_id_;
-    }
+    const int index_id = indexIdForSlot(slot);
     
-    // 保存数据指针副本用于后续 join
-    auto data_for_join = std::make_unique<VectorRecord>(*data_ptr);
-    
-    // ====== 自适应并发策略 ======
-    // 根据策略类型和并行度选择不同的并发控制：
-    // 1. 分区策略（Centroid/LSH）：分区内无锁竞争，直接使用 IQ
-    // 2. 共享策略 + 单线程：无竞争，直接使用 IQ
-    // 3. 共享策略 + 多线程：需要 QIQ 保证召回率
-    
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
-    
-    // 并发策略选择：
-    // - 分区策略 or 单线程：无竞争，使用“无锁 IQ”（Insert -> Query）
-    // - 共享状态 + 多线程：使用“带全局锁的 IQ”（写锁 Insert + 读锁 Query）
+    // ====== 并发策略：统一 IQ（Insert -> Query），不使用算子级全局锁 ======
     //
-    // 由于性能问题，QIQ方法暂时不使用，后续再考虑使用。
-    const bool use_lockless_iq = isPartitionedStrategy() || (context.getParallelism() <= 1);
-    bool force_qiq = false;
-    if (!isPartitionedStrategy() && context.getParallelism() > 1) {
-        if (const char* v = std::getenv("SAGEFLOW_JOIN_HIGH_P_STRATEGY")) {
-            std::string s(v);
-            std::transform(s.begin(), s.end(), s.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-            if (s == "qiq") {
-                // 默认禁止 QIQ（会系统性丢召回）。仅允许在显式打开“危险开关”时用于实验复现：
-                //   SAGEFLOW_ALLOW_UNSAFE_QIQ=1
-                //   SAGEFLOW_JOIN_HIGH_P_STRATEGY=QIQ
-                const char* allow = std::getenv("SAGEFLOW_ALLOW_UNSAFE_QIQ");
-                const bool allow_qiq = (allow && std::string(allow) == "1");
-                if (allow_qiq) {
-                    force_qiq = true;
-                    static std::atomic<bool> warned{false};
-                    bool expected = false;
-                    if (warned.compare_exchange_strong(expected, true)) {
-                        SAGEFLOW_LOG_WARN("JOIN",
-                            "UNSAFE: enabling QIQ due to SAGEFLOW_ALLOW_UNSAFE_QIQ=1; this mode is known to reduce recall in shared+multi-thread.");
-                    }
-                } else {
-                    static std::atomic<bool> warned{false};
-                    bool expected = false;
-                    if (warned.compare_exchange_strong(expected, true)) {
-                        SAGEFLOW_LOG_WARN("JOIN",
-                            "Ignoring SAGEFLOW_JOIN_HIGH_P_STRATEGY=QIQ (set SAGEFLOW_ALLOW_UNSAFE_QIQ=1 to force for experiments). Using iq_locked.");
-                    }
-                    force_qiq = false;
-                }
-            } else if (s == "iq") {
-                force_qiq = false;
-            }
-        }
-    }
-    if (use_lockless_iq) {
-        // ====== IQ 策略（无锁，适用于分区模式或单线程） ======
-        //
-        // Task08: VSJoin logical partition routing
-        // - 通过 preferred partitioner（当前为 CentroidPartitioner）得到物理分区 physical_pid(们)
-        // - 映射为 logical_pid = physical_pid * V + v_idx，其中 v_idx 使用 uid 的 hash 计算
-        // - 再通过 AssignmentTable 将 logical_pid 映射到 physical subtask
+    // 每条向量的处理顺序与重构前完全一致：先把"自己"插入所在侧窗口/索引，
+    // 再到"对侧"窗口/索引查询匹配。这样保证每对相似记录至少被一侧发现一次
+    // （A 先于 A.query 完成 insert；若 B.insert 晚于 A.query，则 B.query 必能看到 A）。
+    //
+    // 并发可见性由各组件自身的内部锁保证，无需算子层再叠加粗粒度全局锁：
+    // - SharedWindowState 内部用 shared_mutex 保护窗口容器；
+    // - ConcurrencyManager / Index / StorageManager 各自线程安全；
+    // 因此共享索引在多线程下不再被单一 join_rw_mutex_ 串行化（这是 p>1 负优化根因）。
+    //
+    // 注意：VSJoin 走多播路由，可能把同一条记录写入多个 subtask 分区。
+    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
 
-        if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
-            auto preferred_partitioner = getPreferredPartitioner(
-                join_func_ ? join_func_->getDim() : strategy_config_.dimension,
-                static_cast<int>(context.getParallelism()));
+    if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
+        // VSJoin：先计算目标 subtask 集合（支持 multicast），再对每个目标做 IQ。
+        // 语义：subtask 只查询/写入自己的分区数据，不跨分区探测。
+        for (size_t target_subtask : target_subtasks) {
+            updateSideWithState(current_state, opposite_state, index_id, data_view,
+                                now_time_stamp, slot, target_subtask);
 
-            // 临时禁用 Task08（Logical Partition Routing + AssignmentTable 负载均衡）。
-            // 目的：先验证“不负载均衡，仅依赖上游 partitioner 多播 + subtask 内 local/global index”是否能稳定通过集成测试。
-            //
-            // 语义：subtask 只查询/写入自己的分区数据，不跨分区探测。
-            // 因此这里将路由退化为：直接使用 partitioner 输出的 physical partitions（支持 multicast）映射为 subtask。
-            const size_t P = static_cast<size_t>(context.getParallelism());
-            std::vector<size_t> target_subtasks;
-
-            // VSJoin debug routing stats (enabled by env SAGEFLOW_VSJOIN_DEBUG_ROUTING=1)
-            const bool vsjoin_debug_routing = []() {
-                if (const char* v = std::getenv("SAGEFLOW_VSJOIN_DEBUG_ROUTING")) {
-                    return std::string(v) == "1";
-                }
-                return false;
-            }();
-            static std::atomic<uint64_t> vsjoin_route_events{0};
-            static std::atomic<uint64_t> vsjoin_route_total_targets{0};
-            static std::atomic<uint64_t> vsjoin_route_multicast_events{0};
-            static std::atomic<uint64_t> vsjoin_route_fallback_events{0};
-            static std::mutex vsjoin_route_mu;
-            static std::unordered_map<size_t, uint64_t> vsjoin_route_target_hist;
-
-            if (preferred_partitioner && preferred_partitioner->supportsMulticast()) {
-                auto physical_pids = preferred_partitioner->partitionMulti(record, P);
-                for (size_t pid : physical_pids) {
-                    target_subtasks.push_back(pid % P);
-                }
-                if (physical_pids.size() > 1) {
-                    vsjoin_route_multicast_events.fetch_add(1, std::memory_order_relaxed);
-                }
-            } else if (preferred_partitioner) {
-                target_subtasks.push_back(preferred_partitioner->partition(record, P) % P);
-            } else {
-                target_subtasks.push_back(subtask_index);
-                vsjoin_route_fallback_events.fetch_add(1, std::memory_order_relaxed);
-            }
-
-            std::sort(target_subtasks.begin(), target_subtasks.end());
-            target_subtasks.erase(std::unique(target_subtasks.begin(), target_subtasks.end()), target_subtasks.end());
-
-            if (target_subtasks.empty()) {
-                target_subtasks.push_back(subtask_index);
-                vsjoin_route_fallback_events.fetch_add(1, std::memory_order_relaxed);
-            }
-
-            // record routing stats (sampled)
-            vsjoin_route_events.fetch_add(1, std::memory_order_relaxed);
-            vsjoin_route_total_targets.fetch_add(target_subtasks.size(), std::memory_order_relaxed);
-            if (vsjoin_debug_routing) {
-                {
-                    std::lock_guard<std::mutex> lk(vsjoin_route_mu);
-                    for (size_t t : target_subtasks) {
-                        vsjoin_route_target_hist[t] += 1;
-                    }
-                }
-                const uint64_t n = vsjoin_route_events.load(std::memory_order_relaxed);
-                if (n == 1 || (n % 20000 == 0)) {
-                    // Print a compact snapshot periodically.
-                    uint64_t total_targets = vsjoin_route_total_targets.load(std::memory_order_relaxed);
-                    uint64_t mc = vsjoin_route_multicast_events.load(std::memory_order_relaxed);
-                    uint64_t fb = vsjoin_route_fallback_events.load(std::memory_order_relaxed);
-                    size_t nonzero = 0;
-                    uint64_t minc = std::numeric_limits<uint64_t>::max();
-                    uint64_t maxc = 0;
-                    {
-                        std::lock_guard<std::mutex> lk(vsjoin_route_mu);
-                        nonzero = vsjoin_route_target_hist.size();
-                        for (const auto& kv : vsjoin_route_target_hist) {
-                            minc = std::min(minc, kv.second);
-                            maxc = std::max(maxc, kv.second);
-                        }
-                    }
-                    if (minc == std::numeric_limits<uint64_t>::max()) {
-                        minc = 0;
-                    }
-                    double avg_targets = (n > 0) ? static_cast<double>(total_targets) / static_cast<double>(n) : 0.0;
-                    SAGEFLOW_LOG_INFO("VSJOIN_ROUTING",
-                        "p={} subtask={}/{} routed_records={} avg_targets={:.3f} multicast_events={} fallback_events={} active_targets={} min_per_target={} max_per_target={}",
-                        P, subtask_index, context.getParallelism(), n, avg_targets, mc, fb, nonzero, minc, maxc);
-                }
-            }
-
-            for (size_t target_subtask : target_subtasks) {
-                auto data_for_insert = std::make_unique<VectorRecord>(*data_ptr);
-                updateSideWithState(current_state, index_id, std::move(data_for_insert), now_time_stamp, slot, target_subtask);
-
-                executeJoinWithState(data_for_join.get(), opposite_state, slot, target_subtask, local_return_pool);
-            }
-        } else {
-            // 阶段1：Insert 当前记录到对应窗口和索引
-            updateSideWithState(
-                current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
-
-            // 阶段2：Query 对侧窗口查找匹配
-            executeJoinWithState(data_for_join.get(), opposite_state, slot,
-                                subtask_index, local_return_pool);
-        }
-    } else if (!force_qiq) {
-        // ====== 共享策略 + 多线程：全局读写锁 + IQ 策略（Insert-Query）======
-        // 
-        // QIQ 策略存在固有缺陷：Q2 只能看到在它执行时已完成的 Insert。
-        // 如果两个记录 A 和 B 几乎同时到达：
-        //   - A 的 Q1 在 B 的 Insert 之前 → A 找不到 B
-        //   - A 的 Q2 也可能在 B 的 Insert 之前 → A 仍然找不到 B
-        //   - B 的 Q1 和 Q2 也可能在 A 的 Insert 之前 → B 也找不到 A
-        // 这导致相似记录对被双向丢失！
-        // 
-        // IQ 策略：先 Insert，再 Query
-        // - 当记录 A 被 Query 时，A 已经被 Insert 到窗口
-        // - 如果 B 的 Insert 先于 A 的 Query，A 会找到 B
-        // - 如果 B 的 Insert 晚于 A 的 Query，B 的 Query 一定能找到 A
-        //   （因为 A 的 Insert 在 A 的 Query 之前，也就是在 B 的 Query 之前）
-        // - 保证每对相似记录至少被发现一次
-        
-        // 阶段1：Insert（写锁，独占）
-        {
-            uint64_t insert_start = metrics_timestamp();
-            uint64_t before_lock = metrics_timestamp();
-            std::unique_lock<std::shared_mutex> write_lock(join_rw_mutex_);
-            metrics_record_lock_wait(before_lock);
-            updateSideWithState(
-                current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
-            // 统计 Insert 总耗时（含锁等待）
-            metrics_record_elapsed(JoinMetrics::instance().qiq_insert_ns, insert_start);
-            JoinMetrics::instance().qiq_insert_count.fetch_add(1, std::memory_order_relaxed);
-        }
-        
-        // 阶段2：Query（读锁，可并行）
-        size_t query_window_size = 0;
-        {
-            uint64_t q1_start = metrics_timestamp();
-            uint64_t before_lock = metrics_timestamp();
-            std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
-            metrics_record_lock_wait(before_lock);
-            query_window_size = opposite_state->size(subtask_index);
-            executeJoinWithState(data_for_join.get(), opposite_state, slot, 
-                                subtask_index, local_return_pool);
-            // 统计 Query 总耗时（含锁等待）
-            metrics_record_elapsed(JoinMetrics::instance().qiq_q1_ns, q1_start);
-            JoinMetrics::instance().qiq_q1_count.fetch_add(1, std::memory_order_relaxed);
+            executeJoinWithState(data_ptr, opposite_state, slot, target_subtask, local_return_pool);
         }
     } else {
-        // ====== 共享策略 + 多线程：全局读写锁 + QIQ（Query-Insert-Query）======
-        // 仅用于实验复现（必须显式开启 SAGEFLOW_ALLOW_UNSAFE_QIQ=1）。
-        //
-        // 注意：QIQ 在 shared + 多线程下可能系统性丢召回（并发可见性问题），
-        // 该分支不作为默认策略。
-        //
-        // 阶段1：Query1（读锁）
-        {
-            uint64_t q1_start = metrics_timestamp();
-            uint64_t before_lock = metrics_timestamp();
-            std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
-            metrics_record_lock_wait(before_lock);
-            executeJoinWithState(data_for_join.get(), opposite_state, slot,
-                                 subtask_index, local_return_pool);
-            metrics_record_elapsed(JoinMetrics::instance().qiq_q1_ns, q1_start);
-            JoinMetrics::instance().qiq_q1_count.fetch_add(1, std::memory_order_relaxed);
-        }
+        // 非 VSJoin（含共享索引 bruteforce/ivf/hnsw 与分区 clustered_join）：
+        // 阶段1：Insert 当前记录到对应窗口和索引
+        updateSideWithState(
+            current_state, opposite_state, index_id, data_view, now_time_stamp, slot, subtask_index);
 
-        // 阶段2：Insert（写锁）
-        {
-            uint64_t insert_start = metrics_timestamp();
-            uint64_t before_lock = metrics_timestamp();
-            std::unique_lock<std::shared_mutex> write_lock(join_rw_mutex_);
-            metrics_record_lock_wait(before_lock);
-            updateSideWithState(
-                current_state, index_id, std::move(data_ptr), now_time_stamp, slot, subtask_index);
-            metrics_record_elapsed(JoinMetrics::instance().qiq_insert_ns, insert_start);
-            JoinMetrics::instance().qiq_insert_count.fetch_add(1, std::memory_order_relaxed);
-        }
-
-        // 阶段3：Query2（读锁）
-        {
-            uint64_t q2_start = metrics_timestamp();
-            uint64_t before_lock = metrics_timestamp();
-            std::shared_lock<std::shared_mutex> read_lock(join_rw_mutex_);
-            metrics_record_lock_wait(before_lock);
-            executeJoinWithState(data_for_join.get(), opposite_state, slot,
-                                 subtask_index, local_return_pool);
-            metrics_record_elapsed(JoinMetrics::instance().qiq_q2_ns, q2_start);
-            JoinMetrics::instance().qiq_q2_count.fetch_add(1, std::memory_order_relaxed);
-        }
+        // 阶段2：Query 对侧窗口查找匹配
+        executeJoinWithState(data_ptr, opposite_state, slot,
+                            subtask_index, local_return_pool);
     }
     
-    // 发送 Join 结果
-    {
-        MetricsTimer t_emit(JoinMetrics::instance().emit_ns);
-        for (auto& p : local_return_pool) {
-            Response out{ResponseType::Record, std::move(p.second)};
-            collector.collect(std::make_unique<Response>(std::move(out)), p.first);
-            metrics_increment(JoinMetrics::instance().total_emits);
-            metrics_increment(JoinMetrics::instance().emit_count);
-            metrics_record_e2e_latency(apply_enter_ns);
-        }
-    }
+    emitJoinResults(local_return_pool, collector, apply_enter_ns);
     
     SAGEFLOW_LOG_DEBUG("JOIN_APPLY", "Apply (with context) completed: slot={} results={} subtask={}/{}", 
                       slot, local_return_pool.size(), subtask_index, context.getParallelism());

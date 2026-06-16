@@ -144,7 +144,7 @@ class ClusteredJoinMethod final : public BaseMethod {
    * @param subtask_index 当前执行的 subtask 索引（用于 PartitionedWindowState 分区访问）
    * @return 满足阈值的候选向量列表
    */
-  std::vector<std::unique_ptr<VectorRecord>> ExecuteEager(
+  std::vector<RecordView> ExecuteEager(
       const VectorRecord& query_record,
       int query_slot,
       size_t subtask_index = 0) override;
@@ -287,7 +287,7 @@ class ClusteredJoinMethod final : public BaseMethod {
    * @param subtask_index 当前执行的 subtask 索引
    * @return 满足阈值的候选记录列表
    */
-  std::vector<std::unique_ptr<VectorRecord>> executeEagerBruteForce(
+  std::vector<RecordView> executeEagerBruteForce(
       const VectorRecord& query_record,
       int query_slot,
       size_t subtask_index);
@@ -302,7 +302,7 @@ class ClusteredJoinMethod final : public BaseMethod {
    * @param subtask_index 当前执行的 subtask 索引
    * @return 满足阈值的候选记录列表
    */
-  std::vector<std::unique_ptr<VectorRecord>> executeEagerIndexed(
+  std::vector<RecordView> executeEagerIndexed(
       const VectorRecord& query_record,
       int query_slot,
       size_t subtask_index);
