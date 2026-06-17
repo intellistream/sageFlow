@@ -33,6 +33,9 @@
 #include <optional>
 #include <iomanip>
 #include <cctype>
+#include <numeric>
+#include <random>
+#include <stdexcept>
 
 namespace sageFlow {
 namespace test {
@@ -114,6 +117,10 @@ struct DataSourceModeConfig {
   std::string data_source_file_path;
   int data_source_expected_dim{128};
   bool data_source_loop{true};
+  std::string data_source_sample_mode{"sequential"};  // "sequential", "random", "stride"
+  uint32_t data_source_sample_seed{42};
+  size_t data_source_sample_offset{0};
+  size_t data_source_sample_stride{1};
 
   // Storage config (for generate_save_load mode)
   std::string storage_format;  // "fvecs", "json"
@@ -249,6 +256,15 @@ static std::vector<DataSourceModeConfig> loadDataSourceModeConfigs() {
       mode_config.data_source_expected_dim = config.get<int>("data_source.expected_dim", 128);
       int loop_val = config.get<int>("data_source.loop", 1);
       mode_config.data_source_loop = (loop_val != 0);
+      mode_config.data_source_sample_mode =
+          config.get<std::string>("data_source.sample_mode", "sequential");
+      mode_config.data_source_sample_seed =
+          static_cast<uint32_t>(config.get<int>("data_source.sample_seed",
+                                                static_cast<int>(mode_config.seed)));
+      mode_config.data_source_sample_offset =
+          static_cast<size_t>(std::max(0, config.get<int>("data_source.sample_offset", 0)));
+      mode_config.data_source_sample_stride =
+          static_cast<size_t>(std::max(1, config.get<int>("data_source.sample_stride", 1)));
     }
 
     // Storage configuration (for generate_save_load mode)
@@ -287,6 +303,72 @@ static std::vector<DataSourceModeConfig> loadDataSourceModeConfigs() {
   }
 
   return configs;
+}
+
+static std::string normalizeSampleMode(std::string mode) {
+  std::transform(mode.begin(), mode.end(), mode.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return mode;
+}
+
+static std::vector<size_t> buildDatasetSampleIndices(
+    size_t total_count,
+    size_t requested_count,
+    const DataSourceModeConfig& mode_config) {
+  std::vector<size_t> result;
+  if (total_count == 0 || requested_count == 0) {
+    return result;
+  }
+
+  const std::string sample_mode = normalizeSampleMode(mode_config.data_source_sample_mode);
+  const bool loop = mode_config.data_source_loop;
+  size_t offset = mode_config.data_source_sample_offset;
+  if (offset >= total_count) {
+    if (!loop) {
+      return result;
+    }
+    offset %= total_count;
+  }
+
+  result.reserve(requested_count);
+  if (sample_mode == "sequential" || sample_mode == "stride") {
+    const size_t stride =
+        (sample_mode == "stride") ? mode_config.data_source_sample_stride : 1;
+    size_t index = offset;
+    while (result.size() < requested_count) {
+      if (index >= total_count) {
+        if (!loop) {
+          break;
+        }
+        index %= total_count;
+      }
+      result.push_back(index);
+      index += stride;
+    }
+    return result;
+  }
+
+  if (sample_mode == "random") {
+    std::vector<size_t> indices(total_count);
+    std::iota(indices.begin(), indices.end(), 0);
+    std::mt19937 rng(mode_config.data_source_sample_seed);
+    std::shuffle(indices.begin(), indices.end(), rng);
+
+    size_t index = offset;
+    while (result.size() < requested_count) {
+      if (index >= indices.size()) {
+        if (!loop) {
+          break;
+        }
+        index = 0;
+      }
+      result.push_back(indices[index++]);
+    }
+    return result;
+  }
+
+  throw std::runtime_error(
+      "Unknown dataset sample mode: " + mode_config.data_source_sample_mode);
 }
 
 // Compute expected matches using L2 distance and similarity threshold
@@ -608,6 +690,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   std::vector<std::unique_ptr<VectorRecord>> base_records;
 
   std::shared_ptr<DatasetDataSource> dataset_source_for_cache;
+  bool enable_dataset_ground_truth_cache = true;
   
   if (mode_config.mode == "generate_save_load") {
     // Mode 1: Generate -> Save -> Load
@@ -691,13 +774,24 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
     base_records.reserve(data_size);
     int64_t base_ts = 1000000;
     uint64_t uid = 1;
-    while (data_source.hasMore() && base_records.size() < static_cast<size_t>(data_size)) {
-      auto vec = data_source.getNextVector();
+    const auto sample_indices = buildDatasetSampleIndices(
+        data_source.getAllVectors().size(), static_cast<size_t>(data_size), mode_config);
+    for (size_t sample_index : sample_indices) {
+      const auto& vec = data_source.getAllVectors()[sample_index];
       auto record = createVectorRecord(uid++, base_ts, vec);
       base_ts += mode_config.time_interval_ms;
       base_records.push_back(std::move(record));
     }
-    SAGEFLOW_LOG_INFO("TEST", "[MODE2] Loaded {} records directly from dataset", base_records.size());
+    const std::string sample_mode = normalizeSampleMode(mode_config.data_source_sample_mode);
+    enable_dataset_ground_truth_cache =
+        (sample_mode == "sequential" &&
+         mode_config.data_source_sample_offset == 0 &&
+         mode_config.data_source_sample_stride == 1);
+    SAGEFLOW_LOG_INFO(
+        "TEST",
+        "[MODE2] Loaded {} records directly from dataset sample_mode={} offset={} stride={} seed={}",
+        base_records.size(), sample_mode, mode_config.data_source_sample_offset,
+        mode_config.data_source_sample_stride, mode_config.data_source_sample_seed);
 
   } else {
     // Mode 3: Generate and use directly (no file I/O)
@@ -801,7 +895,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
                     kAlpha, mode_config.threshold);
   std::unordered_set<std::pair<uint64_t,uint64_t>, PairHash> expected_matches;
   bool used_cached_ground_truth = false;
-  if (dataset_source_for_cache) {
+  if (dataset_source_for_cache && enable_dataset_ground_truth_cache) {
     auto cached = loadCachedGroundTruth(*dataset_source_for_cache, expected_left, win_ms, mode_config.threshold, kModuloBase);
     if (cached) {
       expected_matches = std::move(*cached);
@@ -813,7 +907,7 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
     expected_matches =
       computeExpectedPairsByTraversal(left_records, right_records, mode_config.threshold, win_ms, 
                                        mode_config.similarity_mode, kAlpha, kModuloBase);
-    if (dataset_source_for_cache) {
+    if (dataset_source_for_cache && enable_dataset_ground_truth_cache) {
       persistGroundTruth(*dataset_source_for_cache, mode_config, method, expected_left, win_ms, mode_config.threshold, kAlpha, kModuloBase, expected_matches);
     }
   }
@@ -858,23 +952,19 @@ TEST_P(JoinDataSourceModesTest, DataSourceModePerformance) {
   auto join_stream =
       left_source->join(right_source, std::move(join_func), method, mode_config.threshold, static_cast<size_t>(parallelism));
 
-  // 使用完整 JoinStrategyConfig，确保 alpha/mode 能传到 JoinOperator 以及索引层（ComputeEngine）。
-  // 注意：step_size 必须与 join_func->setWindow() 一致（使用 trigger_interval），
-  // 否则 IVF 参数计算会出现偏差导致召回下降。
-  bool need_strategy_config = (method == "clustered_join" || method == "clusteredjoin");
-  if (need_strategy_config) {
-    auto strategy_cfg = buildJoinStrategyConfigForTest(
-        method,
-        mode_config.threshold,
-        mode_config.alpha,
-        mode_config.similarity_mode,
-        mode_config,
-        mode_config.vector_dim,
-        win_ms,
-        trigger_interval,  // 与 join_func->setWindow() 保持一致
-        parallelism);
-    join_stream->setJoinStrategyConfig(strategy_cfg);
-  }
+  // Use full JoinStrategyConfig for every method so the runtime operator and
+  // ground-truth calculation share the same threshold, alpha, and similarity mode.
+  auto strategy_cfg = buildJoinStrategyConfigForTest(
+      method,
+      mode_config.threshold,
+      mode_config.alpha,
+      mode_config.similarity_mode,
+      mode_config,
+      mode_config.vector_dim,
+      win_ms,
+      trigger_interval,  // 与 join_func->setWindow() 保持一致
+      parallelism);
+  join_stream->setJoinStrategyConfig(strategy_cfg);
 
   join_stream->writeSink(std::move(sink_func), 1);
 

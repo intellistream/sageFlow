@@ -34,7 +34,8 @@
 #if defined(_MSC_VER)
 #include <intrin.h>
 #define CPUID(info, x) __cpuidex(info, x, 0)
-#elif defined(__GNUC__) || defined(__clang__)
+#elif (defined(__GNUC__) || defined(__clang__)) && \
+    (defined(__x86_64__) || defined(__i386__))
 #include <cpuid.h>
 #define CPUID(info, x) __cpuid_count(x, 0, info[0], info[1], info[2], info[3])
 #endif

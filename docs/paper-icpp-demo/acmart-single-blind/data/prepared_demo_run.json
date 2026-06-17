@@ -1,0 +1,374 @@
+{
+  "processed_event_count": 24,
+  "insight_count": 18,
+  "insights": [
+    {
+      "insight_id": "emerging-cve-2024-3400-nvd",
+      "insight_type": "emerging_pattern",
+      "title": "SageFlow 暴露出新的高风险向量模式",
+      "summary": "事件 cve-2024-3400-nvd 的新颖度为 1.00，尚未被现有热点簇吸收，适合触发 SAGE 的优先级升级、告警编排或 LLM 解释。",
+      "severity": "critical",
+      "related_event_id": "cve-2024-3400-nvd",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": []
+    },
+    {
+      "insight_id": "correlated-cisa-2024-3400-kev",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-1 已聚合 3 条相似事件，来源覆盖 cisa_kev, nvd, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "cisa-2024-3400-kev",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": [
+        "cve-2024-3400-nvd",
+        "pan-2024-3400-vendor"
+      ]
+    },
+    {
+      "insight_id": "correlated-unit42-2024-3400-report",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-1 已聚合 4 条相似事件，来源覆盖 cisa_kev, nvd, research_blog, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "unit42-2024-3400-report",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": [
+        "cve-2024-3400-nvd",
+        "cisa-2024-3400-kev",
+        "pan-2024-3400-vendor"
+      ]
+    },
+    {
+      "insight_id": "emerging-cve-2024-3094-nvd",
+      "insight_type": "emerging_pattern",
+      "title": "SageFlow 暴露出新的高风险向量模式",
+      "summary": "事件 cve-2024-3094-nvd 的新颖度为 1.00，尚未被现有热点簇吸收，适合触发 SAGE 的优先级升级、告警编排或 LLM 解释。",
+      "severity": "critical",
+      "related_event_id": "cve-2024-3094-nvd",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": []
+    },
+    {
+      "insight_id": "correlated-cisa-2024-3094-alert",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-1 已聚合 3 条相似事件，来源覆盖 cisa_alert, nvd, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "cisa-2024-3094-alert",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": [
+        "redhat-2024-3094-advisory",
+        "cve-2024-3094-nvd"
+      ]
+    },
+    {
+      "insight_id": "correlated-freund-2024-3094-analysis",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-1 已聚合 4 条相似事件，来源覆盖 cisa_alert, nvd, research_blog, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "freund-2024-3094-analysis",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": [
+        "cve-2024-3094-nvd",
+        "redhat-2024-3094-advisory",
+        "cisa-2024-3094-alert"
+      ]
+    },
+    {
+      "insight_id": "emerging-cve-2024-6387-nvd",
+      "insight_type": "emerging_pattern",
+      "title": "SageFlow 暴露出新的高风险向量模式",
+      "summary": "事件 cve-2024-6387-nvd 的新颖度为 1.00，尚未被现有热点簇吸收，适合触发 SAGE 的优先级升级、告警编排或 LLM 解释。",
+      "severity": "critical",
+      "related_event_id": "cve-2024-6387-nvd",
+      "related_cluster_id": "cluster-3",
+      "supporting_neighbor_ids": []
+    },
+    {
+      "insight_id": "correlated-ubuntu-2024-6387-notice",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-3 已聚合 3 条相似事件，来源覆盖 nvd, research_blog, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "ubuntu-2024-6387-notice",
+      "related_cluster_id": "cluster-3",
+      "supporting_neighbor_ids": [
+        "cve-2024-6387-nvd",
+        "qualys-2024-6387-research"
+      ]
+    },
+    {
+      "insight_id": "correlated-debian-2024-6387-tracker",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-3 已聚合 4 条相似事件，来源覆盖 nvd, research_blog, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "debian-2024-6387-tracker",
+      "related_cluster_id": "cluster-3",
+      "supporting_neighbor_ids": [
+        "cve-2024-6387-nvd",
+        "ubuntu-2024-6387-notice",
+        "qualys-2024-6387-research"
+      ]
+    },
+    {
+      "insight_id": "emerging-cve-2024-4577-nvd",
+      "insight_type": "emerging_pattern",
+      "title": "SageFlow 暴露出新的高风险向量模式",
+      "summary": "事件 cve-2024-4577-nvd 的新颖度为 1.00，尚未被现有热点簇吸收，适合触发 SAGE 的优先级升级、告警编排或 LLM 解释。",
+      "severity": "critical",
+      "related_event_id": "cve-2024-4577-nvd",
+      "related_cluster_id": "cluster-3",
+      "supporting_neighbor_ids": []
+    },
+    {
+      "insight_id": "correlated-cisa-2024-4577-kev",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-3 已聚合 3 条相似事件，来源覆盖 cisa_kev, nvd, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "cisa-2024-4577-kev",
+      "related_cluster_id": "cluster-3",
+      "supporting_neighbor_ids": [
+        "cve-2024-4577-nvd",
+        "php-2024-4577-advisory"
+      ]
+    },
+    {
+      "insight_id": "correlated-watchtowr-2024-4577-analysis",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-3 已聚合 4 条相似事件，来源覆盖 cisa_kev, nvd, research_blog, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "watchtowr-2024-4577-analysis",
+      "related_cluster_id": "cluster-3",
+      "supporting_neighbor_ids": [
+        "cve-2024-4577-nvd",
+        "php-2024-4577-advisory",
+        "cisa-2024-4577-kev"
+      ]
+    },
+    {
+      "insight_id": "emerging-cve-2024-21762-nvd",
+      "insight_type": "emerging_pattern",
+      "title": "SageFlow 暴露出新的高风险向量模式",
+      "summary": "事件 cve-2024-21762-nvd 的新颖度为 1.00，尚未被现有热点簇吸收，适合触发 SAGE 的优先级升级、告警编排或 LLM 解释。",
+      "severity": "critical",
+      "related_event_id": "cve-2024-21762-nvd",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": []
+    },
+    {
+      "insight_id": "correlated-cisa-2024-21762-kev",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-1 已聚合 3 条相似事件，来源覆盖 cisa_kev, nvd, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "cisa-2024-21762-kev",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": [
+        "cve-2024-21762-nvd",
+        "fortinet-2024-21762-advisory"
+      ]
+    },
+    {
+      "insight_id": "correlated-arcticwolf-2024-21762-analysis",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-1 已聚合 4 条相似事件，来源覆盖 cisa_kev, nvd, research_blog, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "arcticwolf-2024-21762-analysis",
+      "related_cluster_id": "cluster-1",
+      "supporting_neighbor_ids": [
+        "cve-2024-21762-nvd",
+        "fortinet-2024-21762-advisory",
+        "cisa-2024-21762-kev"
+      ]
+    },
+    {
+      "insight_id": "emerging-cve-2024-27198-nvd",
+      "insight_type": "emerging_pattern",
+      "title": "SageFlow 暴露出新的高风险向量模式",
+      "summary": "事件 cve-2024-27198-nvd 的新颖度为 1.00，尚未被现有热点簇吸收，适合触发 SAGE 的优先级升级、告警编排或 LLM 解释。",
+      "severity": "critical",
+      "related_event_id": "cve-2024-27198-nvd",
+      "related_cluster_id": "cluster-2",
+      "supporting_neighbor_ids": []
+    },
+    {
+      "insight_id": "correlated-cisa-2024-27198-kev",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-2 已聚合 3 条相似事件，来源覆盖 cisa_kev, nvd, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "cisa-2024-27198-kev",
+      "related_cluster_id": "cluster-2",
+      "supporting_neighbor_ids": [
+        "cve-2024-27198-nvd",
+        "jetbrains-2024-27198-advisory"
+      ]
+    },
+    {
+      "insight_id": "correlated-rapid7-2024-27198-analysis",
+      "insight_type": "correlated_incident",
+      "title": "SageFlow 检测到跨源高密度事件簇",
+      "summary": "cluster-2 已聚合 4 条相似事件，来源覆盖 cisa_kev, nvd, research_blog, vendor_advisory，适合直接作为 SAGE 的中间快照输入给后续诊断或生成式解释节点。",
+      "severity": "high",
+      "related_event_id": "rapid7-2024-27198-analysis",
+      "related_cluster_id": "cluster-2",
+      "supporting_neighbor_ids": [
+        "cve-2024-27198-nvd",
+        "jetbrains-2024-27198-advisory",
+        "cisa-2024-27198-kev"
+      ]
+    }
+  ],
+  "final_snapshot": {
+    "generated_at": "2024-03-08T10:30:00Z",
+    "window_size": 24,
+    "cluster_count": 6,
+    "latest_event_id": "rapid7-2024-27198-analysis",
+    "hot_clusters": [
+      {
+        "cluster_id": "cluster-4",
+        "size": 4,
+        "average_severity": 0.975,
+        "member_ids": [
+          "cve-2024-3400-nvd",
+          "pan-2024-3400-vendor",
+          "cisa-2024-3400-kev",
+          "unit42-2024-3400-report"
+        ],
+        "top_tags": [
+          "pan-os",
+          "globalprotect",
+          "cve-2024-3400"
+        ],
+        "source_breakdown": {
+          "nvd": 1,
+          "vendor_advisory": 1,
+          "cisa_kev": 1,
+          "research_blog": 1
+        }
+      },
+      {
+        "cluster_id": "cluster-1",
+        "size": 4,
+        "average_severity": 0.9675,
+        "member_ids": [
+          "cve-2024-21762-nvd",
+          "fortinet-2024-21762-advisory",
+          "cisa-2024-21762-kev",
+          "arcticwolf-2024-21762-analysis"
+        ],
+        "top_tags": [
+          "fortios",
+          "fortiproxy",
+          "ssl-vpn"
+        ],
+        "source_breakdown": {
+          "nvd": 1,
+          "vendor_advisory": 1,
+          "cisa_kev": 1,
+          "research_blog": 1
+        }
+      },
+      {
+        "cluster_id": "cluster-2",
+        "size": 4,
+        "average_severity": 0.965,
+        "member_ids": [
+          "cve-2024-27198-nvd",
+          "jetbrains-2024-27198-advisory",
+          "cisa-2024-27198-kev",
+          "rapid7-2024-27198-analysis"
+        ],
+        "top_tags": [
+          "teamcity",
+          "ci-cd",
+          "auth-bypass"
+        ],
+        "source_breakdown": {
+          "nvd": 1,
+          "vendor_advisory": 1,
+          "cisa_kev": 1,
+          "research_blog": 1
+        }
+      },
+      {
+        "cluster_id": "cluster-5",
+        "size": 4,
+        "average_severity": 0.9575,
+        "member_ids": [
+          "cve-2024-4577-nvd",
+          "php-2024-4577-advisory",
+          "cisa-2024-4577-kev",
+          "watchtowr-2024-4577-analysis"
+        ],
+        "top_tags": [
+          "php",
+          "php-cgi",
+          "windows"
+        ],
+        "source_breakdown": {
+          "nvd": 1,
+          "vendor_advisory": 1,
+          "cisa_kev": 1,
+          "research_blog": 1
+        }
+      },
+      {
+        "cluster_id": "cluster-6",
+        "size": 4,
+        "average_severity": 0.95,
+        "member_ids": [
+          "cve-2024-6387-nvd",
+          "qualys-2024-6387-research",
+          "ubuntu-2024-6387-notice",
+          "debian-2024-6387-tracker"
+        ],
+        "top_tags": [
+          "openssh",
+          "regresshion",
+          "signal-race"
+        ],
+        "source_breakdown": {
+          "nvd": 1,
+          "research_blog": 1,
+          "vendor_advisory": 2
+        }
+      },
+      {
+        "cluster_id": "cluster-3",
+        "size": 4,
+        "average_severity": 0.945,
+        "member_ids": [
+          "cve-2024-3094-nvd",
+          "redhat-2024-3094-advisory",
+          "cisa-2024-3094-alert",
+          "freund-2024-3094-analysis"
+        ],
+        "top_tags": [
+          "xz-utils",
+          "liblzma",
+          "supply-chain"
+        ],
+        "source_breakdown": {
+          "nvd": 1,
+          "vendor_advisory": 1,
+          "cisa_alert": 1,
+          "research_blog": 1
+        }
+      }
+    ],
+    "source_breakdown": {
+      "nvd": 6,
+      "vendor_advisory": 7,
+      "cisa_kev": 4,
+      "research_blog": 6,
+      "cisa_alert": 1
+    }
+  }
+}

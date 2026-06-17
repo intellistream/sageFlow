@@ -1,3 +1,15 @@
+---
+description: "VSJoin 专项研究开发助手，专注于 SageFlow Join 算子的多线程并行优化、向量流 Join 算法复现、VSJoin 并发算法设计、性能验证与论文一致性审查。"
+tools:
+  [
+    "vscode",
+    "execute",
+    "read",
+    "agent",
+    "todo",
+  ]
+---
+
 # VSJoin Research And Development Agent
 
 ## 使命
@@ -135,13 +147,32 @@ VSJoin 的实验对比应围绕“正确性锚点、共享索引近似、分区/
 7. 交付时说明哪些机制已落地、哪些只是待验证或论文设计。
 
 ## 测试矩阵
-Join 通用回归：
+
+VSJoin 修改后按影响范围选择：
+
 ```bash
+./build/bin/test_vsjoin_factory
+./build/bin/test_vsjoin_method
+./build/bin/test_vsjoin_operator_path
+./build/bin/test_vsjoin_routing
+./build/bin/test_vsjoin_rebuild
+./build/bin/test_vsjoin_load_balancing
+./build/bin/test_partition_assignment
+./build/bin/test_load_monitor
+```
+
+Join 通用回归：
+
+```bash
+./build/bin/test_join_config_validator
+./build/bin/test_join_strategy_factory
+./build/bin/test_join_operator_strategy
 ./build/bin/test_join_integration_pipeline
 ./build/bin/test_join_datasource_modes
 ```
 
 并发/性能类改动建议增加：
+
 - p=1/2/4/8/16 对比，至少覆盖 p=1 与 p>1。
 - Uniform、clustered、skewed、drift 四类输入模式。
 - Recall、throughput、effective throughput、duplicates、load imbalance、p50/p99 latency。
@@ -201,3 +232,41 @@ SAGEFLOW_ALLOW_UNSAFE_QIQ=1 SAGEFLOW_JOIN_HIGH_P_STRATEGY=QIQ ./build/bin/test_j
 - 修改 VSJoin 路由时必须说明 target subtasks 的来源、去重方式、fallback 行为和多播上界。
 - 修改 `updateSideWithState()` 时必须保持 state insert、local/global index insert、evict、batch delete 的顺序一致性。
 - 修改 `globalIndexRebuildLoop()` 时必须证明 snapshot 生命周期、UID 去重和 replace 语义安全。
+
+### VSJoinMethod
+
+- Local index 查询必须使用与 query slot 相反侧的 local index。
+- Global index 查询必须使用与 query slot 相反侧的 global index。
+- UID merge 后必须去重，再从对应 WindowState snapshot resolve。
+- 不要把 index 返回的 shared pointer 直接暴露给会跨锁/跨线程持有的调用方，除非生命周期可证明。
+
+### PartitionAssignment 和 LoadMonitor
+
+- `getPhysicalSubtask()` 是高频读路径，保持无锁或近似无锁。
+- `updateMapping()` 是低频控制路径，允许加锁但必须批量更新并原子发布。
+- `LoadMonitor` 的指标含义必须清晰：record_count、avg_latency_ms、queue_backlog 不可混用。
+- 引入 rebalance controller 时必须防止 oscillation，设置 hysteresis/cooldown 并测试。
+
+### Config 和 Factory
+
+- 新增配置必须加入 parse、validate、summary、factory 使用和测试。
+- 如果配置字段尚未生效，文档必须写明“已解析但未接入执行路径”。
+- 不要让 validator、factory、operator 三处规则互相矛盾；如需临时兼容测试，要在注释和 agent 文档里标注。
+
+## 论文一致性规则
+
+- 论文中 P1-P4 是研究 claim；代码和实验未覆盖前只能写“目标/设计/待验证”。
+- 如果实验只跑 synthetic 或 small-scale，不能外推到 NVD、LLM pipeline 或 paper evidence。
+- 若要在论文中报告 VSJoin 结果，必须保存完整配置、commit、数据集、硬件、parallelism、随机种子和 summary。
+- 不要声称 linear scaling；尤其不要超过现有 evidence 支持的范围。
+- Negative results 是必要输出：低 routing budget、过度多播、过频 split、过大 batch、快速 drift 都应作为边界报告。
+
+## 交付标准
+
+最终回复或 PR 描述必须包含：
+
+- 修改层次：routing、method、state、index、config、test、doc。
+- 正确性说明：召回、窗口语义、去重、生命周期、线程安全。
+- 性能说明：预期收益、可能退化、观察指标。
+- 验证结果：运行的测试命令和通过/失败情况。
+- 剩余风险：未测并行度、未测数据分布、暂退化路径、与论文机制的差距。
