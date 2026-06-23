@@ -20,6 +20,13 @@ add_library(test_data_support
     test_utils/data_source/json_data_source.cpp
     test_utils/data_writer/fvecs_writer.cpp
     test_utils/data_writer/json_writer.cpp
+    test_utils/datasource_modes/config.cpp
+    test_utils/datasource_modes/dataset_sampling.cpp
+    test_utils/datasource_modes/ground_truth.cpp
+    test_utils/datasource_modes/pipeline_runner.cpp
+    test_utils/datasource_modes/record_loader.cpp
+    test_utils/datasource_modes/result_writer.cpp
+    test_utils/datasource_modes/splitter.cpp
     test_utils/join_data_source.cpp
     test_utils/join_test_helper.cpp
     test_utils/join_integration_pipeline_helper.cpp
@@ -93,6 +100,8 @@ set(UNIT_TEST_SPECS
     test_data_source               UnitTest/test_data_source.cpp              120 UNIT
     test_data_persistence          UnitTest/test_data_persistence.cpp         120 UNIT
     test_join_data_source          UnitTest/test_join_data_source.cpp         120 UNIT
+    test_datasource_mode_sampling  UnitTest/test_datasource_mode_sampling.cpp 120 UNIT
+    test_datasource_mode_utils     UnitTest/test_datasource_mode_utils.cpp    120 UNIT
     test_connection_strategy       UnitTest/test_connection_strategy.cpp      120 UNIT
     test_runtime_context           UnitTest/test_runtime_context.cpp          120 UNIT
     test_window_state              UnitTest/test_window_state.cpp             120 UNIT

@@ -4,6 +4,7 @@
 
 #include <toml++/toml.hpp>
 
+#include <algorithm>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -426,6 +427,21 @@ IntegrationTestCase IntegrationTestConfigLoader::parseTestCase(
     }
     if (auto v = table["data_source_expected_dim"].value<int64_t>()) {
         tc.data_source_expected_dim = static_cast<int>(*v);
+    }
+    if (auto v = table["data_source_loop"].value<bool>()) {
+        tc.data_source_loop = *v;
+    }
+    if (auto v = table["data_source_sample_mode"].value<std::string>()) {
+        tc.data_source_sample_mode = *v;
+    }
+    if (auto v = table["data_source_sample_seed"].value<int64_t>()) {
+        tc.data_source_sample_seed = static_cast<uint32_t>(*v);
+    }
+    if (auto v = table["data_source_sample_offset"].value<int64_t>()) {
+        tc.data_source_sample_offset = static_cast<size_t>(std::max<int64_t>(0, *v));
+    }
+    if (auto v = table["data_source_sample_stride"].value<int64_t>()) {
+        tc.data_source_sample_stride = static_cast<size_t>(std::max<int64_t>(1, *v));
     }
     if (auto v = table["split_mode"].value<std::string>()) {
         tc.split_mode = *v;

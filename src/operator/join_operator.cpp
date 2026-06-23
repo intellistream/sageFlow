@@ -1131,7 +1131,20 @@ void JoinOperator::initializeWithStrategyConfig(const RuntimeContext& context) {
 
         // nlist 使用 4*sqrt(N)，但至少 32 个聚类以保证召回率
         int nlist = std::max(32, static_cast<int>(4.0 * std::sqrt(static_cast<double>(std::max<int64_t>(1, vector_count)))));
-        int nprobes = std::max(3, nlist * 30 / 100);
+        // 默认 nprobes ≈ 30% nlist；实验时可用 SAGEFLOW_IVF_NPROBE_RATIO 覆盖 probe 比例以扫 recall/throughput 曲线。
+        double nprobe_ratio = 0.30;
+        if (const char* v = std::getenv("SAGEFLOW_IVF_NPROBE_RATIO")) {
+            try {
+                const double parsed = std::stod(v);
+                if (parsed > 0.0 && parsed <= 1.0) {
+                    nprobe_ratio = parsed;
+                }
+            } catch (...) {
+                // ignore invalid override, keep default ratio
+            }
+        }
+        int nprobes = std::max(3, static_cast<int>(nlist * nprobe_ratio));
+        nprobes = std::min(nprobes, nlist);
 
         SAGEFLOW_LOG_INFO("JOIN",
             "IVF dynamic params (strategy-config): window={}ms time_interval={}ms N≈{} -> nlist={} nprobes={}",

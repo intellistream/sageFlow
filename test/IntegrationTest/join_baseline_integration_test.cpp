@@ -22,6 +22,9 @@
 #include "test_utils/test_data_generator.h"
 #include "test_utils/test_data_adapter.h"
 #include "test_utils/data_source/dataset_data_source.h"
+#include "test_utils/datasource_modes/config.h"
+#include "test_utils/datasource_modes/dataset_sampling.h"
+#include "test_utils/datasource_modes/splitter.h"
 #include "test_utils/join_test_helper.h"
 #include "test_utils/test_report_generator.h"
 #include "operator/utils/join_config_validator.h"
@@ -316,10 +319,6 @@ protected:
         result.parallelism = parallelism;
         
         try {
-            // 注意：JoinFunction 的 combined_id 编码使用 kModuloBase=1'000'000，
-            // 右侧 UID 必须 < kModuloBase 才能在 (right_uid % kModuloBase) 下保持可逆。
-            // JoinDataSourceConfig 的默认 right_uid_offset=500'000 也遵循该约束。
-            constexpr uint64_t kRightUidOffset = 500000ULL;
             std::vector<std::unique_ptr<VectorRecord>> left_stream;
             std::vector<std::unique_ptr<VectorRecord>> right_stream;
 
@@ -330,7 +329,7 @@ protected:
                 ds_config.expected_dim = test_case_.data_source_expected_dim > 0
                     ? test_case_.data_source_expected_dim
                     : -1;
-                ds_config.loop = false;
+                ds_config.loop = test_case_.data_source_loop;
 
                 auto ds = std::make_shared<DatasetDataSource>(ds_config);
                 const auto& vectors = ds->getAllVectors();
@@ -338,8 +337,15 @@ protected:
                     throw std::runtime_error("Dataset is empty: " + ds_config.file_path);
                 }
 
-                size_t total = std::min(static_cast<size_t>(data_size), vectors.size());
-                if (total == 0) {
+                DataSourceModeConfig sampling_config;
+                sampling_config.data_source_loop = test_case_.data_source_loop;
+                sampling_config.data_source_sample_mode = test_case_.data_source_sample_mode;
+                sampling_config.data_source_sample_seed = test_case_.data_source_sample_seed;
+                sampling_config.data_source_sample_offset = test_case_.data_source_sample_offset;
+                sampling_config.data_source_sample_stride = test_case_.data_source_sample_stride;
+                const auto sample_indices = buildDatasetSampleIndices(
+                    vectors.size(), static_cast<size_t>(data_size), sampling_config);
+                if (sample_indices.empty()) {
                     throw std::runtime_error("Dataset records < data_size, nothing to run");
                 }
 
@@ -347,48 +353,22 @@ protected:
                     test_case_.vector_dim = static_cast<int>(vectors[0].size());
                 }
 
-                std::vector<std::vector<float>> left_vectors_raw;
-                std::vector<std::vector<float>> right_vectors_raw;
-                left_vectors_raw.reserve(total);
-                right_vectors_raw.reserve(total);
-
-                if (test_case_.split_mode == "half_split") {
-                    size_t mid = total / 2;
-                    for (size_t i = 0; i < mid; ++i) left_vectors_raw.push_back(vectors[i]);
-                    for (size_t i = mid; i < total; ++i) right_vectors_raw.push_back(vectors[i]);
-                } else if (test_case_.split_mode == "interleaved") {
-                    for (size_t i = 0; i < total; ++i) {
-                        if (i % 2 == 0) {
-                            left_vectors_raw.push_back(vectors[i]);
-                        } else {
-                            right_vectors_raw.push_back(vectors[i]);
-                        }
-                    }
-                } else {  // duplicate
-                    for (size_t i = 0; i < total; ++i) {
-                        left_vectors_raw.push_back(vectors[i]);
-                        right_vectors_raw.push_back(vectors[i]);
-                    }
+                std::vector<std::unique_ptr<VectorRecord>> base_records;
+                base_records.reserve(sample_indices.size());
+                uint64_t uid = 1;
+                int64_t timestamp = test_case_.base_timestamp;
+                for (size_t sample_index : sample_indices) {
+                    base_records.push_back(createVectorRecord(uid++, timestamp, vectors[sample_index]));
+                    timestamp += test_case_.time_interval_ms;
                 }
-
-                auto makeRecords = [&](const std::vector<std::vector<float>>& vecs,
-                                       uint64_t uid_offset) {
-                    std::vector<std::unique_ptr<VectorRecord>> out;
-                    out.reserve(vecs.size());
-                    for (size_t i = 0; i < vecs.size(); ++i) {
-                        int64_t ts = test_case_.base_timestamp +
-                                     static_cast<int64_t>(i) * test_case_.time_interval_ms;
-                        out.push_back(createVectorRecord(uid_offset + i, ts, vecs[i]));
-                    }
-                    return out;
-                };
-
-                left_stream = makeRecords(left_vectors_raw, 0);
-                right_stream = makeRecords(right_vectors_raw, kRightUidOffset);
+                auto split = splitDatasourceRecords(std::move(base_records), test_case_.split_mode);
+                left_stream = std::move(split.left);
+                right_stream = std::move(split.right);
 
                 SAGEFLOW_LOG_INFO("IntegrationTest",
-                    "[{}] Using DATASET mode ({}) split_mode={} left={} right={}",
+                    "[{}] Using DATASET mode ({}) split_mode={} sample_mode={} left={} right={}",
                     test_case_.name, ds_config.file_path, test_case_.split_mode,
+                    test_case_.data_source_sample_mode,
                     left_stream.size(), right_stream.size());
             } else {
             // 1. 配置数据生成器
@@ -501,6 +481,7 @@ protected:
             JoinStrategyConfig strategy = test_case_.strategy;
             strategy.dimension = test_case_.vector_dim;
             strategy.similarity_alpha = test_case_.alpha;  // 同步 alpha 参数
+            strategy.similarity_mode = parseSimilarityMode(test_case_.similarity_mode);
             
             // 6. 创建并执行 Pipeline
             auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
@@ -938,6 +919,7 @@ TEST_F(BruteForceGroundTruthTest, MustHavePerfectRecall) {
     JoinStrategyConfig strategy = tc.strategy;
     strategy.dimension = tc.vector_dim;
     strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
+    strategy.similarity_mode = parseSimilarityMode(tc.similarity_mode);
     
     auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
         std::move(left_stream),
@@ -1022,6 +1004,7 @@ TEST_F(CrossAlgorithmComparisonTest, ApproximateAlgorithmsMeetRecallRequirements
         JoinStrategyConfig strategy = tc.strategy;
         strategy.dimension = tc.vector_dim;
         strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
+        strategy.similarity_mode = parseSimilarityMode(tc.similarity_mode);
         
         auto pipeline = JoinIntegrationPipelineHelper::createPipeline(
             std::move(left_stream),
@@ -1124,6 +1107,7 @@ TEST_F(LargeScaleIntegrationTest, LargeDatasetExecution) {
         JoinStrategyConfig strategy = tc.strategy;
         strategy.dimension = tc.vector_dim;
         strategy.similarity_alpha = tc.alpha;  // 同步 alpha 参数
+        strategy.similarity_mode = parseSimilarityMode(tc.similarity_mode);
         
         // 使用最大并行度
         int max_para = *std::max_element(tc.parallelism.begin(), tc.parallelism.end());

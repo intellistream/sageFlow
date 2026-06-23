@@ -119,24 +119,13 @@ public:
                 });
             
             // 构建 Pipeline
-            // 优先使用完整策略配置，回退到字符串 API
+            // Always attach the full strategy config so exact methods also receive
+            // the same similarity contract used by ground-truth calculation.
             std::shared_ptr<Stream> join_stream;
-            if (config_.algorithm != JoinAlgorithm::BRUTEFORCE || 
-                config_.clustered_multicast_k != 0) {
-                // 使用策略配置 API（支持完整配置）
-                // 注意：由于 Stream::join() 没有直接接受策略配置的重载，
-                // 我们先调用字符串 API，然后在返回的 Stream 上设置策略配置
-                join_stream = left_source_->join(right_source_, std::move(join_func), 
-                                  join_method, config_.similarity_threshold, 
-                                  static_cast<size_t>(parallelism_));
-                // 设置完整策略配置
-                join_stream->setJoinStrategyConfig(config_);
-            } else {
-                // 回退到字符串 API（向后兼容）
-                join_stream = left_source_->join(right_source_, std::move(join_func), 
-                                  join_method, config_.similarity_threshold, 
-                                  static_cast<size_t>(parallelism_));
-            }
+            join_stream = left_source_->join(right_source_, std::move(join_func),
+                              join_method, config_.similarity_threshold,
+                              static_cast<size_t>(parallelism_));
+            join_stream->setJoinStrategyConfig(config_);
             
             join_stream->writeSink(std::move(sink_func), 1);
             

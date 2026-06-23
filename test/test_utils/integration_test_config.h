@@ -58,6 +58,11 @@ struct IntegrationTestCase {
     std::string data_source_type = "generator";
     std::string data_source_file_path;      ///< 数据集文件路径（dataset 模式）
     int data_source_expected_dim = 0;       ///< 期望维度（0=不校验）
+    bool data_source_loop = false;          ///< 数据集采样是否允许循环
+    std::string data_source_sample_mode = "sequential"; ///< sequential/random/stride
+    uint32_t data_source_sample_seed = 42;  ///< random sampling seed
+    size_t data_source_sample_offset = 0;   ///< sequential/stride/random offset
+    size_t data_source_sample_stride = 1;   ///< stride sampling step
     
     /// 数据切分模式（dataset/生成数据通用）：
     /// - duplicate: 左右流相同
