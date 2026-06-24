@@ -2,7 +2,12 @@ add_lib(
         operator
         filter_operator.cpp
         join_operator.cpp
-        join_operator_vsjoin_routing.cpp
+        join_operator_components/join_operator_initializer.cpp
+        join_operator_components/join_partitioner_factory.cpp
+        join_operator_components/join_result_emitter.cpp
+        join_operator_components/join_window_state_executor.cpp
+        join_operator_components/vsjoin_global_index_rebuilder.cpp
+        join_operator_components/vsjoin_router.cpp
         map_operator.cpp
         operator.cpp
         output_operator.cpp

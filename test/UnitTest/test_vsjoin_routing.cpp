@@ -10,6 +10,7 @@
 #include "concurrency/concurrency_manager.h"
 #include "execution/runtime_context.h"
 #include "operator/join_operator.h"
+#include "operator/join_operator_methods/vsjoin_components/partition_assignment.h"
 #include "operator/utils/join_strategy_config.h"
 #include "storage/storage_manager.h"
 

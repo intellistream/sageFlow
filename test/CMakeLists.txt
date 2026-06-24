@@ -125,6 +125,7 @@ set(UNIT_TEST_SPECS
     test_integration_config        UnitTest/test_integration_config.cpp       120 UNIT
     test_join_integration_pipeline UnitTest/test_join_integration_pipeline.cpp 300 UNIT
     test_join_operator_strategy    UnitTest/test_join_operator_strategy.cpp   180 UNIT
+    test_vsjoin_operator_path      UnitTest/test_vsjoin_operator_path.cpp      180 UNIT
     test_join_metrics              UnitTest/test_join_metrics.cpp             180 UNIT
     test_report_generator          UnitTest/test_report_generator.cpp         180 UNIT
     test_multicast_partitioner     UnitTest/test_multicast_partitioner.cpp    120 UNIT

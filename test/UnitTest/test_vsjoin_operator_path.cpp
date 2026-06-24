@@ -23,8 +23,7 @@ static JoinStrategyConfig makeVSJoinConfigCentroid(int dim) {
   config.algorithm = JoinAlgorithm::VSJOIN;
   config.dimension = dim;
 
-  // 临时：用 CENTROID 分区复用 ClusteredJoin 的多播机制
-  config.partition_strategy = PartitionStrategy::CENTROID;
+  config.partition_strategy = PartitionStrategy::LSH;
 
   // validator 仍要求 VSJOIN=PARTITIONED_VECTOR + PARTITIONED
   config.window_state_type = WindowStateType::PARTITIONED_VECTOR;
