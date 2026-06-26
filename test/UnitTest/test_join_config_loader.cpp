@@ -77,6 +77,14 @@ TEST_F(JoinConfigLoaderTest, LoadByName_HnswBaseline) {
     EXPECT_GT(config.hnsw_ef_search, 0);
 }
 
+TEST_F(JoinConfigLoaderTest, LoadByName_VSJoinIncludesRebalanceKnobs) {
+    auto config = JoinConfigLoader::loadByName(default_config_path_, "vsjoin");
+
+    EXPECT_EQ(config.algorithm, JoinAlgorithm::VSJOIN);
+    EXPECT_GT(config.vsjoin_rebalance_imbalance_ratio, 1.0);
+    EXPECT_GT(config.vsjoin_rebalance_max_moves, 0u);
+}
+
 TEST_F(JoinConfigLoaderTest, LoadByName_NonExistent_ThrowsException) {
     EXPECT_THROW(
         JoinConfigLoader::loadByName(default_config_path_, "non_existent_strategy"),

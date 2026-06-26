@@ -1,0 +1,155 @@
+# ClusteredJoin parallelism scaling test config
+# num_partitions MUST equal parallelism for each test case
+
+[global]
+dimension = 128
+window_size_ms = 10000
+similarity_threshold = 0.8
+k = 10
+num_pairs = 2000
+total_records = 2600
+noise_ratio = 0.3
+
+# p=1
+[[test_case]]
+name = "clustered_scaling_p1"
+description = "ClusteredJoin scaling p=1"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 1
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_training_samples = 200
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 10
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [1]
+expected_min_recall = 0.80
+enabled = true
+
+# p=2
+[[test_case]]
+name = "clustered_scaling_p2"
+description = "ClusteredJoin scaling p=2"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 2
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_training_samples = 200
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 10
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [2]
+expected_min_recall = 0.80
+enabled = true
+
+# p=4
+[[test_case]]
+name = "clustered_scaling_p4"
+description = "ClusteredJoin scaling p=4"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 4
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_training_samples = 200
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 10
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [4]
+expected_min_recall = 0.80
+enabled = true
+
+# p=8
+[[test_case]]
+name = "clustered_scaling_p8"
+description = "ClusteredJoin scaling p=8"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 8
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_training_samples = 200
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 10
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [8]
+expected_min_recall = 0.80
+enabled = true
+
+# p=16
+[[test_case]]
+name = "clustered_scaling_p16"
+description = "ClusteredJoin scaling p=16"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 16
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_training_samples = 200
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 10
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [16]
+expected_min_recall = 0.80
+enabled = true
+
+# p=32
+[[test_case]]
+name = "clustered_scaling_p32"
+description = "ClusteredJoin scaling p=32"
+algorithm = "clustered_join"
+partition_strategy = "centroid"
+window_state_type = "partitioned"
+index_strategy = "partitioned"
+num_partitions = 32
+clustered_multicast_k = 0
+clustered_overlap_ratio = 0.1
+clustered_rebalance_threshold = 0.3
+clustered_training_samples = 200
+clustered_index_type = "ivf"
+clustered_multicast_enabled = true
+ivf_nlist = 50
+ivf_nprobes = 10
+clustered_cold_start_enabled = true
+clustered_broadcast_dedup = true
+data_sizes = [2000]
+parallelism = [32]
+expected_min_recall = 0.80
+enabled = true

@@ -47,13 +47,21 @@ void ResultPartition::emit(Response&& data, int slot) const {
   // 注意：isBroadcast() 可能在 partition() 调用后改变状态（训练完成后变为 false）
   if (partitioner_->isBroadcast()) {
     // 广播模式：将数据发送到所有通道
+    // Build routing_mask: all channels are targets
+    uint64_t route_mask = 0;
+    for (size_t i = 0; i < output_channels_.size() && i < 64; ++i) {
+      route_mask |= (uint64_t{1} << i);
+    }
+
     for (size_t i = 0; i < output_channels_.size(); ++i) {
       if (i == output_channels_.size() - 1) {
         // 最后一个通道，移动数据
+        if (data.record_) data.record_->routing_mask_ = route_mask;
         pushWithRetry(output_channels_[i], {std::move(data), slot});
       } else {
         // 其他通道，复制数据
         Response data_copy{data};
+        if (data_copy.record_) data_copy.record_->routing_mask_ = route_mask;
         pushWithRetry(output_channels_[i], {std::move(data_copy), slot});
       }
     }
@@ -62,16 +70,25 @@ void ResultPartition::emit(Response&& data, int slot) const {
     // 这用于边界向量复制（如 ClusteredJoin 的 multicast_k > 1）
     auto target_channels = partitioner_->partitionMulti(data, output_channels_.size());
     
+    // Build routing_mask from multicast targets
+    uint64_t route_mask = 0;
+    for (size_t ch : target_channels) {
+      if (ch < 64) route_mask |= (uint64_t{1} << ch);
+    }
+
     if (target_channels.size() == 1) {
       // 只有一个目标，直接移动
+      if (data.record_) data.record_->routing_mask_ = route_mask;
       pushWithRetry(output_channels_[target_channels[0]], {std::move(data), slot});
     } else {
       // 多个目标，复制数据到前 n-1 个，移动到最后一个
       for (size_t i = 0; i < target_channels.size(); ++i) {
         if (i == target_channels.size() - 1) {
+          if (data.record_) data.record_->routing_mask_ = route_mask;
           pushWithRetry(output_channels_[target_channels[i]], {std::move(data), slot});
         } else {
           Response data_copy{data};
+          if (data_copy.record_) data_copy.record_->routing_mask_ = route_mask;
           pushWithRetry(output_channels_[target_channels[i]], {std::move(data_copy), slot});
         }
       }
@@ -79,6 +96,10 @@ void ResultPartition::emit(Response&& data, int slot) const {
   } else {
     // 单播模式：发送到单个目标分区
     size_t channel_index = partitioner_->partition(data, output_channels_.size());
+    // Single target: set routing_mask to just that channel
+    if (data.record_ && channel_index < 64) {
+      data.record_->routing_mask_ = (uint64_t{1} << channel_index);
+    }
     pushWithRetry(output_channels_[channel_index], {std::move(data), slot});
   }
 }

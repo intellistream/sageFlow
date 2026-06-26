@@ -12,6 +12,16 @@
 
 namespace sageFlow {
 
+/// Policy for selecting the ConcurrencyController type when creating an index.
+enum class ControllerPolicy {
+  SHARED_LOCK,  ///< BlankController with shared_mutex (default, for shared indexes)
+  DIRECT        ///< DirectController without locking (for partition-local indexes)
+};
+
+}  // namespace sageFlow
+
+namespace sageFlow {
+
 // Forward declaration
 class PartitionedIndex;
 struct IdWithType {
@@ -41,9 +51,11 @@ class ConcurrencyManager {
    */
   auto register_index(const std::string &name, std::shared_ptr<Index> index) -> int;
 
-  auto create_index(const std::string &name, const IndexType &index_type, int dimension) -> int;
   auto create_index(const std::string &name, const IndexType &index_type, int dimension,
-                    const IndexParameters& params) -> int;
+                    ControllerPolicy policy = ControllerPolicy::SHARED_LOCK) -> int;
+  auto create_index(const std::string &name, const IndexType &index_type, int dimension,
+                    const IndexParameters& params,
+                    ControllerPolicy policy = ControllerPolicy::SHARED_LOCK) -> int;
   auto create_index(const std::string &name, int dimension) -> int;
 
   auto drop_index(const std::string &name) -> bool;

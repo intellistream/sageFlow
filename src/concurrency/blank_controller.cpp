@@ -78,7 +78,6 @@ auto BlankController::insert(RecordView record) -> bool {
   if (!storage_manager_) {
     return false;
   }
-  storage_manager_->insert(record);
 
   // 2) 获取当前索引快照（在锁内复制 shared_ptr，然后解锁进行 insert）
   std::shared_ptr<Index> idx;
@@ -93,6 +92,9 @@ auto BlankController::insert(RecordView record) -> bool {
     }
   }
 
+  const int shard_id = idx ? idx->index_id_ : StorageManager::GLOBAL_SHARD;
+  storage_manager_->insert(record, shard_id);
+
   bool ok = true;
   if (idx) {
     ok = idx->insert(uid);
@@ -100,6 +102,7 @@ auto BlankController::insert(RecordView record) -> bool {
 
   // 3) 双写 shadow
   if (double_write && shadow) {
+    storage_manager_->insert(record, shadow->index_id_);
     shadow->insert(uid);
   }
 
@@ -133,7 +136,8 @@ auto BlankController::erase(const uint64_t uid) -> bool {
     shadow->erase(uid);
   }
 
-  return storage_manager_ ? storage_manager_->erase(uid) : false;
+  const int shard_id = idx ? idx->index_id_ : StorageManager::GLOBAL_SHARD;
+  return storage_manager_ ? storage_manager_->erase(uid, shard_id) : false;
 }
 
 auto BlankController::query(const VectorRecord& record, int k)
@@ -149,7 +153,7 @@ auto BlankController::query(const VectorRecord& record, int k)
   }
 
   const auto uids = idx->query(record, k);
-  return storage_manager_->getVectorsByUids(uids);
+  return storage_manager_->getVectorsByUids(uids, idx->index_id_);
 }
 
 auto BlankController::query_for_join(const VectorRecord& record,
@@ -167,7 +171,7 @@ auto BlankController::query_for_join(const VectorRecord& record,
   }
 
   const auto uids = idx->query_for_join(record, join_similarity_threshold, similarity_alpha);
-  return storage_manager_->getVectorsByUids(uids);
+  return storage_manager_->getVectorsByUids(uids, idx->index_id_);
 }
 
 }  // namespace sageFlow

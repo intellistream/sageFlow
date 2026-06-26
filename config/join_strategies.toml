@@ -195,6 +195,8 @@ index_strategy = "partitioned"
 num_partitions = 8
 vsjoin_num_hash_functions = 8
 vsjoin_boundary_threshold = 0.1
+vsjoin_rebalance_imbalance_ratio = 1.35
+vsjoin_rebalance_max_moves = 8
 vsjoin_async_threads = 2
 vsjoin_allowed_lateness = 1000
 two_tier_compact_threshold = 100
@@ -209,6 +211,8 @@ index_strategy = "partitioned"
 num_partitions = 16
 vsjoin_num_hash_functions = 12
 vsjoin_boundary_threshold = 0.15
+vsjoin_rebalance_imbalance_ratio = 1.45
+vsjoin_rebalance_max_moves = 12
 vsjoin_async_threads = 4
 vsjoin_allowed_lateness = 2000
 
@@ -221,6 +225,8 @@ index_strategy = "partitioned"
 num_partitions = 4
 vsjoin_num_hash_functions = 6
 vsjoin_boundary_threshold = 0.05
+vsjoin_rebalance_imbalance_ratio = 1.25
+vsjoin_rebalance_max_moves = 6
 vsjoin_async_threads = 1
 vsjoin_allowed_lateness = 500
 

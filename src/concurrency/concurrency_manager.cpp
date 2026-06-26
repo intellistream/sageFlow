@@ -4,6 +4,7 @@
 #include "concurrency/concurrency_manager.h"
 
 #include "concurrency/blank_controller.h"
+#include "concurrency/direct_controller.h"
 #include "index/hnsw.h"
 #include "index/ivf.h"
 #include "index/knn.h"
@@ -24,7 +25,8 @@ ConcurrencyManager::~ConcurrencyManager() = default;
 
 auto ConcurrencyManager::create_index(const std::string& name,
                                       const IndexType& index_type,
-                                      int dimension) -> int {
+                                      int dimension,
+                                      ControllerPolicy policy) -> int {
   std::shared_ptr<Index> index = nullptr;
   switch (index_type) {
     case IndexType::None:
@@ -59,11 +61,21 @@ auto ConcurrencyManager::create_index(const std::string& name,
     storage_->engine_ = std::make_shared<ComputeEngine>();
   }
 
-  const auto blank_controller = std::make_shared<BlankController>(index);
+  // Create dedicated shard for DIRECT policy
+  if (policy == ControllerPolicy::DIRECT && storage_) {
+    storage_->createShard(index->index_id_);
+  }
+
+  std::shared_ptr<ConcurrencyController> controller;
+  if (policy == ControllerPolicy::DIRECT) {
+    controller = std::make_shared<DirectController>(index);
+  } else {
+    controller = std::make_shared<BlankController>(index);
+  }
 
   {
     std::unique_lock<std::shared_mutex> lk(controller_map_mutex_);
-  controller_map_[index->index_id_] = blank_controller;
+    controller_map_[index->index_id_] = controller;
   }
 
   index_map_[name] = IdWithType{.id_ = index->index_id_, .index_type_ = index_type};
@@ -73,7 +85,8 @@ auto ConcurrencyManager::create_index(const std::string& name,
 auto ConcurrencyManager::create_index(const std::string& name,
                                       const IndexType& index_type,
                                       int dimension,
-                                                 const IndexParameters& params) -> int {
+                                      const IndexParameters& params,
+                                      ControllerPolicy policy) -> int {
   std::shared_ptr<Index> index = nullptr;
   switch (index_type) {
     case IndexType::None:
@@ -122,11 +135,21 @@ auto ConcurrencyManager::create_index(const std::string& name,
     storage_->engine_ = std::make_shared<ComputeEngine>();
   }
 
-  const auto blank_controller = std::make_shared<BlankController>(index);
+  // Create dedicated shard for DIRECT policy
+  if (policy == ControllerPolicy::DIRECT && storage_) {
+    storage_->createShard(index->index_id_);
+  }
+
+  std::shared_ptr<ConcurrencyController> controller;
+  if (policy == ControllerPolicy::DIRECT) {
+    controller = std::make_shared<DirectController>(index);
+  } else {
+    controller = std::make_shared<BlankController>(index);
+  }
 
   {
     std::unique_lock<std::shared_mutex> lk(controller_map_mutex_);
-  controller_map_[index->index_id_] = blank_controller;
+    controller_map_[index->index_id_] = controller;
   }
 
   index_map_[name] = IdWithType{.id_ = index->index_id_, .index_type_ = index_type};

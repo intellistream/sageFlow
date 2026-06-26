@@ -49,6 +49,13 @@ struct VectorRecord {
   const int64_t timestamp_;  // Timestamp for the record
   VectorData data_;          // Shared pointer to the vector data
 
+  /// Bitmask of subtask indices this record was routed to (multicast routing).
+  /// Bit i set  ⇒  record lives in subtask i's WindowState.
+  /// Used by Owner-Computes dedup: only the lowest-indexed subtask in the
+  /// intersection of query_mask & candidate_mask emits a match.
+  /// Supports up to 64 subtasks (uint64_t). 0 = unset / legacy path.
+  uint64_t routing_mask_ = 0;
+
   // Constructor with move semantics for efficiency
   VectorRecord(const uint64_t &uid, const int64_t &timestamp, VectorData &&data);
 

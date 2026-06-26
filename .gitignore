@@ -105,6 +105,12 @@ Testing/Temporary/CTestCostData.txt
 
 # Documentation
 docs/_build/
+docs/research-paper-High_Throughput_Streaming_Vector_Similarity_Joins_on_Multicore_Processors/*.aux
+docs/research-paper-High_Throughput_Streaming_Vector_Similarity_Joins_on_Multicore_Processors/*.bbl
+docs/research-paper-High_Throughput_Streaming_Vector_Similarity_Joins_on_Multicore_Processors/*.blg
+docs/research-paper-High_Throughput_Streaming_Vector_Similarity_Joins_on_Multicore_Processors/*.fdb_latexmk
+docs/research-paper-High_Throughput_Streaming_Vector_Similarity_Joins_on_Multicore_Processors/*.fls
+docs/research-paper-High_Throughput_Streaming_Vector_Similarity_Joins_on_Multicore_Processors/*.pdf
 
 # Data and examples (if generated)
 # Uncomment if needed

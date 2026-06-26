@@ -185,9 +185,44 @@ VSJoinIndexType parseVSJoinIndexType(const std::string& s) {
         return VSJoinIndexType::HNSW;
     }
     
-    // 默认返回 BRUTEFORCE（推荐用于 Local Index）
     SAGEFLOW_LOG_WARN("Config", "Unknown VSJoinIndexType '{}', defaulting to bruteforce", s);
     return VSJoinIndexType::BRUTEFORCE;
+}
+
+std::string toString(VSJoinRouteMode rm) {
+    switch (rm) {
+        case VSJoinRouteMode::UNICAST: return "unicast";
+        case VSJoinRouteMode::BUDGETED: return "budgeted";
+        case VSJoinRouteMode::BROADCAST: return "broadcast";
+        default: return "unknown";
+    }
+}
+
+VSJoinRouteMode parseVSJoinRouteMode(const std::string& s) {
+    std::string lower = toLower(s);
+    if (lower == "unicast") return VSJoinRouteMode::UNICAST;
+    if (lower == "budgeted") return VSJoinRouteMode::BUDGETED;
+    if (lower == "broadcast") return VSJoinRouteMode::BROADCAST;
+    SAGEFLOW_LOG_WARN("Config", "Unknown VSJoinRouteMode '{}', defaulting to budgeted", s);
+    return VSJoinRouteMode::BUDGETED;
+}
+
+std::string toString(VSJoinSnapshotFilterPolicy sp) {
+    switch (sp) {
+        case VSJoinSnapshotFilterPolicy::WINDOW_ONLY: return "window_only";
+        case VSJoinSnapshotFilterPolicy::MAX_STALENESS: return "max_staleness";
+        case VSJoinSnapshotFilterPolicy::AGGRESSIVE: return "aggressive";
+        default: return "unknown";
+    }
+}
+
+VSJoinSnapshotFilterPolicy parseVSJoinSnapshotFilterPolicy(const std::string& s) {
+    std::string lower = toLower(s);
+    if (lower == "window_only") return VSJoinSnapshotFilterPolicy::WINDOW_ONLY;
+    if (lower == "max_staleness") return VSJoinSnapshotFilterPolicy::MAX_STALENESS;
+    if (lower == "aggressive") return VSJoinSnapshotFilterPolicy::AGGRESSIVE;
+    SAGEFLOW_LOG_WARN("Config", "Unknown VSJoinSnapshotFilterPolicy '{}', defaulting to window_only", s);
+    return VSJoinSnapshotFilterPolicy::WINDOW_ONLY;
 }
 
 // ==================== JoinStrategyConfig 方法实现 ====================
@@ -205,9 +240,10 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
     
     // 规则2: VSJoin 需要 LSH 分区 + 分区窗口状态（PARTITIONED/TWO_TIER/PARTITIONED_VECTOR）
     if (algorithm == JoinAlgorithm::VSJOIN) {
-        if (partition_strategy != PartitionStrategy::LSH) {
+        if (partition_strategy != PartitionStrategy::LSH &&
+            partition_strategy != PartitionStrategy::CENTROID) {
             errors.emplace_back(
-                "VSJoin requires LSH partition strategy. "
+                "VSJoin requires LSH or CENTROID partition strategy. "
                 "Current: " + toString(partition_strategy));
         }
         // 新版设计：支持 PARTITIONED（推荐）、TWO_TIER、PARTITIONED_VECTOR（旧版兼容）
@@ -282,6 +318,14 @@ std::vector<std::string> JoinStrategyConfig::validate() const {
     
     if (vsjoin_boundary_threshold < 0.0 || vsjoin_boundary_threshold > 1.0) {
         errors.emplace_back("vsjoin_boundary_threshold must be in [0.0, 1.0]");
+    }
+
+    if (vsjoin_rebalance_imbalance_ratio < 1.0 || vsjoin_rebalance_imbalance_ratio > 5.0) {
+        errors.emplace_back("vsjoin_rebalance_imbalance_ratio must be in [1.0, 5.0]");
+    }
+
+    if (vsjoin_rebalance_max_moves == 0 || vsjoin_rebalance_max_moves > 1024) {
+        errors.emplace_back("vsjoin_rebalance_max_moves must be in [1, 1024]");
     }
 
     if (lsh_num_tables <= 0 || lsh_num_tables > 64) {
@@ -403,6 +447,15 @@ std::string JoinStrategyConfig::summary() const {
             << "  clustered_multicast_enabled: " << clustered_multicast_enabled << "\n"
             << "  clustered_training_samples: " << clustered_training_samples << "\n";
     }
+
+    if (algorithm == JoinAlgorithm::VSJOIN) {
+        oss << "  -- VSJoin --\n"
+            << "  vsjoin_multicast_k: " << vsjoin_multicast_k << "\n"
+            << "  vsjoin_rebuild_interval_ms: " << vsjoin_rebuild_interval_ms << "\n"
+            << "  vsjoin_rebuild_threshold: " << vsjoin_rebuild_threshold << "\n"
+            << "  vsjoin_rebalance_imbalance_ratio: " << vsjoin_rebalance_imbalance_ratio << "\n"
+            << "  vsjoin_rebalance_max_moves: " << vsjoin_rebalance_max_moves << "\n";
+    }
     
     oss << "}";
     return oss.str();
@@ -510,12 +563,39 @@ static void loadFromTomlNode(JoinStrategyConfig& config, const toml::table& node
     if (auto rt = node["vsjoin_rebuild_threshold"].value<int64_t>()) {
         config.vsjoin_rebuild_threshold = static_cast<size_t>(*rt);
     }
+    if (auto rir = node["vsjoin_rebalance_imbalance_ratio"].value<double>()) {
+        config.vsjoin_rebalance_imbalance_ratio = *rir;
+    }
+    if (auto rmm = node["vsjoin_rebalance_max_moves"].value<int64_t>()) {
+        config.vsjoin_rebalance_max_moves = static_cast<size_t>(*rmm);
+    }
     // VSJoin Local/Global Index 类型
     if (auto lit = node["vsjoin_local_index_type"].value<std::string>()) {
         config.vsjoin_local_index_type = parseVSJoinIndexType(*lit);
     }
     if (auto git = node["vsjoin_global_index_type"].value<std::string>()) {
         config.vsjoin_global_index_type = parseVSJoinIndexType(*git);
+    }
+    // Mechanism I: staleness config
+    if (auto v = node["vsjoin_snapshot_filter_policy"].value<std::string>()) {
+        config.vsjoin_snapshot_filter_policy = parseVSJoinSnapshotFilterPolicy(*v);
+    }
+    if (auto v = node["vsjoin_max_staleness_ms"].value<int64_t>()) {
+        config.vsjoin_max_staleness_ms = *v;
+    }
+    // Mechanism II: routing config
+    if (auto v = node["vsjoin_route_mode"].value<std::string>()) {
+        config.vsjoin_route_mode = parseVSJoinRouteMode(*v);
+    }
+    if (auto v = node["vsjoin_fanout_budget"].value<int64_t>()) {
+        config.vsjoin_fanout_budget = static_cast<int>(*v);
+    }
+    // Mechanism III: skew control
+    if (auto v = node["vsjoin_rebalance_cooldown_ms"].value<int64_t>()) {
+        config.vsjoin_rebalance_cooldown_ms = *v;
+    }
+    if (auto v = node["vsjoin_use_smoothed_load"].value<bool>()) {
+        config.vsjoin_use_smoothed_load = *v;
     }
 
     

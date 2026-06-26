@@ -1,13 +1,13 @@
-//
-// Created by Pygon on 25-4-17.
-//
 #include "index/knn.h"
 
 #include <algorithm>
 #include <mutex>
 #include <queue>
+#include "storage/storage_manager.h"
 
-sageFlow::Knn::~Knn() = default;
+namespace sageFlow {
+
+Knn::~Knn() = default;
 
 auto sageFlow::Knn::insert(uint64_t id) -> bool {
   std::unique_lock lock(ids_mutex_);
@@ -30,7 +30,7 @@ auto sageFlow::Knn::query(const VectorRecord& record, int k) -> std::vector<uint
   }
 
   const auto ids = snapshotIds();
-  const auto records = storage_manager_->getVectorsByUids(ids);
+  const auto records = storage_manager_->getVectorsByUids(ids, index_id_);
   std::priority_queue<UidAndDist> top_k_results;
 
   for (const auto& stored_record : records) {
@@ -65,7 +65,7 @@ auto sageFlow::Knn::query_for_join(const VectorRecord &record,
   }
 
   const auto ids = snapshotIds();
-  const auto records = storage_manager_->getVectorsByUids(ids);
+  const auto records = storage_manager_->getVectorsByUids(ids, index_id_);
   std::vector<uint64_t> final_ids;
   final_ids.reserve(records.size());
 
@@ -82,3 +82,10 @@ auto sageFlow::Knn::query_for_join(const VectorRecord &record,
 
   return final_ids;
 }
+
+size_t Knn::size() const {
+  std::shared_lock lock(ids_mutex_);
+  return live_ids_.size();
+}
+
+}  // namespace sageFlow

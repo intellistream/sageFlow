@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <limits>
 #include <thread>
 #include <vector>
 
@@ -11,6 +12,30 @@
 
 namespace sageFlow {
 namespace {
+
+std::vector<size_t> countAssignmentsBySubtask(const std::vector<int>& mapping,
+                                              size_t num_subtasks) {
+    std::vector<size_t> counts(num_subtasks, 0);
+    for (int subtask : mapping) {
+        if (subtask >= 0 && static_cast<size_t>(subtask) < num_subtasks) {
+            counts[static_cast<size_t>(subtask)] += 1;
+        }
+    }
+    return counts;
+}
+
+size_t assignmentImbalanceGap(const std::vector<size_t>& counts) {
+    if (counts.empty()) {
+        return 0;
+    }
+    size_t min_count = std::numeric_limits<size_t>::max();
+    size_t max_count = 0;
+    for (size_t value : counts) {
+        min_count = std::min(min_count, value);
+        max_count = std::max(max_count, value);
+    }
+    return max_count - min_count;
+}
 
 TEST(VSJoinLoadBalancingTest, AssignmentTableConcurrentRead) {
     VSJoinPartitionAssignment assignment(128, 8);
@@ -55,6 +80,65 @@ TEST(VSJoinLoadBalancingTest, AssignmentTableBatchUpdateAtomicity) {
     }
 }
 
+TEST(VSJoinLoadBalancingTest, AssignmentTableConcurrentReadWriteAtomicVisibility) {
+    constexpr int kLogicalPartitions = 128;
+    constexpr int kPhysicalSubtasks = 8;
+
+    VSJoinPartitionAssignment assignment(kLogicalPartitions, kPhysicalSubtasks);
+
+    std::vector<int> mapping_a(kLogicalPartitions, 0);
+    std::vector<int> mapping_b(kLogicalPartitions, 0);
+    std::vector<std::pair<int, int>> updates_to_a;
+    std::vector<std::pair<int, int>> updates_to_b;
+    updates_to_a.reserve(kLogicalPartitions);
+    updates_to_b.reserve(kLogicalPartitions);
+
+    for (int i = 0; i < kLogicalPartitions; ++i) {
+        mapping_a[i] = i % kPhysicalSubtasks;
+        mapping_b[i] = (i + 3) % kPhysicalSubtasks;
+        updates_to_a.emplace_back(i, mapping_a[i]);
+        updates_to_b.emplace_back(i, mapping_b[i]);
+    }
+
+    assignment.updateMapping(updates_to_a);
+
+    std::atomic<bool> stop{false};
+    std::atomic<size_t> invalid_reads{0};
+    std::vector<std::thread> readers;
+    readers.reserve(8);
+
+    for (int t = 0; t < 8; ++t) {
+        readers.emplace_back([&assignment, &mapping_a, &mapping_b, &stop, &invalid_reads]() {
+            int cursor = 0;
+            while (!stop.load(std::memory_order_relaxed)) {
+                int logical_pid = cursor % kLogicalPartitions;
+                int observed = assignment.getPhysicalSubtask(logical_pid);
+                const int a = mapping_a[logical_pid];
+                const int b = mapping_b[logical_pid];
+                if (observed != a && observed != b) {
+                    invalid_reads.fetch_add(1, std::memory_order_relaxed);
+                }
+                cursor += 1;
+            }
+        });
+    }
+
+    std::thread writer([&assignment, &updates_to_a, &updates_to_b]() {
+        for (int round = 0; round < 200; ++round) {
+            assignment.updateMapping((round % 2 == 0) ? updates_to_b : updates_to_a);
+        }
+    });
+
+    writer.join();
+    stop.store(true, std::memory_order_relaxed);
+    for (auto& reader : readers) {
+        reader.join();
+    }
+
+    EXPECT_EQ(invalid_reads.load(std::memory_order_relaxed), 0u)
+        << "Readers should only observe complete old/new mapping values for each logical partition";
+}
+
 TEST(VSJoinLoadBalancingTest, LoadMonitorFunctionality) {
     VSJoinLoadMonitor monitor(8);
 
@@ -92,6 +176,16 @@ TEST(VSJoinLoadBalancingTest, LoadBalancingEffectiveness) {
 
     VSJoinPartitionAssignment assignment(128, 8);
 
+    std::vector<std::pair<int, int>> skew_updates;
+    skew_updates.reserve(64);
+    for (int i = 0; i < 64; ++i) {
+        skew_updates.emplace_back(i, 0);
+    }
+    assignment.updateMapping(skew_updates);
+
+    const auto before_counts = countAssignmentsBySubtask(assignment.getCurrentMapping(), 8);
+    const size_t before_gap = assignmentImbalanceGap(before_counts);
+
     std::vector<std::pair<int, int>> rebalance_updates;
     for (int i = 0; i < 32; ++i) {
         rebalance_updates.emplace_back(i, 2);
@@ -102,12 +196,18 @@ TEST(VSJoinLoadBalancingTest, LoadBalancingEffectiveness) {
 
     assignment.updateMapping(rebalance_updates);
 
+    const auto after_counts = countAssignmentsBySubtask(assignment.getCurrentMapping(), 8);
+    const size_t after_gap = assignmentImbalanceGap(after_counts);
+
     for (int i = 0; i < 32; ++i) {
         EXPECT_EQ(assignment.getPhysicalSubtask(i), 2);
     }
     for (int i = 32; i < 64; ++i) {
         EXPECT_EQ(assignment.getPhysicalSubtask(i), 3);
     }
+
+    EXPECT_LT(after_gap, before_gap)
+        << "Assignment distribution should become more balanced after rebalance updates";
 }
 
 TEST(VSJoinLoadBalancingTest, AssignmentTablePerformance) {
