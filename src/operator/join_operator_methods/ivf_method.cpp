@@ -1,37 +1,12 @@
 #include "operator/join_operator_methods/ivf_method.h"
 #include "operator/utils/join_method_registry.h"
-#include "compute_engine/simd_distance.h"
+#include "compute_engine/compute_engine.h"
 #include "utils/logger.h"
 
-#include <cmath>
 #include <algorithm>
 #include <numeric>
-#include <cstring>
 
 namespace sageFlow {
-
-namespace {
-
-/**
- * @brief 从 VectorRecord 提取 float 向量
- * @param record 向量记录
- * @return float 向量
- */
-std::vector<float> extractVector(const VectorRecord& record) {
-    const auto& vector_data = record.data_;
-    int32_t dim = vector_data.dim_;
-    
-    if (dim <= 0) {
-        return {};
-    }
-    
-    const float* float_ptr = reinterpret_cast<const float*>(vector_data.data_.get());
-    std::vector<float> result(static_cast<size_t>(dim));
-    std::memcpy(result.data(), float_ptr, static_cast<size_t>(dim) * sizeof(float));
-    return result;
-}
-
-} // anonymous namespace
 
 IVFMethod::IVFMethod(const Config& config)
     : BaseMethod(config.similarity_threshold),
@@ -259,14 +234,14 @@ std::vector<RecordView> IVFMethod::rangeSearchBruteForceSnapshot(
         return results;
     }
     
-    // 获取查询向量
-    std::vector<float> query_vec = extractVector(query);
-    if (query_vec.empty()) {
+    if (query.data_.dim_ <= 0 || !query.data_.data_) {
         SAGEFLOW_LOG_WARN("IVFMethod",
             "Query vector is empty for uid={}", query.uid_);
         return results;
     }
     
+    ComputeEngine compute_engine;
+
     // 遍历所有记录，计算相似度
     for (const auto& record : records) {
         if (!record) {
@@ -278,12 +253,20 @@ std::vector<RecordView> IVFMethod::rangeSearchBruteForceSnapshot(
             continue;
         }
         
-        std::vector<float> record_vec = extractVector(*record);
-        if (record_vec.empty()) {
+        if (record->data_.dim_ <= 0 || !record->data_.data_) {
+            continue;
+        }
+        if (record->data_.dim_ != query.data_.dim_ ||
+            record->data_.type_ != query.data_.type_) {
+            SAGEFLOW_LOG_WARN("IVFMethod",
+                "Vector shape mismatch: query uid={} dim={} type={} candidate uid={} dim={} type={}",
+                query.uid_, query.data_.dim_, static_cast<int>(query.data_.type_),
+                record->uid_, record->data_.dim_, static_cast<int>(record->data_.type_));
             continue;
         }
         
-        double similarity = computeSimilarity(query_vec, record_vec);
+        const double similarity = compute_engine.Similarity(
+            query.data_, record->data_, similarity_alpha_);
         
         if (similarity >= config_.similarity_threshold) {
             results.push_back(record);
@@ -303,14 +286,14 @@ std::vector<RecordView> IVFMethod::rangeSearchBruteForce(
         return results;
     }
     
-    // 获取查询向量
-    std::vector<float> query_vec = extractVector(query);
-    if (query_vec.empty()) {
+    if (query.data_.dim_ <= 0 || !query.data_.data_) {
         SAGEFLOW_LOG_WARN("IVFMethod",
             "Query vector is empty for uid={}", query.uid_);
         return results;
     }
     
+    ComputeEngine compute_engine;
+
     // 遍历所有记录，计算相似度
     for (const auto& record : records) {
         if (!record) {
@@ -322,12 +305,20 @@ std::vector<RecordView> IVFMethod::rangeSearchBruteForce(
             continue;
         }
         
-        std::vector<float> record_vec = extractVector(*record);
-        if (record_vec.empty()) {
+        if (record->data_.dim_ <= 0 || !record->data_.data_) {
+            continue;
+        }
+        if (record->data_.dim_ != query.data_.dim_ ||
+            record->data_.type_ != query.data_.type_) {
+            SAGEFLOW_LOG_WARN("IVFMethod",
+                "Vector shape mismatch: query uid={} dim={} type={} candidate uid={} dim={} type={}",
+                query.uid_, query.data_.dim_, static_cast<int>(query.data_.type_),
+                record->uid_, record->data_.dim_, static_cast<int>(record->data_.type_));
             continue;
         }
         
-        double similarity = computeSimilarity(query_vec, record_vec);
+        const double similarity = compute_engine.Similarity(
+            query.data_, record->data_, similarity_alpha_);
         
         if (similarity >= config_.similarity_threshold) {
             results.push_back(record);
@@ -335,34 +326,6 @@ std::vector<RecordView> IVFMethod::rangeSearchBruteForce(
     }
     
     return results;
-}
-
-double IVFMethod::computeSimilarity(
-    const std::vector<float>& a,
-    const std::vector<float>& b) const {
-    
-    if (a.empty() || b.empty()) {
-        return 0.0;
-    }
-    
-    if (a.size() != b.size()) {
-        SAGEFLOW_LOG_WARN("IVFMethod",
-            "Vector dimension mismatch: {} vs {}", a.size(), b.size());
-        return 0.0;
-    }
-    
-    // IVFMethod 的候选获取通常走索引层 query_for_join()，相似度过滤在 Index 内部完成。
-    // 这里的 computeSimilarity 仅用于少数 fallback（例如无索引/窗口快照暴力过滤）场景。
-    double distance_sq = 0.0;
-    for (size_t i = 0; i < a.size(); ++i) {
-        double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
-        distance_sq += diff * diff;
-    }
-    double distance = std::sqrt(distance_sq);
-
-    // alpha 统一从 ConcurrencyManager -> StorageManager::engine_ 获取
-    // （JoinStrategyFactory::create 会在运行时 setSimilarityAlpha）。
-    return std::exp(-similarity_alpha_ * distance);
 }
 
 } // namespace sageFlow

@@ -1,10 +1,56 @@
 #include "compute_engine/compute_engine.h"
-#include <iostream>
+
+#include "compute_engine/simd_distance.h"
+
+namespace {
+
+void validateSameVectorShape(const sageFlow::VectorData& vec1, const sageFlow::VectorData& vec2) {
+  if (vec1.dim_ != vec2.dim_) {
+    throw std::invalid_argument("Vectors must be of the same size");
+  }
+  if (vec1.type_ != vec2.type_) {
+    throw std::invalid_argument("Vectors must be of the same type");
+  }
+}
+
+}  // namespace
 
 auto sageFlow::ComputeEngine::Similarity(const VectorData& vec1, const VectorData& vec2, const double alpha) -> double {
   auto distance = EuclideanDistance(vec1, vec2);
   // Exponential Decay function to convert distance to similarity
   return std::exp(-alpha * distance);
+}
+
+auto sageFlow::ComputeEngine::NormalizedSimilarity(
+    const VectorData& vec1,
+    const VectorData& vec2,
+    const double alpha) -> double {
+  validateSameVectorShape(vec1, vec2);
+
+  if (vec1.dim_ == 0) {
+    return 1.0;
+  }
+  if (vec1.type_ != DataType::Float32) {
+    throw std::invalid_argument("NormalizedSimilarity currently supports Float32 vectors only");
+  }
+
+  const auto* data_ptr1 = reinterpret_cast<const float*>(vec1.data_.get());
+  const auto* data_ptr2 = reinterpret_cast<const float*>(vec2.data_.get());
+  const size_t dim = static_cast<size_t>(vec1.dim_);
+
+  const float norm1 = SIMDDistance::vectorNorm(data_ptr1, dim);
+  const float norm2 = SIMDDistance::vectorNorm(data_ptr2, dim);
+  if (norm1 < 1e-10f || norm2 < 1e-10f) {
+    return 0.0;
+  }
+
+  double distance_sq = 0.0;
+  for (size_t i = 0; i < dim; ++i) {
+    const double diff = static_cast<double>(data_ptr1[i]) / norm1 -
+                        static_cast<double>(data_ptr2[i]) / norm2;
+    distance_sq += diff * diff;
+  }
+  return std::exp(-alpha * std::sqrt(distance_sq));
 }
 
 // 私有模板辅助函数
@@ -27,17 +73,15 @@ auto sageFlow::ComputeEngine::EuclideanDistanceImpl(const VectorData& vec1, cons
 }
 
 auto sageFlow::ComputeEngine::EuclideanDistance(const VectorData& vec1, const VectorData& vec2) -> double {
-  if (vec1.dim_ != vec2.dim_) {
-    throw std::invalid_argument("Vectors must be of the same size");
-  }
-  if (vec1.type_ != vec2.type_) {
-    throw std::invalid_argument("Vectors must be of the same type");
-  }
+  validateSameVectorShape(vec1, vec2);
   auto type = vec1.type_;
   double distance = 0.0;
   switch (type) {
     case DataType::Float32:
-      distance = EuclideanDistanceImpl<float>(vec1, vec2);
+      distance = SIMDDistance::l2Distance(
+          reinterpret_cast<const float*>(vec1.data_.get()),
+          reinterpret_cast<const float*>(vec2.data_.get()),
+          static_cast<size_t>(vec1.dim_));
       break;
     case DataType::Float64:
       distance = EuclideanDistanceImpl<double>(vec1, vec2);

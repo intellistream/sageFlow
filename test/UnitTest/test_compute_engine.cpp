@@ -32,6 +32,20 @@ TEST(SimilarityTest, ZeroDim) {
   EXPECT_DOUBLE_EQ(eng.Similarity(*a,*b,1.0), 1.0);
 }
 
+TEST(SimilarityTest, NormalizedKnownDist) {
+  sageFlow::ComputeEngine eng;
+  auto a = makeVec({3, 0}), b = makeVec({0, 4});
+  double alpha = 0.5;
+  double expected = std::exp(-alpha * std::sqrt(2.0));
+  EXPECT_NEAR(eng.NormalizedSimilarity(*a, *b, alpha), expected, 1e-12);
+}
+
+TEST(SimilarityTest, NormalizedZeroVector) {
+  sageFlow::ComputeEngine eng;
+  auto a = makeVec({0, 0}), b = makeVec({1, 0});
+  EXPECT_DOUBLE_EQ(eng.NormalizedSimilarity(*a, *b, 1.0), 0.0);
+}
+
 TEST(SimilarityTest, GreaterSimilarity) {
   sageFlow::ComputeEngine eng;
   auto a = makeVec({0,0,0}), b = makeVec({1,1,1});

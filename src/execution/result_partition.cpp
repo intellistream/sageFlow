@@ -53,7 +53,7 @@ void ResultPartition::emit(Response&& data, int slot) const {
         pushWithRetry(output_channels_[i], {std::move(data), slot});
       } else {
         // 其他通道，复制数据
-        Response data_copy{data.type_, data.record_ ? std::make_unique<VectorRecord>(*data.record_) : nullptr};
+        Response data_copy{data};
         pushWithRetry(output_channels_[i], {std::move(data_copy), slot});
       }
     }
@@ -71,7 +71,7 @@ void ResultPartition::emit(Response&& data, int slot) const {
         if (i == target_channels.size() - 1) {
           pushWithRetry(output_channels_[target_channels[i]], {std::move(data), slot});
         } else {
-          Response data_copy{data.type_, data.record_ ? std::make_unique<VectorRecord>(*data.record_) : nullptr};
+          Response data_copy{data};
           pushWithRetry(output_channels_[target_channels[i]], {std::move(data_copy), slot});
         }
       }

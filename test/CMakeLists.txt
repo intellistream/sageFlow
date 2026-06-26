@@ -87,6 +87,8 @@ set(UNIT_TEST_SPECS
     test_ivf_method                UnitTest/test_ivf_method.cpp               300 UNIT
     test_hdr_tree                  UnitTest/test_hdr_tree.cpp                 300 UNIT
     test_hdr_rknn                  UnitTest/test_hdr_rknn.cpp                 300 UNIT
+    test_knn_index                 UnitTest/test_knn_index.cpp                120 UNIT
+    test_join_pair_materialization UnitTest/test_join_pair_materialization.cpp 120 UNIT
     # test_clustered_join 和 test_clustered_join_method 已备份，待架构重构后重写
     # test_clustered_join            UnitTest/test_clustered_join.cpp           300 UNIT
     # test_clustered_join_method     UnitTest/test_clustered_join_method.cpp    300 UNIT
@@ -178,6 +180,36 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Performance/IndexTest.cpp")
     target_include_directories(IndexTest PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
     add_test(NAME IndexTest COMMAND IndexTest)
     set_tests_properties(IndexTest PROPERTIES TIMEOUT 600 LABELS PERF)
+endif()
+
+# -----------------------------------------------------------------------------
+# profile_concurrency_bench: 并发数据面 microbench（非 GoogleTest），手动运行
+# -----------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Performance/profile_concurrency_bench.cpp")
+    add_executable(profile_concurrency_bench Performance/profile_concurrency_bench.cpp)
+    target_link_libraries(profile_concurrency_bench PRIVATE test_data_support sageflow)
+    target_compile_definitions(profile_concurrency_bench PRIVATE ${TEST_COMMON_DEFINES})
+    target_include_directories(profile_concurrency_bench PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
+
+# -----------------------------------------------------------------------------
+# profile_pair_free_bench: 配对物化跨线程 free microbench（非 GoogleTest），手动运行
+# -----------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Performance/profile_pair_free_bench.cpp")
+    add_executable(profile_pair_free_bench Performance/profile_pair_free_bench.cpp)
+    target_link_libraries(profile_pair_free_bench PRIVATE test_data_support sageflow)
+    target_compile_definitions(profile_pair_free_bench PRIVATE ${TEST_COMMON_DEFINES})
+    target_include_directories(profile_pair_free_bench PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
+endif()
+
+# -----------------------------------------------------------------------------
+# profile_emit_materialization_bench: emit 路径 CONCAT vs PAIR microbench（手动运行）
+# -----------------------------------------------------------------------------
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/Performance/profile_emit_materialization_bench.cpp")
+    add_executable(profile_emit_materialization_bench Performance/profile_emit_materialization_bench.cpp)
+    target_link_libraries(profile_emit_materialization_bench PRIVATE test_data_support sageflow)
+    target_compile_definitions(profile_emit_materialization_bench PRIVATE ${TEST_COMMON_DEFINES})
+    target_include_directories(profile_emit_materialization_bench PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
 
 # -----------------------------------------------------------------------------

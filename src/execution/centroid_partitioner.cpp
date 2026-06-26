@@ -150,13 +150,14 @@ std::vector<int> CentroidPartitioner::getPartitions(const VectorRecord& record) 
 // ==================== IPartitioner 接口实现 ====================
 
 size_t CentroidPartitioner::partition(const Response& data, size_t num_channels) {
-  if (!data.record_) {
+  const VectorRecord* record = getPartitionRecord(data);
+  if (!record) {
     return 0;
   }
   
   // 冷启动阶段：收集样本并返回广播标识
   if (config_.enable_cold_start && !trained_.load()) {
-    addTrainingSample(*data.record_);
+    addTrainingSample(*record);
     // 返回 0，由 ResultPartition 检查 isBroadcast() 决定行为
 
     // debug: print cold-start/broadcast status (env SAGEFLOW_CENTROID_DEBUG=1)
@@ -193,7 +194,7 @@ size_t CentroidPartitioner::partition(const Response& data, size_t num_channels)
     return 0;
   }
   
-  int partition_idx = getPrimaryPartition(*data.record_);
+  int partition_idx = getPrimaryPartition(*record);
   return static_cast<size_t>(partition_idx) % num_channels;
 }
 
@@ -206,19 +207,20 @@ std::vector<size_t> CentroidPartitioner::partitionMulti(const Response& data, si
     return {partition(data, num_channels)};;
   }
   
-  if (!data.record_) {
+  const VectorRecord* record = getPartitionRecord(data);
+  if (!record) {
     return {0};
   }
   
   // 获取向量的所有相关分区（主分区 + 边界分区）
-  auto partitions = getPartitions(*data.record_);
+  auto partitions = getPartitions(*record);
   
   // 仅在前几次记录时打印日志（避免日志过多）
   static thread_local int log_count = 0;
   if (log_count++ < 5) {
     SAGEFLOW_LOG_INFO("CentroidPartitioner", 
         "partitionMulti: uid={}, getPartitions returned {} partitions, multicast_k={}",
-        data.record_->uid_, partitions.size(), config_.multicast_k);
+        record->uid_, partitions.size(), config_.multicast_k);
   }
   
   // 如果只有一个分区，直接返回

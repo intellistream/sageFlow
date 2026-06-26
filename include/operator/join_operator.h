@@ -11,6 +11,7 @@
 #include "operator/operator.h"
 #include "operator/join_operator_methods/base_method.h"
 #include "operator/utils/join_strategy_config.h"
+#include "operator/join_operator_components/join_result_emitter.h"
 #include "concurrency/concurrency_manager.h"
 #include "state/window_state.h"
 #include "state/partitioned_window_state.h"
@@ -168,11 +169,11 @@ namespace sageFlow {
      * @brief Delegate opposite-side candidate fetch and join result materialization.
      */
     void executeJoinWithState(
-        const VectorRecord* data_ptr,
+        const RecordView& data_view,
         WindowState* opposite_state,
         int slot,
         size_t subtask_index,
-        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool);
+        std::vector<JoinOutputItem>& local_return_pool);
 
     /**
      * @brief Compute VSJoin target subtasks before taking shared ownership of the record.
@@ -204,7 +205,7 @@ namespace sageFlow {
      * @brief Emit materialized join results through the collector.
      */
     void emitJoinResults(
-        std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool,
+        std::vector<JoinOutputItem>& local_return_pool,
         Collector& collector,
         uint64_t apply_enter_ns);
 

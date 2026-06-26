@@ -146,17 +146,6 @@ private:
     double similarity_alpha_ = 0.1;
     
     /**
-     * @brief 计算两个向量的相似度
-     * 使用 L2 距离 + 指数衰减 (exp(-alpha * dist))，与 ComputeEngine::Similarity 一致
-     * @param a 第一个向量（从 VectorRecord 提取）
-     * @param b 第二个向量（从 VectorRecord 提取）
-     * @return 相似度值，范围 [0.0, 1.0]
-     */
-    double computeSimilarity(
-        const std::vector<float>& a, 
-        const std::vector<float>& b) const;
-    
-    /**
      * @brief 在给定记录快照中搜索满足阈值的匹配（线程安全版本）
      * @param query 查询向量记录
      * @param records 待搜索的记录快照（shared_ptr 版本）

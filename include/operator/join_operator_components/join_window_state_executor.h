@@ -32,6 +32,9 @@ class JoinWindowStateExecutor {
     size_t batch_delete_threshold = 50;
     int left_slot_id = 0;
     int right_slot_id = 1;
+    MaterializationMode materialization_mode = MaterializationMode::CONCAT;
+    SimilarityMode similarity_mode = SimilarityMode::FIXED_ALPHA;
+    double similarity_alpha = 0.1;
   };
 
   /**
@@ -76,13 +79,15 @@ class JoinWindowStateExecutor {
 
   /**
    * @brief Query the opposite side, apply event-time filtering, and materialize results.
+   *
+   * @param data_view Shared view of the probe record (zero-copy reuse in pair mode).
    */
   void executeJoin(
-      const VectorRecord* data_ptr,
+      const RecordView& data_view,
       WindowState* opposite_state,
       int slot,
       size_t subtask_index,
-      std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& output) const;
+      std::vector<JoinOutputItem>& output) const;
 
  private:
   /**

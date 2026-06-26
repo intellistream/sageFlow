@@ -21,33 +21,36 @@ LSHIPartitioner::LSHIPartitioner(int dimension, int num_hash_functions,
 }
 
 size_t LSHIPartitioner::partition(const Response& data, size_t num_channels) {
-  if (!data.record_) {
+  const VectorRecord* record = getPartitionRecord(data);
+  if (!record) {
     return 0;
   }
 
   // 使用内部 LSHPartitioner 进行分区
   // 注意：num_channels 可能与 num_partitions_ 不同，
   // 这里使用 num_channels 以支持动态调整
-  return lsh_partitioner_->partition(*data.record_, num_channels);
+  return lsh_partitioner_->partition(*record, num_channels);
 }
 
 std::vector<size_t> LSHIPartitioner::getCandidatePartitions(
     const Response& data, size_t num_channels, size_t num_probes) const {
-  if (!data.record_) {
+  const VectorRecord* record = getPartitionRecord(data);
+  if (!record) {
     return {0};
   }
 
-  return lsh_partitioner_->getCandidatePartitions(*data.record_, num_channels,
+  return lsh_partitioner_->getCandidatePartitions(*record, num_channels,
                                                    num_probes);
 }
 
 bool LSHIPartitioner::isBoundaryVector(const Response& data,
                                         size_t num_channels) const {
-  if (!data.record_) {
+  const VectorRecord* record = getPartitionRecord(data);
+  if (!record) {
     return false;
   }
 
-  return lsh_partitioner_->isBoundaryVector(*data.record_, num_channels);
+  return lsh_partitioner_->isBoundaryVector(*record, num_channels);
 }
 
 const LSHPartitioner* LSHIPartitioner::getLSHPartitioner() const {

@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <mutex>
+#include <string>
 #include <thread>
 
 #include "concurrency/concurrency_manager.h"
@@ -180,6 +182,22 @@ DatasourcePipelineResult runDatasourceJoinPipeline(DatasourcePipelineInput input
         result.actual_pairs.insert({left_id, right_id});
       });
 
+  // Optional PAIR_PASSTHROUGH mode for A/B comparison (default CONCAT unchanged):
+  // SAGEFLOW_JOIN_MATERIALIZATION=pair switches the emit path to pair references
+  // and records pairs from their left/right uids directly (no concat decoding).
+  const char* mat_env = std::getenv("SAGEFLOW_JOIN_MATERIALIZATION");
+  const bool pair_mode = mat_env != nullptr && std::string(mat_env) == "pair";
+  if (pair_mode) {
+    sink_func->setPairSinkFunc(
+        [&](const RecordView& left, const RecordView& right, double /*sim*/) {
+          if (!left || !right) {
+            return;
+          }
+          std::lock_guard<std::mutex> lock(match_mutex);
+          result.actual_pairs.insert({left->uid_, right->uid_});
+        });
+  }
+
   auto join_stream = left_source->join(
       right_source,
       std::move(join_func),
@@ -188,6 +206,9 @@ DatasourcePipelineResult runDatasourceJoinPipeline(DatasourcePipelineInput input
       static_cast<size_t>(input.parallelism));
   auto strategy_config = buildJoinStrategyConfigForDatasource(
       input.method, input.config, input.window_ms, trigger_interval, input.parallelism);
+  if (pair_mode) {
+    strategy_config.materialization_mode = MaterializationMode::PAIR_PASSTHROUGH;
+  }
   join_stream->setJoinStrategyConfig(strategy_config);
   join_stream->writeSink(std::move(sink_func), 1);
 

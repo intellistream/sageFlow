@@ -3,6 +3,7 @@
 #include <limits>
 #include <utility>
 
+#include "compute_engine/compute_engine.h"
 #include "operator/join_metrics.h"
 #include "operator/join_operator_methods/lsh_method.h"
 #include "utils/logger.h"
@@ -138,11 +139,12 @@ bool JoinWindowStateExecutor::updateSide(
 }
 
 void JoinWindowStateExecutor::executeJoin(
-    const VectorRecord* data_ptr,
+    const RecordView& data_view,
     WindowState* opposite_state,
     int slot,
     size_t subtask_index,
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& output) const {
+    std::vector<JoinOutputItem>& output) const {
+  const VectorRecord* data_ptr = data_view.get();
   auto candidates = getCandidates(data_ptr, opposite_state, subtask_index);
 
   MetricsTimer t_similarity(JoinMetrics::instance().similarity_ns);
@@ -151,7 +153,9 @@ void JoinWindowStateExecutor::executeJoin(
   int64_t window_lower_bound = data_ptr->timestamp_ - window_size;
   int64_t window_upper_bound = data_ptr->timestamp_ + window_size;
 
-  JoinResultEmitter emitter(join_func_, config_.left_slot_id);
+  JoinResultEmitter emitter(join_func_, config_.left_slot_id, config_.materialization_mode);
+  const bool pair_mode = config_.materialization_mode == MaterializationMode::PAIR_PASSTHROUGH;
+  ComputeEngine compute_engine;
   for (const auto& cand : candidates) {
     if (cand->timestamp_ < window_lower_bound || cand->timestamp_ > window_upper_bound) {
       continue;
@@ -160,7 +164,19 @@ void JoinWindowStateExecutor::executeJoin(
 
     try {
       t_similarity.pause();
-      emitter.appendJoinedResult(*data_ptr, *cand, slot, output);
+      if (pair_mode) {
+        t_similarity.resume();
+        const double similarity =
+            config_.similarity_mode == SimilarityMode::NORMALIZED
+                ? compute_engine.NormalizedSimilarity(
+                      data_ptr->data_, cand->data_, config_.similarity_alpha)
+                : compute_engine.Similarity(
+                      data_ptr->data_, cand->data_, config_.similarity_alpha);
+        t_similarity.pause();
+        emitter.appendPair(data_view, cand, slot, similarity, output);
+      } else {
+        emitter.appendJoinedResult(*data_ptr, *cand, slot, output);
+      }
       t_similarity.resume();
     } catch (const std::exception& e) {
       SAGEFLOW_LOG_ERROR("JOIN_STATE", "Exception in JoinWindowStateExecutor::executeJoin: what={}", e.what());

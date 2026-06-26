@@ -12,6 +12,16 @@
 #include "execution/vector_space_partitioner.h"
 
 namespace sageFlow {
+inline const VectorRecord* getPartitionRecord(const Response& data) {
+  if (data.record_) {
+    return data.record_.get();
+  }
+  if (data.type_ == ResponseType::RecordPair && data.pair_ && data.pair_->left) {
+    return data.pair_->left.get();
+  }
+  return nullptr;
+}
+
 class IPartitioner {
 public:
   virtual ~IPartitioner() = default;
@@ -61,12 +71,13 @@ public:
 class KeyPartitioner : public IPartitioner {
 public:
   size_t partition(const Response& data, size_t num_channels) override {
-    if (!data.record_) {
+    const VectorRecord* record = getPartitionRecord(data);
+    if (!record) {
       return 0;  // 默认分区
     }
     // 使用timestamp作为分区key，确保时序相近的记录到达同一实例
     // 这样可以保证共享索引中的插入顺序相对稳定，避免因调度顺序导致的竞态
-    return std::hash<int64_t>{}(data.record_->timestamp_) % num_channels;
+    return std::hash<int64_t>{}(record->timestamp_) % num_channels;
   }
 };
 
@@ -74,15 +85,16 @@ public:
 class VectorHashPartitioner : public IPartitioner {
 public:
   size_t partition(const Response& data, size_t num_channels) override {
-    if (!data.record_ || data.record_->data_.dim_ == 0) {
+    const VectorRecord* record = getPartitionRecord(data);
+    if (!record || record->data_.dim_ == 0) {
       return 0;
     }
     // 使用向量的前几个维度计算哈希，平衡计算开销和分区质量
     size_t hash = 0;
-    const int dims_to_hash = std::min(8, data.record_->data_.dim_);
+    const int dims_to_hash = std::min(8, record->data_.dim_);
     for (int i = 0; i < dims_to_hash; ++i) {
       // 组合哈希值
-      hash ^= std::hash<float>{}(data.record_->data_.data_[i]) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
+      hash ^= std::hash<float>{}(record->data_.data_[i]) + 0x9e3779b9 + (hash << 6) + (hash >> 2);
     }
     return hash % num_channels;
   }
@@ -100,7 +112,7 @@ public:
   }
   
   // 标记此分区器需要广播（供ResultPartition检测使用）
-  bool isBroadcast() const { return true; }
+  bool isBroadcast() const override { return true; }
 };
 
 // 基于向量空间分区器的适配器，用于将 VectorSpacePartitioner 输出对接到运行时 IPartitioner 接口
@@ -110,10 +122,11 @@ public:
       : vsp_(std::move(vsp)) {}
 
   size_t partition(const Response& data, size_t num_channels) override {
-    if (!vsp_ || !data.record_) {
+    const VectorRecord* record = getPartitionRecord(data);
+    if (!vsp_ || !record) {
       return 0;
     }
-    return vsp_->partition(*data.record_, num_channels);
+    return vsp_->partition(*record, num_channels);
   }
 
 private:

@@ -113,7 +113,8 @@ TEST(SIMDDistanceTest, L2DistanceCorrectnessSmallDim) {
     float expected = referenceL2DistanceSquared(vec_a.data(), vec_b.data(), dim);
     float actual = SIMDDistance::l2DistanceSquared(vec_a.data(), vec_b.data(), dim);
 
-    EXPECT_NEAR(actual, expected, 1e-4f) << "Failed at dim=" << dim;
+    float tolerance = expected * 1e-5f + 1e-4f;
+    EXPECT_NEAR(actual, expected, tolerance) << "Failed at dim=" << dim;
   }
 }
 

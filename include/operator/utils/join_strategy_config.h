@@ -88,6 +88,18 @@ enum class SimilarityMode {
 };
 
 /**
+ * @brief Join 命中结果的物化模式
+ *
+ * - CONCAT: 调用 join function 产出一条新记录（默认；现有测试拼接左右向量）。
+ * - PAIR_PASSTHROUGH: 以只读共享引用打包 (left, right, similarity)，零向量深拷贝，
+ *   面向下游 LLM 前处理；不调用 join function 做向量运算。
+ */
+enum class MaterializationMode {
+    CONCAT,
+    PAIR_PASSTHROUGH
+};
+
+/**
  * @brief Join 策略完整配置
  * 
  * 包含所有可配置的 Join 参数，支持从 TOML 配置文件加载。
@@ -98,6 +110,11 @@ struct JoinStrategyConfig {
     bool is_eager = false;  ///< true=Eager模式, false=Lazy模式
     double similarity_threshold = 0.8;
     int dimension = 128;  ///< 向量维度
+
+    /**
+     * @brief Join 命中结果的物化模式（默认 CONCAT 保持现有行为）
+     */
+    MaterializationMode materialization_mode = MaterializationMode::CONCAT;
     
     // ==================== 相似度计算配置 ====================
     /**

@@ -18,7 +18,18 @@ sageFlow::Response sageFlow::SinkFunction::Execute(Response &resp) {
     }
     return Response{ResponseType::List, std::move(records)};
   }
+  if (resp.type_ == ResponseType::RecordPair) {
+    auto pair = std::move(resp.pair_);
+    if (pair && pair_sink_func_) {
+      pair_sink_func_(pair->left, pair->right, pair->similarity);
+    }
+    return Response{ResponseType::RecordPair, std::move(pair)};
+  }
   return {};
 }
 
 auto sageFlow::SinkFunction::setSinkFunc(SinkFunc sink_func) -> void { sink_func_ = std::move(sink_func); }
+
+auto sageFlow::SinkFunction::setPairSinkFunc(PairSinkFunc pair_sink_func) -> void {
+  pair_sink_func_ = std::move(pair_sink_func);
+}

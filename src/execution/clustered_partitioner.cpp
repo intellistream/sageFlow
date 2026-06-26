@@ -54,7 +54,8 @@ ClusteredPartitioner::ClusteredPartitioner(const Config& config)
 
 size_t ClusteredPartitioner::partition(const Response& data,
                                        size_t num_channels) {
-  if (!data.record_) {
+  const VectorRecord* record = getPartitionRecord(data);
+  if (!record) {
     // 无记录数据，返回轮询分配
     return round_robin_counter_.fetch_add(1, std::memory_order_relaxed) %
            num_channels;
@@ -67,7 +68,7 @@ size_t ClusteredPartitioner::partition(const Response& data,
         data, static_cast<size_t>(config_.num_vector_partitions));
   } else {
     // 未训练时使用简单哈希
-    vec_partition = data.record_->uid_ %
+    vec_partition = record->uid_ %
                     static_cast<size_t>(config_.num_vector_partitions);
   }
 
@@ -82,7 +83,7 @@ std::vector<size_t> ClusteredPartitioner::partitionMulti(const Response& data,
     return {partition(data, num_channels)};
   }
 
-  if (!data.record_) {
+  if (!getPartitionRecord(data)) {
     return {0};
   }
 

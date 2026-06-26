@@ -1,36 +1,11 @@
 #include "operator/join_operator_methods/bruteforce_baseline.h"
 #include "operator/utils/join_method_registry.h"
-#include "compute_engine/simd_distance.h"
+#include "compute_engine/compute_engine.h"
 #include "utils/logger.h"
 
-#include <cmath>
 #include <algorithm>
-#include <cstring>
 
 namespace sageFlow {
-
-namespace {
-
-/**
- * @brief 从 VectorRecord 提取 float 向量
- * @param record 向量记录
- * @return float 向量
- */
-std::vector<float> extractVector(const VectorRecord& record) {
-    const auto& vector_data = record.data_;
-    int32_t dim = vector_data.dim_;
-    
-    if (dim <= 0) {
-        return {};
-    }
-    
-    const float* float_ptr = reinterpret_cast<const float*>(vector_data.data_.get());
-    std::vector<float> result(static_cast<size_t>(dim));
-    std::memcpy(result.data(), float_ptr, static_cast<size_t>(dim) * sizeof(float));
-    return result;
-}
-
-} // anonymous namespace
 
 BruteForceBaseline::BruteForceBaseline(double threshold)
     : BaseMethod(threshold),
@@ -145,60 +120,6 @@ void BruteForceBaseline::close() {
     SAGEFLOW_LOG_DEBUG("BruteForceBaseline", "Closed");
 }
 
-double BruteForceBaseline::computeSimilarity(
-    const std::vector<float>& a, 
-    const std::vector<float>& b) const {
-    
-    if (a.empty() || b.empty()) {
-        return 0.0;
-    }
-    
-    if (a.size() != b.size()) {
-        SAGEFLOW_LOG_WARN("BruteForceBaseline",
-            "Vector dimension mismatch: {} vs {}", a.size(), b.size());
-        return 0.0;
-    }
-    
-    // 根据相似度模式选择计算方式
-    if (similarity_mode_ == SimilarityMode::NORMALIZED) {
-        // 归一化模式：先归一化向量，再计算 L2 距离
-        double norm_a = 0.0, norm_b = 0.0;
-        for (size_t i = 0; i < a.size(); ++i) {
-            norm_a += static_cast<double>(a[i]) * static_cast<double>(a[i]);
-            norm_b += static_cast<double>(b[i]) * static_cast<double>(b[i]);
-        }
-        norm_a = std::sqrt(norm_a);
-        norm_b = std::sqrt(norm_b);
-        
-        if (norm_a < 1e-10 || norm_b < 1e-10) {
-            return 0.0;
-        }
-        
-        // 计算归一化后的 L2 距离
-        double distance_sq = 0.0;
-        for (size_t i = 0; i < a.size(); ++i) {
-            double diff = static_cast<double>(a[i]) / norm_a - 
-                         static_cast<double>(b[i]) / norm_b;
-            distance_sq += diff * diff;
-        }
-        double distance = std::sqrt(distance_sq);
-        
-        // 使用配置的 alpha 参数（归一化后 L2 范围 [0, 2]）
-        return std::exp(-similarity_alpha_ * distance);
-    }
-    
-    // FIXED_ALPHA 或 ADAPTIVE_ALPHA 模式：使用配置的 alpha
-    double distance_sq = 0.0;
-    for (size_t i = 0; i < a.size(); ++i) {
-        double diff = static_cast<double>(a[i]) - static_cast<double>(b[i]);
-        distance_sq += diff * diff;
-    }
-    double distance = std::sqrt(distance_sq);
-    
-    // 使用配置的 alpha 参数
-    return std::exp(-similarity_alpha_ * distance);
-}
-
 std::vector<RecordView> BruteForceBaseline::searchInRecordsSnapshot(
     const VectorRecord& query,
     const std::vector<RecordView>& records) const {
@@ -209,14 +130,14 @@ std::vector<RecordView> BruteForceBaseline::searchInRecordsSnapshot(
         return results;
     }
     
-    // 获取查询向量
-    std::vector<float> query_vec = extractVector(query);
-    if (query_vec.empty()) {
+    if (query.data_.dim_ <= 0 || !query.data_.data_) {
         SAGEFLOW_LOG_WARN("BruteForceBaseline", 
             "Query vector is empty for uid={}", query.uid_);
         return results;
     }
     
+    ComputeEngine compute_engine;
+
     // 遍历所有记录，计算相似度
     for (const auto& record : records) {
         if (!record) {
@@ -228,12 +149,22 @@ std::vector<RecordView> BruteForceBaseline::searchInRecordsSnapshot(
             continue;
         }
         
-        std::vector<float> record_vec = extractVector(*record);
-        if (record_vec.empty()) {
+        if (record->data_.dim_ <= 0 || !record->data_.data_) {
+            continue;
+        }
+        if (record->data_.dim_ != query.data_.dim_ ||
+            record->data_.type_ != query.data_.type_) {
+            SAGEFLOW_LOG_WARN("BruteForceBaseline",
+                "Vector shape mismatch: query uid={} dim={} type={} candidate uid={} dim={} type={}",
+                query.uid_, query.data_.dim_, static_cast<int>(query.data_.type_),
+                record->uid_, record->data_.dim_, static_cast<int>(record->data_.type_));
             continue;
         }
         
-        double similarity = computeSimilarity(query_vec, record_vec);
+        const double similarity =
+            similarity_mode_ == SimilarityMode::NORMALIZED
+                ? compute_engine.NormalizedSimilarity(query.data_, record->data_, similarity_alpha_)
+                : compute_engine.Similarity(query.data_, record->data_, similarity_alpha_);
         
         if (similarity >= join_similarity_threshold_) {
             // 共享视图，零拷贝（引用计数+1，不复制向量数据）
@@ -254,14 +185,14 @@ std::vector<RecordView> BruteForceBaseline::searchInRecords(
         return results;
     }
     
-    // 获取查询向量
-    std::vector<float> query_vec = extractVector(query);
-    if (query_vec.empty()) {
+    if (query.data_.dim_ <= 0 || !query.data_.data_) {
         SAGEFLOW_LOG_WARN("BruteForceBaseline", 
             "Query vector is empty for uid={}", query.uid_);
         return results;
     }
     
+    ComputeEngine compute_engine;
+
     // 遍历所有记录，计算相似度
     for (const auto& record : records) {
         if (!record) {
@@ -273,12 +204,22 @@ std::vector<RecordView> BruteForceBaseline::searchInRecords(
             continue;
         }
         
-        std::vector<float> record_vec = extractVector(*record);
-        if (record_vec.empty()) {
+        if (record->data_.dim_ <= 0 || !record->data_.data_) {
+            continue;
+        }
+        if (record->data_.dim_ != query.data_.dim_ ||
+            record->data_.type_ != query.data_.type_) {
+            SAGEFLOW_LOG_WARN("BruteForceBaseline",
+                "Vector shape mismatch: query uid={} dim={} type={} candidate uid={} dim={} type={}",
+                query.uid_, query.data_.dim_, static_cast<int>(query.data_.type_),
+                record->uid_, record->data_.dim_, static_cast<int>(record->data_.type_));
             continue;
         }
         
-        double similarity = computeSimilarity(query_vec, record_vec);
+        const double similarity =
+            similarity_mode_ == SimilarityMode::NORMALIZED
+                ? compute_engine.NormalizedSimilarity(query.data_, record->data_, similarity_alpha_)
+                : compute_engine.Similarity(query.data_, record->data_, similarity_alpha_);
         
         if (similarity >= join_similarity_threshold_) {
             results.push_back(record);

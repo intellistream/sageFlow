@@ -1,0 +1,39 @@
+# Focused profiling config for concurrency data-plane investigation.
+# Not for CI. Driven via SAGEFLOW_TEST_CONFIG_PATH.
+# Goal: per-phase breakdown (index_insert_ns includes StorageManager global write lock;
+# candidate_fetch_ns includes storage read + uid->record map) across parallelism.
+
+[[performance_test]]
+name = "profile_bruteforce_scaling"
+mode = "generate_direct_use"
+methods = ["bruteforce"]
+sizes = [2000]
+records_count = 2000
+vector_dim = 128
+parallelism = [1, 2, 4, 8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.data_source]
+type = "random"
+log.level = "warn"
+
+[[performance_test]]
+name = "profile_vsjoin_scaling"
+mode = "generate_direct_use"
+methods = ["vsjoin"]
+sizes = [2000]
+records_count = 2000
+vector_dim = 128
+parallelism = [1, 2, 4, 8]
+window_time_ms = [10000]
+window_trigger_ms = 50
+time_interval = 10
+similarity_threshold = 0.8
+seed = 42
+
+[performance_test.data_source]
+type = "random"

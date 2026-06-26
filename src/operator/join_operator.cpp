@@ -262,17 +262,20 @@ auto JoinOperator::updateSideWithState(
 }
 
 void JoinOperator::executeJoinWithState(
-    const VectorRecord* data_ptr,
+    const RecordView& data_view,
     WindowState* opposite_state,
     int slot,
     size_t subtask_index,
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool) {
+    std::vector<JoinOutputItem>& local_return_pool) {
     JoinWindowStateExecutor::Config config{
         strategy_config_.algorithm,
         use_index_,
         batch_delete_threshold_,
         left_slot_id_,
-        right_slot_id_};
+        right_slot_id_,
+        strategy_config_.materialization_mode,
+        strategy_config_.similarity_mode,
+        strategy_config_.similarity_alpha};
     JoinWindowStateExecutor executor(
         config,
         join_func_.get(),
@@ -284,7 +287,7 @@ void JoinOperator::executeJoinWithState(
         right_index_id_,
         vsjoin_local_left_ids_,
         vsjoin_local_right_ids_);
-    executor.executeJoin(data_ptr, opposite_state, slot, subtask_index, local_return_pool);
+    executor.executeJoin(data_view, opposite_state, slot, subtask_index, local_return_pool);
 }
 
 std::vector<size_t> JoinOperator::computeVSJoinTargetSubtasks(
@@ -330,10 +333,10 @@ int JoinOperator::indexIdForSlot(int slot) const {
 }
 
 void JoinOperator::emitJoinResults(
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>>& local_return_pool,
+    std::vector<JoinOutputItem>& local_return_pool,
     Collector& collector,
     uint64_t apply_enter_ns) {
-    JoinResultEmitter emitter(join_func_.get(), left_slot_id_);
+    JoinResultEmitter emitter(join_func_.get(), left_slot_id_, strategy_config_.materialization_mode);
     emitter.emit(local_return_pool, collector, apply_enter_ns);
 }
 
@@ -373,7 +376,6 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     }
 
     RecordView data_view = std::move(record.record_);
-    const VectorRecord* data_ptr = data_view.get();
     
     WindowState* current_state = (slot == left_slot_id_) 
         ? left_state_.get() : right_state_.get();
@@ -385,7 +387,7 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
     // Insert-then-Query is the only active trigger model. Component-level locks
     // in WindowState and ConcurrencyManager provide visibility and safety; the
     // operator does not add a coarse global join lock.
-    std::vector<std::pair<int, std::unique_ptr<VectorRecord>>> local_return_pool;
+    std::vector<JoinOutputItem> local_return_pool;
 
     if (strategy_config_.algorithm == JoinAlgorithm::VSJOIN) {
         // Multicast records are written and queried once per routed target subtask.
@@ -393,13 +395,13 @@ auto JoinOperator::apply(Response&& record, int slot, Collector& collector,
             updateSideWithState(current_state, opposite_state, index_id, data_view,
                                 now_time_stamp, slot, target_subtask);
 
-            executeJoinWithState(data_ptr, opposite_state, slot, target_subtask, local_return_pool);
+            executeJoinWithState(data_view, opposite_state, slot, target_subtask, local_return_pool);
         }
     } else {
         updateSideWithState(
             current_state, opposite_state, index_id, data_view, now_time_stamp, slot, subtask_index);
 
-        executeJoinWithState(data_ptr, opposite_state, slot,
+        executeJoinWithState(data_view, opposite_state, slot,
                             subtask_index, local_return_pool);
     }
     

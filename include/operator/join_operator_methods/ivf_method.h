@@ -234,17 +234,6 @@ private:
         const std::deque<RecordView>& records);
     
     /**
-     * @brief 计算两个向量的相似度
-     * 使用 L2 距离 + 指数衰减 (exp(-alpha * dist))，与 ComputeEngine::Similarity 一致
-     * @param a 第一个向量
-     * @param b 第二个向量
-     * @return 相似度值，范围 [0.0, 1.0]
-     */
-    double computeSimilarity(
-        const std::vector<float>& a,
-        const std::vector<float>& b) const;
-    
-    /**
      * @brief 获取对侧的索引ID
      * @param slot 当前槽位
      * @return 对侧索引ID

@@ -16,6 +16,8 @@
 #include "concurrency/concurrency_manager.h"
 #include "storage/storage_manager.h"
 
+#include <thread>
+
 namespace sageFlow {
 namespace {
 
