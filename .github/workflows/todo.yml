@@ -27,6 +27,10 @@ jobs:
 
       - name: TODO to Issue
         uses: alstr/todo-to-issue-action@v5
+        env:
+          # 避免 PR 超大 diff 触发 GitHub API 406（>20k lines）导致 action 失败
+          # 使用 head commit 的 /commits/{sha} diff 路径，保持 TODO 扫描稳定
+          MANUAL_COMMIT_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
         with:
           INSERT_ISSUE_URLS: "true"
           # 对于 PR 事件，action 会自动检测 diff，无需手动指定 commits
