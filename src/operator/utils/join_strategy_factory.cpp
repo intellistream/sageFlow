@@ -159,7 +159,7 @@ JoinStrategyFactory::StrategyComponents JoinStrategyFactory::create(
             // VSJoin 需要 VectorSpacePartitioner
             components.vector_partitioner = createVectorSpacePartitioner(config);
             // TODO: 创建其他 VSJoin 组件（coordinator, async_gen, verifier）
-            // Issue URL: https://github.com/intellistream/sageFlow/issues/79
+            // Issue URL: https://github.com/DataSysResearch/BriskFlow/issues/79
             break;
         }
         case JoinAlgorithm::S3J:

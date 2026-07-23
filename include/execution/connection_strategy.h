@@ -102,7 +102,7 @@ public:
 private:
   // SPSC 环形缓冲队列容量
   // TODO: 根据流速或上游数据量动态调整队列大小
-  // Issue URL: https://github.com/intellistream/sageFlow/issues/81
+  // Issue URL: https://github.com/DataSysResearch/BriskFlow/issues/81
   //       可考虑的方案：
   //       1. 基于背压(backpressure)的动态扩容
   //       2. 根据上游算子的预估输出量在 buildGraph 时计算合适容量
