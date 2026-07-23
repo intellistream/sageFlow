@@ -2,7 +2,7 @@
 
 BriskFlow is a vector-native stream processing engine for continuously evolving data. It provides a declarative Stream DAG, multicore execution, window-owned state, and indexed operators for similarity joins, TopK, filtering, aggregation, and snapshot materialization.
 
-BriskFlow is the DataSys runtime behind the join-backed semantic windows demonstrated by **BriskSnapshot** at ICPP 2026. BriskSnapshot combines this engine with orchestration and application-facing contracts; BriskFlow remains the framework-neutral data-system core.
+BriskFlow is the DataSys runtime behind the join-backed semantic windows demonstrated by **BriskSnapshot**. The authors report that BriskSnapshot has been accepted to the ICPP 2026 demo track; a public conference program or proceedings record is not yet available. BriskSnapshot combines this engine with orchestration and application-facing contracts; BriskFlow remains the framework-neutral data-system core.
 
 > **Compatibility note**
 >
@@ -97,7 +97,7 @@ You can run the examples with:
 
 - [DataSys](https://datasys.sage.org.ai/) owns and maintains the framework-neutral BriskFlow engine.
 - [SAGE](https://sage.org.ai/) may consume BriskFlow through a thin integration adapter for application and workflow orchestration.
-- [BriskSnapshot](https://datasys.sage.org.ai/achievements.html) is the ICPP 2026 demonstration built on join-backed semantic windows.
+- [BriskSnapshot](https://datasys.sage.org.ai/achievements.html) is the join-backed semantic windows demonstration built on BriskFlow. Its authors report acceptance to the ICPP 2026 demo track; the public conference record is pending.
 
 ## Canonical repository
 

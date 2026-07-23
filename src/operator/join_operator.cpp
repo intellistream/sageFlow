@@ -1647,7 +1647,7 @@ std::unique_ptr<IPartitioner> JoinOperator::getPreferredPartitioner(
             case JoinAlgorithm::VSJOIN: {
                 // 临时方案：VSJoin 先复用 ClusteredJoin 的 CentroidPartitioner 以获得多播能力（multicast_k）。
                 // TODO(vsjoin): 实现 LSHPartitionerAdapter 的多播接口（supportsMulticast/partitionMulti + k），
-                // Issue URL: https://github.com/intellistream/sageFlow/issues/102
+                // Issue URL: https://github.com/DataSysResearch/BriskFlow/issues/102
                 // 再切回 LSH 分区。
                 CentroidPartitioner::Config cp_config;
                 cp_config.num_partitions = (num_partitions > 0)
