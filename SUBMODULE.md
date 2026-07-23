@@ -1,11 +1,15 @@
-# Git Submodule: sageFlow
+# SAGE integration compatibility
+
+BriskFlow is now the framework-neutral DataSys core. This file documents the
+legacy SAGE submodule integration; SAGE should keep a thin adapter and pin a
+released BriskFlow version.
 
 ⚠️ **This directory is a Git submodule** - it's a separate repository!
 
 ## Repository Information
 
 - **Name:** packages/sage-middleware/src/sage/middleware/components/sage_flow/sageFlow
-- **Repository:** https://github.com/intellistream/sageFlow.git
+- **Core repository:** https://github.com/DataSysResearch/BriskFlow.git
 - **Branch:** main-dev
 - **Path:** `packages/sage-middleware/src/sage/middleware/components/sage_flow/sageFlow`
 

@@ -1,10 +1,16 @@
-## sageFlow
+# BriskFlow
 
-`sageFlow` is a cutting-edge, vector-native stream processing engine designed specifically to maintain and materialize semantic state snapshots for real-time, LLM-based generation tasks. The engine offers a declarative API to compose stateful vector operations within temporal windows, enabling fast and efficient updates to semantic context for dynamically changing datasets.
+BriskFlow is a vector-native stream processing engine for continuously evolving data. It provides a declarative Stream DAG, multicore execution, window-owned state, and indexed operators for similarity joins, TopK, filtering, aggregation, and snapshot materialization.
+
+BriskFlow is the DataSys runtime behind the join-backed semantic windows demonstrated by **BriskSnapshot** at ICPP 2026. BriskSnapshot combines this engine with orchestration and application-facing contracts; BriskFlow remains the framework-neutral data-system core.
+
+> **Compatibility note**
+>
+> The C++ namespace, `SAGEFLOW_*` build/runtime switches, Python import surface, and `isage-flow` package name are retained temporarily for compatibility. New documentation and repository references use **BriskFlow**. Their eventual deprecation will be handled as a separately versioned API migration.
 
 ## Features
 
--   **Vector-Native Stream Processing**: At its core, sageFlow is built to handle high-dimensional vector streams efficiently.
+-   **Vector-Native Stream Processing**: At its core, BriskFlow is built to handle high-dimensional vector streams efficiently.
 -   **Declarative API**: Easily compose complex, stateful vector operations such as `TopK`, `Filter`, and `Join` within defined temporal windows.
 -   **Incremental Low-Latency Updates**: Optimized for incremental computations, ensuring semantic states are updated with minimal delay.
 -   **Optimized Three-Phase Pipeline**: Abstracts stream processing into three distinct phases—ingestion, state materialization, and snapshot exposure—unlocking significant optimization opportunities.
@@ -26,9 +32,9 @@ For repository governance, release coordination, and external communication, use
 
 ## Setup
 
-To setup `sageFlow` and it's dependencies, begin by making sure that you have `docker` installed, or any **Linux** release version that contains `apt`, such as `Ubuntu` or `Debian`
+To set up BriskFlow and its dependencies, first make sure that `docker` is installed, or use a **Linux** distribution with `apt`, such as Ubuntu or Debian.
 
-We suggest first begin with `docker` before you are familiar with `sageFlow`.
+We recommend starting with Docker while becoming familiar with BriskFlow.
 
 ### Quick Installation (Ubuntu/Debian)
 
@@ -72,7 +78,7 @@ cd <PATH_TO_REPO>/setup
 
 check the dependencies in <PATH_TO_REPO>/setup/Dockerfile, and build your env
 
-## sageFlow: examples
+## BriskFlow examples
 
 run the following commands to generate examples
 
@@ -86,3 +92,13 @@ You can run the examples with:
 ```
 ./build/bin/itopk
 ```
+
+## Ecosystem
+
+- [DataSys](https://datasys.sage.org.ai/) owns and maintains the framework-neutral BriskFlow engine.
+- [SAGE](https://sage.org.ai/) may consume BriskFlow through a thin integration adapter for application and workflow orchestration.
+- [BriskSnapshot](https://datasys.sage.org.ai/achievements.html) is the ICPP 2026 demonstration built on join-backed semantic windows.
+
+## Canonical repository
+
+The canonical source, issue tracker, and contribution history are at [DataSysResearch/BriskFlow](https://github.com/DataSysResearch/BriskFlow).

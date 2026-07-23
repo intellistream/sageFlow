@@ -8,7 +8,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "isage-flow"
 version = "0.1.3.1"
-description = "SageFlow - Vector-native stream processing engine for incremental semantic state snapshots"
+description = "BriskFlow - Vector-native stream processing engine for join-backed semantic windows"
 authors = [
     { name = "IntelliStream Team" }
 ]
@@ -42,10 +42,10 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/intellistream/sageFlow"
-Documentation = "https://intellistream.github.io/SAGE/"
-Repository = "https://github.com/intellistream/sageFlow"
-Issues = "https://github.com/intellistream/sageFlow/issues"
+Homepage = "https://datasys.sage.org.ai/"
+Documentation = "https://github.com/DataSysResearch/BriskFlow/tree/main/docs"
+Repository = "https://github.com/DataSysResearch/BriskFlow"
+Issues = "https://github.com/DataSysResearch/BriskFlow/issues"
 
 [tool.scikit-build]
 cmake.version = ">=3.15"
